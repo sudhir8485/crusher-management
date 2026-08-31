@@ -16,6 +16,8 @@ import '../../features/machine_work/machine_work_screen.dart';
 import '../../features/invoices/invoices_screen.dart';
 import '../../features/vendor_payments/vendor_payments_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/attendance/attendance_screen.dart';
+import '../../features/attendance/employees_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -45,6 +47,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/machine-work',      builder: (ctx, st) => const MachineWorkScreen()),
           GoRoute(path: '/invoices',           builder: (ctx, st) => const InvoicesScreen()),
           GoRoute(path: '/vendor-payments',    builder: (ctx, st) => const VendorPaymentsScreen()),
+          GoRoute(path: '/attendance',         builder: (ctx, st) => const AttendanceScreen()),
+          GoRoute(path: '/employees',          builder: (ctx, st) => const EmployeesScreen()),
           GoRoute(path: '/vendors',      builder: (ctx, st) => const VendorsScreen()),
           GoRoute(path: '/vehicles',     builder: (ctx, st) => const VehiclesScreen()),
           GoRoute(path: '/machines',     builder: (ctx, st) => const MachinesScreen()),

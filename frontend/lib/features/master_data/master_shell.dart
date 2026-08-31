@@ -87,7 +87,17 @@ class MasterShell extends StatelessWidget {
                 selectedIcon: Icon(Icons.payments),
                 label: Text('Payments'),
               ),
+              NavigationRailDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check),
+                label: Text('Attendance'),
+              ),
               // ── Master Data ──────────────────────────────────────────
+              NavigationRailDestination(
+                icon: Icon(Icons.badge_outlined),
+                selectedIcon: Icon(Icons.badge),
+                label: Text('Employees'),
+              ),
               NavigationRailDestination(
                 icon: Icon(Icons.people_outline),
                 selectedIcon: Icon(Icons.people),
@@ -125,8 +135,8 @@ class MasterShell extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work',
-    '/invoices', '/vendor-payments',
-    '/vendors', '/vehicles', '/machines', '/materials', '/sites',
+    '/invoices', '/vendor-payments', '/attendance',
+    '/employees', '/vendors', '/vehicles', '/machines', '/materials', '/sites',
   ];
 
   int _indexFor(String location) {
