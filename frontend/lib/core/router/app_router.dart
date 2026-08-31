@@ -11,6 +11,7 @@ import '../../features/trips/trips_screen.dart';
 import '../../features/trips/daily_report_screen.dart';
 import '../../features/dabar/dabar_screen.dart';
 import '../../features/water_tanker/water_tanker_screen.dart';
+import '../../features/diesel/diesel_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -35,6 +36,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/daily-report', builder: (ctx, st) => const DailyReportScreen()),
           GoRoute(path: '/dabar',        builder: (ctx, st) => const DabarScreen()),
           GoRoute(path: '/water-tanker', builder: (ctx, st) => const WaterTankerScreen()),
+          GoRoute(path: '/diesel',       builder: (ctx, st) => const DieselScreen()),
           GoRoute(path: '/vendors',      builder: (ctx, st) => const VendorsScreen()),
           GoRoute(path: '/vehicles',     builder: (ctx, st) => const VehiclesScreen()),
           GoRoute(path: '/machines',     builder: (ctx, st) => const MachinesScreen()),

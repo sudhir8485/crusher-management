@@ -57,9 +57,50 @@
 
 ---
 
-## After M2
-- M3: Dabar intake (raw material, trips per vehicle per day) + Vehicle Daily Log (water tanker)
-- M4: Diesel — received (both sources) + used, running balance
-- M5: Machine Work entries
+### Done — M3: Dabar Register + Water Tanker Log
+
+**Backend:**
+- `V3__dabar_tanker_log.sql` — `dabar_entries` + `water_tanker_logs` tables + RLS
+- `DabarEntry.java`, `WaterTankerLog.java` entities
+- Full CRUD: `DabarService` + `DabarController` (`/api/dabar`), `WaterTankerService` + `WaterTankerController` (`/api/water-tanker`)
+- Water tanker `amount` computed server-side: `hoursWorked × rate` (falls back to `tripsCount × rate`)
+
+**Frontend:**
+- `dabar_screen.dart` — date nav, entry cards (vehicle/vendor/trips/brass), daily totals bar, add/edit/delete
+- `water_tanker_screen.dart` — date nav, log cards, live amount preview as user types hours + rate
+- Nav rail: Dabar (terrain icon) + Water Tanker (water drop icon) added between Daily Report and Vendors
+
+### Verified
+- Dabar POST → vehicle enrichment, trips + brass stored ✓
+- Water tanker POST (8.5 hrs × ₹500) → amount = ₹4250 ✓
+
+---
+
+### Done — M4: Diesel Tracking
+
+**Backend:**
+- `V4__diesel.sql` — `diesel_receipts` + `diesel_usages` tables + RLS
+- `DieselReceipt.java`, `DieselUsage.java` entities
+- `DieselReceiptRepository` / `DieselUsageRepository` — JPQL `SUM` queries for balance
+- `DieselService` — amount stored on receipt (`qty × rate`); balance = total received − total used
+- `DieselController` — 10 endpoints under `/api/diesel`: receipts CRUD, usages CRUD, `GET /balance`
+
+**Frontend:**
+- `diesel_screen.dart` — tabbed screen (Received | Used tabs)
+  - Balance banner: Received · Used · Stock (turns red when < 100L)
+  - Received tab: PUMP / DIRECT segmented toggle, live amount preview, vendor + invoice fields
+  - Used tab: Machine / Vehicle segmented toggle, swaps picker accordingly
+  - FAB switches label per active tab
+- Nav rail: Diesel (⛽ gas station icon) added after Water Tanker
+
+### Verified
+- POST receipt 500 L @ ₹90.50 → amount ₹45,250 stored ✓
+- POST usage 45.5 L by JCB machine ✓
+- GET /balance → received 500, used 45.5, balance 454.5 ✓
+
+---
+
+## Remaining
+- M5: Machine Work entries (JCB, Comosko hours)
 - M6: GST Invoice + Vendor Ledger
 - M7: Dashboard + Reports
