@@ -13,6 +13,8 @@ import '../../features/dabar/dabar_screen.dart';
 import '../../features/water_tanker/water_tanker_screen.dart';
 import '../../features/diesel/diesel_screen.dart';
 import '../../features/machine_work/machine_work_screen.dart';
+import '../../features/invoices/invoices_screen.dart';
+import '../../features/vendor_payments/vendor_payments_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -38,7 +40,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/dabar',        builder: (ctx, st) => const DabarScreen()),
           GoRoute(path: '/water-tanker', builder: (ctx, st) => const WaterTankerScreen()),
           GoRoute(path: '/diesel',        builder: (ctx, st) => const DieselScreen()),
-          GoRoute(path: '/machine-work', builder: (ctx, st) => const MachineWorkScreen()),
+          GoRoute(path: '/machine-work',      builder: (ctx, st) => const MachineWorkScreen()),
+          GoRoute(path: '/invoices',           builder: (ctx, st) => const InvoicesScreen()),
+          GoRoute(path: '/vendor-payments',    builder: (ctx, st) => const VendorPaymentsScreen()),
           GoRoute(path: '/vendors',      builder: (ctx, st) => const VendorsScreen()),
           GoRoute(path: '/vehicles',     builder: (ctx, st) => const VehiclesScreen()),
           GoRoute(path: '/machines',     builder: (ctx, st) => const MachinesScreen()),
