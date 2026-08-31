@@ -1,0 +1,32 @@
+spring.application.name=crusher-management
+
+# Database — copy to application.properties and fill in your values
+spring.datasource.url=jdbc:postgresql://localhost:5432/crusher_management
+spring.datasource.username=crusher_admin
+spring.datasource.password=YOUR_DB_PASSWORD
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# JPA
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.format_sql=true
+
+# Flyway
+spring.flyway.enabled=true
+spring.flyway.locations=classpath:db/migration
+spring.flyway.baseline-on-migrate=true
+spring.flyway.validate-on-migrate=false
+
+# JWT
+app.jwt.secret=YOUR_JWT_SECRET_MIN_64_CHARS
+app.jwt.expiration-ms=86400000
+
+# Swagger
+springdoc.api-docs.path=/api-docs
+springdoc.swagger-ui.path=/swagger-ui.html
+springdoc.swagger-ui.operationsSorter=alpha
+
+# Logging
+logging.level.com.dsp.crusher=DEBUG
+logging.level.org.flywaydb=INFO

@@ -1,0 +1,25 @@
+# Maven build output
+backend/target/
+
+# Local config with credentials — copy from application.properties.example
+backend/src/main/resources/application.properties
+
+# Flutter build output
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
