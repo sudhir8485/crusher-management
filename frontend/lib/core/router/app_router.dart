@@ -15,6 +15,7 @@ import '../../features/diesel/diesel_screen.dart';
 import '../../features/machine_work/machine_work_screen.dart';
 import '../../features/invoices/invoices_screen.dart';
 import '../../features/vendor_payments/vendor_payments_screen.dart';
+import '../../features/dashboard/dashboard_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -24,7 +25,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loggedIn = await AuthStorage.isLoggedIn();
       final onLogin = state.matchedLocation == '/login';
       if (!loggedIn && !onLogin) return '/login';
-      if (loggedIn && onLogin) return '/trips';
+      if (loggedIn && onLogin) return '/dashboard';
       return null;
     },
     routes: [
@@ -35,7 +36,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (context, state, child) => MasterShell(child: child),
         routes: [
-          GoRoute(path: '/trips',        builder: (ctx, st) => const TripsScreen()),
+          GoRoute(path: '/dashboard',     builder: (ctx, st) => const DashboardScreen()),
+          GoRoute(path: '/trips',         builder: (ctx, st) => const TripsScreen()),
           GoRoute(path: '/daily-report', builder: (ctx, st) => const DailyReportScreen()),
           GoRoute(path: '/dabar',        builder: (ctx, st) => const DabarScreen()),
           GoRoute(path: '/water-tanker', builder: (ctx, st) => const WaterTankerScreen()),

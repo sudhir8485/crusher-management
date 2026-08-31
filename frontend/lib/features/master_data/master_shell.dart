@@ -43,6 +43,11 @@ class MasterShell extends StatelessWidget {
             destinations: const [
               // ── Operations ──────────────────────────────────────────
               NavigationRailDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard),
+                label: Text('Dashboard'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.swap_horiz_outlined),
                 selectedIcon: Icon(Icons.swap_horiz),
                 label: Text('Trips'),
@@ -118,6 +123,7 @@ class MasterShell extends StatelessWidget {
   }
 
   static const _routes = [
+    '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work',
     '/invoices', '/vendor-payments',
     '/vendors', '/vehicles', '/machines', '/materials', '/sites',

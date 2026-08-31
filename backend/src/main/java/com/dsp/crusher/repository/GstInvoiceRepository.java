@@ -2,6 +2,9 @@ package com.dsp.crusher.repository;
 
 import com.dsp.crusher.entity.GstInvoice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -15,4 +18,9 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
             LocalDate from, LocalDate to, String status);
 
     long countByTenantIdAndInvoiceNoStartingWith(Long tenantId, String prefix);
+
+    @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.invoiceDate BETWEEN :from AND :to AND i.status = 'ACTIVE'")
+    BigDecimal sumGrandTotalByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    long countByInvoiceDateBetweenAndStatus(LocalDate from, LocalDate to, String status);
 }

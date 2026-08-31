@@ -43,7 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         tenantId: res.data['tenantId'],
       );
 
-      if (mounted) context.go('/trips');
+      if (mounted) context.go('/dashboard');
     } catch (e) {
       setState(() => _error = 'Invalid email or password');
     } finally {
