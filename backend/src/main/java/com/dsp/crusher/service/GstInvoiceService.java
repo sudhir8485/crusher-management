@@ -89,8 +89,20 @@ public class GstInvoiceService {
         inv.setCgstRate(cgstRate);
         inv.setSgstRate(sgstRate);
 
-        // Rebuild items
+        // Validate and rebuild items
+        if (req.getItems() == null || req.getItems().isEmpty()) {
+            throw new IllegalArgumentException("Invoice must have at least one line item");
+        }
         for (GstInvoiceItemRequest ir : req.getItems()) {
+            if (ir.getAmount() == null || ir.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new IllegalArgumentException("Each line item amount must be greater than zero");
+            }
+            if (ir.getQuantityBrass() != null && ir.getQuantityBrass().compareTo(BigDecimal.ZERO) < 0) {
+                throw new IllegalArgumentException("Quantity cannot be negative");
+            }
+            if (ir.getRate() != null && ir.getRate().compareTo(BigDecimal.ZERO) < 0) {
+                throw new IllegalArgumentException("Rate cannot be negative");
+            }
             GstInvoiceItem item = new GstInvoiceItem();
             item.setInvoice(inv);
             item.setDescription(ir.getDescription());

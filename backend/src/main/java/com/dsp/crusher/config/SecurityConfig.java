@@ -41,6 +41,10 @@ public class SecurityConfig {
                     "/api-docs/**",
                     "/v3/api-docs/**"
                 ).permitAll()
+                // Financial endpoints: SITE_STAFF cannot access these
+                .requestMatchers("/api/invoices/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
+                .requestMatchers("/api/vendor-payments/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
+                .requestMatchers("/api/ledger/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

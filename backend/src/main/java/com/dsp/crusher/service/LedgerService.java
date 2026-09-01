@@ -1,8 +1,10 @@
 package com.dsp.crusher.service;
 
 import com.dsp.crusher.dto.VendorLedgerResponse;
+import com.dsp.crusher.dto.VendorLedgerResponse.DetailLine;
 import com.dsp.crusher.dto.VendorLedgerResponse.LedgerEntry;
 import com.dsp.crusher.entity.GstInvoice;
+import com.dsp.crusher.entity.GstInvoiceItem;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
@@ -13,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -36,11 +39,10 @@ public class LedgerService {
         BigDecimal openingCredit = paymentRepo.sumAmountByVendorBefore(vendorId, from);
         BigDecimal openingBalance = openingDebit.subtract(openingCredit);
 
-        // ── Transactions within range ────────────────────────────────────────
-        List<GstInvoice> invoices = invoiceRepo
-                .findByVendorIdAndInvoiceDateBetweenAndStatusOrderByInvoiceDateAscIdAsc(
-                        vendorId, from, to, "ACTIVE");
+        // ── Invoices within range (with items eagerly loaded) ────────────────
+        List<GstInvoice> invoices = invoiceRepo.findWithItemsByVendorAndDateRange(vendorId, from, to);
 
+        // ── Payments within range ────────────────────────────────────────────
         List<VendorPayment> payments = paymentRepo
                 .findByVendorIdAndPaymentDateBetweenAndStatusOrderByPaymentDateAscIdAsc(
                         vendorId, from, to, "ACTIVE");
@@ -50,31 +52,64 @@ public class LedgerService {
         for (GstInvoice inv : invoices) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(inv.getInvoiceDate());
-            e.setTxnType("INVOICE");
-            e.setReference(inv.getInvoiceNo());
-            e.setDescription(inv.getPoNo() != null ? "PO: " + inv.getPoNo() : "GST Invoice");
+            e.setParticulars("To (as per details)");
+            e.setVoucherType("Sales");
+            e.setInvoiceNo(inv.getInvoiceNo());
             e.setDebit(inv.getGrandTotal());
-            e.setCredit(null);
             e.setSourceId(inv.getId());
+
+            // Build breakdown detail lines
+            List<DetailLine> details = new ArrayList<>();
+            for (GstInvoiceItem item : inv.getItems()) {
+                DetailLine d = new DetailLine();
+                d.setLabel(item.getDescription());
+                d.setAmount(item.getAmount());
+                details.add(d);
+            }
+            // SGST / CGST lines
+            if (inv.getSgstAmount().compareTo(BigDecimal.ZERO) != 0) {
+                DetailLine sgst = new DetailLine();
+                sgst.setLabel("SGST " + inv.getSgstRate().stripTrailingZeros().toPlainString() + "%");
+                sgst.setAmount(inv.getSgstAmount());
+                details.add(sgst);
+            }
+            if (inv.getCgstAmount().compareTo(BigDecimal.ZERO) != 0) {
+                DetailLine cgst = new DetailLine();
+                cgst.setLabel("CGST " + inv.getCgstRate().stripTrailingZeros().toPlainString() + "%");
+                cgst.setAmount(inv.getCgstAmount());
+                details.add(cgst);
+            }
+            // Round Off = grandTotal - subtotal - sgst - cgst
+            BigDecimal computed = inv.getSubtotal().add(inv.getSgstAmount()).add(inv.getCgstAmount());
+            BigDecimal roundOff = inv.getGrandTotal().subtract(computed).setScale(2, RoundingMode.HALF_UP);
+            DetailLine ro = new DetailLine();
+            ro.setLabel("Round Off");
+            ro.setAmount(roundOff);
+            details.add(ro);
+
+            e.setDetails(details);
             entries.add(e);
         }
 
         for (VendorPayment pmt : payments) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(pmt.getPaymentDate());
-            e.setTxnType("PAYMENT");
-            e.setReference(pmt.getReferenceNo() != null ? pmt.getReferenceNo() : pmt.getPaymentMode());
-            e.setDescription(pmt.getNotes() != null ? pmt.getNotes() : "Payment - " + pmt.getPaymentMode());
-            e.setDebit(null);
+            String particulars = "By " + pmt.getPaymentMode();
+            if (pmt.getReferenceNo() != null && !pmt.getReferenceNo().isBlank()) {
+                particulars += " – " + pmt.getReferenceNo();
+            }
+            e.setParticulars(particulars);
+            e.setVoucherType("Receipt");
             e.setCredit(pmt.getAmount());
             e.setSourceId(pmt.getId());
+            e.setDetails(List.of());
             entries.add(e);
         }
 
-        // Sort: by date asc, then invoices before payments on same date
+        // Sort: date asc, then invoices before payments on same date
         entries.sort(Comparator
                 .comparing(LedgerEntry::getDate)
-                .thenComparing(e -> e.getTxnType().equals("INVOICE") ? 0 : 1));
+                .thenComparing(e -> "Receipt".equals(e.getVoucherType()) ? 1 : 0));
 
         // ── Calculate running balance ─────────────────────────────────────────
         BigDecimal running = openingBalance;

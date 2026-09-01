@@ -106,7 +106,10 @@ public class DieselService {
         DieselUsage u = new DieselUsage();
         u.setTenantId(TenantContext.get());
         applyUsage(u, req);
-        return enrichUsages(List.of(usageRepo.save(u))).get(0);
+        DieselUsageResponse resp = enrichUsages(List.of(usageRepo.save(u))).get(0);
+        BigDecimal balance = receiptRepo.sumTotalReceived().subtract(usageRepo.sumTotalUsed());
+        resp.setStockWarning(balance.compareTo(BigDecimal.ZERO) < 0);
+        return resp;
     }
 
     @Transactional

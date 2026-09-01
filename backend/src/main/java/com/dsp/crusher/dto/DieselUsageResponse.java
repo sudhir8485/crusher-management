@@ -18,4 +18,5 @@ public class DieselUsageResponse {
     private BigDecimal quantityLiters;
     private String notes;
     private LocalDateTime createdAt;
+    private boolean stockWarning;  // true when stock balance goes negative after this usage
 }

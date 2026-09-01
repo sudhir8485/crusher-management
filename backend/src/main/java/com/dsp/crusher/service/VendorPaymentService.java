@@ -80,6 +80,16 @@ public class VendorPaymentService {
     }
 
     private void apply(VendorPayment p, VendorPaymentRequest req) {
+        if (req.getAmount() == null || req.getAmount().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Payment amount must be greater than zero");
+        }
+        if (req.getInvoiceId() != null) {
+            GstInvoice inv = invoiceRepo.findById(req.getInvoiceId())
+                    .orElseThrow(() -> new IllegalArgumentException("Invoice not found: " + req.getInvoiceId()));
+            if (!inv.getVendorId().equals(req.getVendorId())) {
+                throw new IllegalArgumentException("Invoice " + req.getInvoiceId() + " does not belong to the selected vendor");
+            }
+        }
         p.setVendorId(req.getVendorId());
         p.setPaymentDate(req.getPaymentDate());
         p.setAmount(req.getAmount());

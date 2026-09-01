@@ -23,12 +23,19 @@ public class VendorLedgerResponse {
     @Data
     public static class LedgerEntry {
         private LocalDate date;
-        private String txnType;       // INVOICE | PAYMENT
-        private String reference;     // invoice_no or payment ref
-        private String description;
-        private BigDecimal debit;     // null for payments
-        private BigDecimal credit;    // null for invoices
+        private String particulars;    // "To (as per details)" or "By BANK – REF123"
+        private String voucherType;    // "Sales" | "Receipt"
+        private String invoiceNo;      // set for invoice rows
+        private BigDecimal debit;
+        private BigDecimal credit;
         private BigDecimal runningBalance;
-        private Long sourceId;        // id in source table (for linking)
+        private Long sourceId;
+        private List<DetailLine> details;  // breakdown lines (invoice only)
+    }
+
+    @Data
+    public static class DetailLine {
+        private String label;    // "Sales", "SGST 9.00%", "CGST 9.00%", "Round Off"
+        private BigDecimal amount;
     }
 }

@@ -33,6 +33,10 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
     List<GstInvoice> findByVendorIdAndInvoiceDateBetweenAndStatusOrderByInvoiceDateAscIdAsc(
             Long vendorId, LocalDate from, LocalDate to, String status);
 
+    // Ledger: load invoices with their items in one query (avoids N+1)
+    @Query("SELECT DISTINCT i FROM GstInvoice i LEFT JOIN FETCH i.items WHERE i.vendorId = :vendorId AND i.invoiceDate BETWEEN :from AND :to AND i.status = 'ACTIVE' ORDER BY i.invoiceDate ASC, i.id ASC")
+    List<GstInvoice> findWithItemsByVendorAndDateRange(@Param("vendorId") Long vendorId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
     // All invoices for a vendor up to a date (for opening balance calculation)
     @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.vendorId = :vendorId AND i.invoiceDate < :before AND i.status = 'ACTIVE'")
     BigDecimal sumGrandTotalByVendorBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
