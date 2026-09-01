@@ -23,4 +23,11 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
     BigDecimal sumGrandTotalByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     long countByInvoiceDateBetweenAndStatus(LocalDate from, LocalDate to, String status);
+
+    List<GstInvoice> findByVendorIdAndInvoiceDateBetweenAndStatusOrderByInvoiceDateAscIdAsc(
+            Long vendorId, LocalDate from, LocalDate to, String status);
+
+    // All invoices for a vendor up to a date (for opening balance calculation)
+    @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.vendorId = :vendorId AND i.invoiceDate < :before AND i.status = 'ACTIVE'")
+    BigDecimal sumGrandTotalByVendorBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
 }

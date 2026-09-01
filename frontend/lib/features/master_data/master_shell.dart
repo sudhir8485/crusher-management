@@ -25,7 +25,8 @@ class MasterShell extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work',
-    '/invoices', '/vendor-payments', '/attendance', '/vehicle-daily-log',
+    '/invoices', '/vendor-payments', '/ledger',
+    '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/vendors', '/vehicles', '/machines', '/materials', '/sites',
   ];
 
@@ -110,36 +111,38 @@ class _AppSidebar extends StatelessWidget {
                     label: 'Invoices', index: 7, selected: selectedIndex),
                 _NavItem(icon: Icons.payments_outlined, selectedIcon: Icons.payments,
                     label: 'Payments', index: 8, selected: selectedIndex),
+                _NavItem(icon: Icons.account_balance_outlined, selectedIcon: Icons.account_balance,
+                    label: 'Ledger', index: 9, selected: selectedIndex),
 
                 const SizedBox(height: 4),
                 _NavSection('Workforce'),
                 _NavItem(icon: Icons.fact_check_outlined, selectedIcon: Icons.fact_check,
-                    label: 'Attendance', index: 9, selected: selectedIndex),
+                    label: 'Attendance', index: 10, selected: selectedIndex),
                 _NavItem(icon: Icons.badge_outlined, selectedIcon: Icons.badge,
-                    label: 'Employees', index: 12, selected: selectedIndex),
+                    label: 'Employees', index: 13, selected: selectedIndex),
 
                 const SizedBox(height: 4),
                 _NavSection('Vehicles'),
                 _NavItem(icon: Icons.directions_car_outlined, selectedIcon: Icons.directions_car,
-                    label: 'Vehicle Log', index: 10, selected: selectedIndex),
+                    label: 'Vehicle Log', index: 11, selected: selectedIndex),
                 _NavItem(icon: Icons.local_shipping_outlined, selectedIcon: Icons.local_shipping,
-                    label: 'Vehicles', index: 14, selected: selectedIndex),
+                    label: 'Vehicles', index: 15, selected: selectedIndex),
 
                 const SizedBox(height: 4),
                 _NavSection('Master Data'),
                 _NavItem(icon: Icons.people_outline, selectedIcon: Icons.people,
-                    label: 'Vendors', index: 13, selected: selectedIndex),
+                    label: 'Vendors', index: 14, selected: selectedIndex),
                 _NavItem(icon: Icons.precision_manufacturing_outlined, selectedIcon: Icons.precision_manufacturing,
-                    label: 'Machines', index: 15, selected: selectedIndex),
+                    label: 'Machines', index: 16, selected: selectedIndex),
                 _NavItem(icon: Icons.category_outlined, selectedIcon: Icons.category,
-                    label: 'Materials', index: 16, selected: selectedIndex),
+                    label: 'Materials', index: 17, selected: selectedIndex),
                 _NavItem(icon: Icons.location_on_outlined, selectedIcon: Icons.location_on,
-                    label: 'Sites', index: 17, selected: selectedIndex),
+                    label: 'Sites', index: 18, selected: selectedIndex),
 
                 const SizedBox(height: 4),
                 _NavSection('Admin'),
                 _NavItem(icon: Icons.manage_accounts_outlined, selectedIcon: Icons.manage_accounts,
-                    label: 'Users', index: 11, selected: selectedIndex),
+                    label: 'Users', index: 12, selected: selectedIndex),
               ],
             ),
           ),
@@ -201,7 +204,8 @@ class _NavItem extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work',
-    '/invoices', '/vendor-payments', '/attendance', '/vehicle-daily-log',
+    '/invoices', '/vendor-payments', '/ledger',
+    '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/vendors', '/vehicles', '/machines', '/materials', '/sites',
   ];
 

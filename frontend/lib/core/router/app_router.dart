@@ -20,6 +20,7 @@ import '../../features/attendance/attendance_screen.dart';
 import '../../features/attendance/employees_screen.dart';
 import '../../features/vehicle_daily_log/vehicle_daily_log_screen.dart';
 import '../../features/users/users_screen.dart';
+import '../../features/ledger/ledger_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -49,6 +50,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/machine-work',      builder: (ctx, st) => const MachineWorkScreen()),
           GoRoute(path: '/invoices',           builder: (ctx, st) => const InvoicesScreen()),
           GoRoute(path: '/vendor-payments',    builder: (ctx, st) => const VendorPaymentsScreen()),
+          GoRoute(path: '/ledger',             builder: (ctx, st) => const LedgerScreen()),
           GoRoute(path: '/attendance',          builder: (ctx, st) => const AttendanceScreen()),
           GoRoute(path: '/vehicle-daily-log',  builder: (ctx, st) => const VehicleDailyLogScreen()),
           GoRoute(path: '/employees',          builder: (ctx, st) => const EmployeesScreen()),
