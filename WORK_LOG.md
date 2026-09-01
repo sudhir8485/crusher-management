@@ -174,3 +174,94 @@ Dashboard · Trips · Daily Report · Dabar · Water Tanker · Diesel · Machine
 **Backend:** 8 Flyway migrations (V1–V8), 19 controllers, 30+ DTOs, full RLS on all tables.
 
 **Frontend:** 16 screens + master shell + auth.
+
+---
+
+## Improvement Phases (2026-09-01, continuation)
+
+### Phase 1 — Design System + Sidebar Overflow (commit: afbe33e)
+- Created `frontend/lib/core/widgets/app_widgets.dart` — shared widgets: `AppDateBar`, `AppDialog` (max-height 88vh, scrollable body, pinned footer), `AppEmptyState`, `SectionLabel`, `DateField`, `fmtCurr`/`fmtNum`/`currFmt`/`numFmt`
+- Replaced NavigationRail with custom 200px scrollable sidebar grouped into: Operations / Finance / Workforce / Vehicles / Master Data / Admin
+- Fixed RIGHT OVERFLOW on invoice form by splitting 4-column row into 2×2
+- All 9 date-based screens migrated to shared `AppDateBar`
+- All form dialogs migrated to `AppDialog` (Save/Cancel always visible, no scroll cutoff)
+
+### Phase 2 — Vendor Ledger (commit: e2f8bcc)
+- `LedgerController.java` + `LedgerService.java` — `GET /api/ledger/vendor/{id}?from=&to=`
+- Running balance, opening balance from pre-range history
+- `ledger_screen.dart` — vendor selector, date presets (This Month/Last Month/This FY/Custom), Debit/Credit/Balance table, PDF + Excel export
+- Sidebar: Ledger under Finance, index 10
+
+### Phase 3 — Operational Reports (commit: 95d19a6)
+- `ReportController.java` + `ReportService.java` + `ReportResponse.java` — 4 endpoints: vehicle-log, machine-work, diesel, trips
+- `reports_screen.dart` — 4 tabs, date presets (Today through This FY + Custom), entity filter dropdowns, PDF + Excel export
+- Sidebar: Reports under Operations, index 7
+
+### Phase 4 — Invoice Payment Tracking (commit: de0db2f)
+- `V9__payment_invoice_link.sql` — adds nullable `invoice_id FK` on `vendor_payments`
+- `GstInvoiceResponse` enriched with `totalPaid`, `outstandingAmount`, `paymentStatus` (UNPAID/PARTIAL/PAID)
+- `GET /api/invoices/{id}/payments` endpoint
+- Invoices screen: status badge, outstanding amount per card, summary strip, "Record Payment" popup action
+- Invoice detail dialog: 2 tabs (Line Items / Payments history)
+- Payment form: "Apply to Invoice" dropdown filtered to vendor's open invoices, auto-fills outstanding amount
+
+### Phase 5 — Consolidated Daily Report (commit: 0183fa8)
+- `DailyReportService.java` + `ConsolidatedDailyReport.java` — aggregates all 7 modules for a date
+- `GET /api/reports/daily?date=` — single API call replaces 7 separate calls
+- `daily_report_screen.dart` rewritten: 7 section cards (Trips full-width, Dabar+WaterTanker, Diesel+Machine, Attendance+Financial), trip detail table, PDF (A4) + Excel export
+
+### Phase 6 — Dashboard Overhaul + Monthly Attendance (commit: 0b43773)
+- `DashboardService.java` updated: populates `todayAttendancePresent/Total`, `todayMachineHours`, `todayDabarBrass`, `totalInvoiced`, `totalPaymentsLinked`, `totalOutstanding`
+- `AttendanceMonthlyResponse.java` DTO + `getMonth(YearMonth)` in `AttendanceService`
+- `GET /api/attendance/monthly?month=YYYY-MM` — returns employee × day grid (null = no record)
+- `dashboard_screen.dart` rewritten: Today row (Trips, Attendance X/Y, Diesel, Machine Hrs, Dabar — all tappable), Financial Position card (Outstanding large + red, Total Invoiced + Total Paid as sub-tiles), This Month section, material summary table
+- `attendance_screen.dart` updated: Daily / Monthly tab bar; Monthly tab = scrollable employee × day grid with P/H/A/L cells, day summary columns, Excel export
+
+---
+
+## Post-Phase Polish (2026-09-01, continuation)
+
+### Role-Based Sidebar (commit: bf7a632)
+- `_AppSidebar` converted from `StatelessWidget` to `StatefulWidget`
+- Reads role from `AuthStorage` on mount (SharedPreferences, < 1ms)
+- `SITE_STAFF`: Finance section (Invoices/Payments/Ledger) + Admin section (Users) hidden entirely including section headers
+- `OWNER_ADMIN` / `OFFICE_ACCOUNTANT`: no change
+
+### Currency Formatting Consolidation (commit: 1434bab)
+- Removed all local `NumberFormat` definitions scattered across screens
+- All monetary displays now use `fmtCurr()` / `currFmt` from `app_widgets.dart` (Indian comma grouping: ₹1,23,456.00)
+- Affected: dashboard, vendor_payments, daily_report, ledger (`_fmtNum`), employees (wage rate label)
+
+### Delete Confirmations with Entity Details (commit: 8d561f4)
+- Every delete/deactivate dialog now names the specific item being removed
+- Dabar: vehicle · vendor · brass qty; Water Tanker: vehicle · amount (fmtCurr)
+- Diesel: litres + source (receipt) or consumer (usage); Vendors/Vehicles/Machines/Materials/Sites: entity name
+- Screens already showing entity details (trips, invoices, payments, machine work, vehicle log, users, employees) left unchanged
+
+### Pagination — Invoices + Payments (commit: 1692fec)
+- `PageResponse<T>` DTO: `content`, `page`, `size`, `totalElements`, `totalPages`, `last`
+- Spring Data `Page<T>` overloads added to `GstInvoiceRepository` + `VendorPaymentRepository`
+- `GET /api/invoices?page=0&size=25` and `GET /api/vendor-payments?page=0&size=25`
+- Frontend: `StateNotifier` (_InvoicesNotifier / _PaymentsNotifier) accumulates pages in `items` list
+- "Load more" `OutlinedButton` appended after last item when `hasMore = true`
+- Summary strip shows "N of M" when not all records are loaded
+- `_vendorOpenInvoicesProvider` (payment form dropdown) updated to read `content[]` from paged response, passes `size=200`
+
+### Searchable Pickers (commit: a831f58)
+- `SearchablePicker` added to `app_widgets.dart` — `FormField<int>` subclass, integrates with `Form.validate()`
+- Tapping opens `_SearchPickerDialog`: autofocused search field, 200ms debounce, client-side filter
+- Checkmark + tinted background on currently selected item
+- `clearable: true` + `clearLabel` for optional fields and report filter dropdowns ("All Vehicles" etc.)
+- Replaced all 19 `DropdownButtonFormField<int>` entity pickers across 12 screens:
+  - trips (vehicle, vendor, material), dabar (vehicle, vendor), water_tanker (vehicle), machine_work (machine), vehicle_daily_log (vehicle), invoices (vendor), vendor_payments (vendor), ledger (vendor), diesel (supplier, machine, vehicle), reports (vehicle ×2, machine, material, vendor), master_data/machines (vendor), master_data/vehicles (vendor)
+- Removed unused `_dropDec` helper from reports_screen
+- Added `app_widgets.dart` import to diesel_screen, machines_screen, vehicles_screen
+
+---
+
+## Final State
+
+**Git:** branch `master`, last commit `166a6f6` (update_2.md work log)
+**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`
+**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar
+**Nothing remaining** from original spec (`update_1.md`).
