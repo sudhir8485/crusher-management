@@ -259,9 +259,77 @@ Dashboard · Trips · Daily Report · Dabar · Water Tanker · Diesel · Machine
 
 ---
 
+## Production Readiness Audit (2026-09-01, commit: 6f9783c)
+
+### Priority 1 — Ledger Redesign (matches reference Ledger.xlsx)
+
+**Reference studied:** `documents/Ledger.xlsx` — Malganga Construction ledger with grouped invoice entries (Sales + SGST + CGST + Round Off sub-rows) and "By BANK – REF" payment rows.
+
+**Backend:**
+- `VendorLedgerResponse.java` — replaced flat DTO with grouped structure: `particulars` ("To (as per details)" / "By MODE – REF"), `voucherType` ("Sales" / "Receipt"), `invoiceNo`, `List<DetailLine>` (label + amount per breakdown line)
+- `GstInvoiceRepository.java` — added `findWithItemsByVendorAndDateRange` with `JOIN FETCH i.items` to avoid N+1 on ledger queries
+- `LedgerService.java` — builds grouped invoice entries (main row + Sales/SGST/CGST/Round Off detail lines), payment entries with "By MODE – REF" particulars, correct running balance
+
+**Frontend (`ledger_screen.dart` — complete redesign):**
+- Table: Date | Particulars | Voucher Type | Debit | Credit | Balance
+- Invoice main row shows "To (as per details)" bold; sub-rows show indented Sales/SGST/CGST/Round Off amounts in grey italic
+- Payment rows show "By BANK – REF" in green
+- Print button → `Printing.layoutPdf` (browser print dialog, A4 portrait)
+- PDF → A4 portrait, centered vendor/date header repeated per page, detail sub-rows, summary box (Opening/Invoiced/Paid/Outstanding), page numbers
+- Excel → bold grey headers, column widths (Date=14, Particulars=44, Voucher=14, Amounts=18), `currFmt`-formatted amounts, summary block at bottom
+- Added "Prev FY" date preset alongside This Month/Last Month/This FY
+
+### Priority 2 — Financial Security (Backend Role Enforcement)
+
+**`SecurityConfig.java`:**
+- `/api/invoices/**` → requires `OWNER_ADMIN` or `OFFICE_ACCOUNTANT`
+- `/api/vendor-payments/**` → same
+- `/api/ledger/**` → same
+- SITE_STAFF receives 403 on all three; can still access trips, attendance, diesel, etc.
+- Verified: SITE_STAFF token → 403 on all financial endpoints; 200 on operational endpoints
+
+### Priority 3 — Financial Validation
+
+**`GlobalExceptionHandler.java`:** Added `IllegalArgumentException` → 400 Bad Request handler.
+
+**`GstInvoiceService.java` (in `apply()`):**
+- Rejects if items list is empty
+- Rejects if any item `amount <= 0`
+- Rejects if `quantityBrass < 0` or `rate < 0`
+
+**`VendorPaymentService.java` (in `apply()`):**
+- Rejects if `amount <= 0`
+- If `invoiceId` is set: verifies invoice exists and belongs to the same vendor (cross-vendor payment rejected with clear message)
+
+### Priority 4 — Diesel Stock Warning
+
+**`DieselUsageResponse.java`:** Added `stockWarning` boolean field.
+
+**`DieselService.createUsage()`:** After saving, recalculates total balance; sets `stockWarning=true` if balance < 0. Usage is still saved (site logs entries after the fact) but caller is informed.
+
+### Verified Test Results
+
+| Test | Expected | Result |
+|------|----------|--------|
+| Ledger opening balance (txns before range) | 9,450 carried forward | ✓ PASS |
+| Ledger grouped invoice entries | To (as per details) + detail sub-rows | ✓ PASS |
+| Ledger payment entries | By BANK – IDBI CA-... | ✓ PASS |
+| Ledger running balance | 132300 → 0 → 141750 → 9450 | ✓ PASS |
+| SITE_STAFF → /api/invoices | 403 | ✓ PASS |
+| SITE_STAFF → /api/vendor-payments | 403 | ✓ PASS |
+| SITE_STAFF → /api/ledger/vendor/1 | 403 | ✓ PASS |
+| SITE_STAFF → /api/trips | 200 | ✓ PASS |
+| Invoice with negative amount | 400 | ✓ PASS |
+| Payment with amount=0 | 400 | ✓ PASS |
+| Payment with another vendor's invoiceId | 400 + message | ✓ PASS |
+| Diesel usage > stock | stockWarning=true | ✓ PASS |
+| Backend mvn compile | Clean | ✓ PASS |
+| dart analyze ledger_screen.dart | 0 issues | ✓ PASS |
+
+---
+
 ## Final State
 
-**Git:** branch `master`, last commit `166a6f6` (update_2.md work log)
-**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`
-**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar
-**Nothing remaining** from original spec (`update_1.md`).
+**Git:** branch `master`, last commit `6f9783c` (production readiness audit)
+**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`, role-gated financial endpoints, input validation
+**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar, redesigned accounting ledger
