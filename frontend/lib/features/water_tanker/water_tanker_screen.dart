@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ class WaterTankerScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_tankerDateProvider.notifier).state = d,
           ),
@@ -55,7 +56,11 @@ class WaterTankerScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
                 if (list.isEmpty) {
-                  return const Center(child: Text('No water tanker log for this date. Tap + to add one.'));
+                  return AppEmptyState(
+                    icon: Icons.water_drop_outlined,
+                    message: 'No water tanker log for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                    hint: 'Tap + to add a log',
+                  );
                 }
                 final totalAmount = list.fold<double>(
                   0, (sum, e) => sum + ((e['amount'] as num?)?.toDouble() ?? 0));
@@ -142,65 +147,6 @@ class _AmountBar extends StatelessWidget {
             'Total: ₹${totalAmount.toStringAsFixed(2)}',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── date bar ─────────────────────────────────────────────────────────────────
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final isToday = DateUtils.isSameDay(selectedDate, DateTime.now());
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now().add(const Duration(days: 30)),
-                );
-                if (picked != null) onPick(picked);
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(
-                  children: [
-                    Text(
-                      DateFormat('EEEE, d MMMM yyyy').format(selectedDate),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (isToday)
-                      const Text('Today', style: TextStyle(fontSize: 11, color: Colors.blue)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => onPick(selectedDate.add(const Duration(days: 1))),
-          ),
-          if (!isToday)
-            TextButton(onPressed: () => onPick(DateTime.now()), child: const Text('Today')),
         ],
       ),
     );
@@ -394,122 +340,99 @@ class _TankerFormState extends ConsumerState<_TankerForm> {
     final vehicles = ref.watch(_tankerVehiclesProvider);
     final amount = _computedAmount;
 
-    return AlertDialog(
-      title: Text(widget.existing == null ? 'Add Water Tanker Log' : 'Edit Water Tanker Log'),
-      content: SizedBox(
-        width: 420,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Date
-                InkWell(
-                  onTap: _pickDate,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Date *',
-                      suffixIcon: Icon(Icons.calendar_today, size: 18),
-                    ),
-                    child: Text(DateFormat('dd/MM/yyyy').format(_logDate)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Vehicle picker
-                vehicles.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('Error loading vehicles: $e'),
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vehicleId,
-                    decoration: const InputDecoration(labelText: 'Vehicle *'),
-                    items: list.map((v) => DropdownMenuItem(
-                      value: v['id'] as int,
-                      child: Text('${v['displayName'] ?? v['plateNumber']}'),
-                    )).toList(),
-                    onChanged: (v) => setState(() => _vehicleId = v),
-                    validator: (v) => v == null ? 'Select vehicle' : null,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text('Work done (fill what applies)',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 8),
-
-                Row(
-                  children: [
-                    Expanded(child: TextFormField(
-                      controller: _hours,
-                      decoration: const InputDecoration(labelText: 'Hours Worked', suffixText: 'hrs'),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    )),
-                    const SizedBox(width: 12),
-                    Expanded(child: TextFormField(
-                      controller: _km,
-                      decoration: const InputDecoration(labelText: 'KM Run', suffixText: 'km'),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(child: TextFormField(
-                      controller: _trips,
-                      decoration: const InputDecoration(labelText: 'Trips'),
-                      keyboardType: TextInputType.number,
-                    )),
-                    const SizedBox(width: 12),
-                    Expanded(child: TextFormField(
-                      controller: _rate,
-                      decoration: const InputDecoration(labelText: 'Rate (₹)', prefixText: '₹'),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    )),
-                  ],
-                ),
-
-                // Live amount preview
-                if (amount != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calculate_outlined, size: 16, color: Colors.green),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Amount: ₹${amount.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(labelText: 'Notes (optional)'),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      title: widget.existing == null ? 'Add Water Tanker Log' : 'Edit Water Tanker Log',
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Saving…' : 'Save')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
       ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DateField(label: 'Date', date: _logDate, onTap: _pickDate, required: true),
+            const SizedBox(height: 12),
+            vehicles.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (list) => DropdownButtonFormField<int>(
+                initialValue: _vehicleId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Vehicle *'),
+                items: list.map((v) => DropdownMenuItem(
+                  value: v['id'] as int,
+                  child: Text('${v['displayName'] ?? v['plateNumber']}',
+                      overflow: TextOverflow.ellipsis),
+                )).toList(),
+                onChanged: (v) => setState(() => _vehicleId = v),
+                validator: (v) => v == null ? 'Select vehicle' : null,
+              ),
+            ),
+            const SectionLabel('Work Done (fill what applies)'),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _hours,
+                  decoration: const InputDecoration(labelText: 'Hours Worked', suffixText: 'hrs'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _km,
+                  decoration: const InputDecoration(labelText: 'KM Run', suffixText: 'km'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _trips,
+                  decoration: const InputDecoration(labelText: 'Trips'),
+                  keyboardType: TextInputType.number,
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _rate,
+                  decoration: const InputDecoration(labelText: 'Rate', prefixText: '₹'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+              ],
+            ),
+            if (amount != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.calculate_outlined, size: 16, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Text('Amount: ₹${amount.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                ]),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _notes,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

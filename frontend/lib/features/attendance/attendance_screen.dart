@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ class AttendanceScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) =>
                 ref.read(_attendanceDateProvider.notifier).state = d,
@@ -103,54 +104,6 @@ class AttendanceScreen extends ConsumerWidget {
                 );
               },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── date bar ──────────────────────────────────────────────────────────────────
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = DateFormat('EEE, d MMM yyyy').format(selectedDate);
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () =>
-                onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () async {
-                final d = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (d != null) onPick(d);
-              },
-              child: Text(label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 15)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () =>
-                onPick(selectedDate.add(const Duration(days: 1))),
           ),
         ],
       ),

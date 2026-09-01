@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ class DabarScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_dabarDateProvider.notifier).state = d,
           ),
@@ -60,7 +61,11 @@ class DabarScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
                 if (list.isEmpty) {
-                  return const Center(child: Text('No dabar entries for this date. Tap + to add one.'));
+                  return AppEmptyState(
+                    icon: Icons.terrain_outlined,
+                    message: 'No dabar entries for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                    hint: 'Tap + to add an entry',
+                  );
                 }
                 final totalBrass = list.fold<double>(
                   0, (sum, e) => sum + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
@@ -164,65 +169,6 @@ class _Stat extends StatelessWidget {
         Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown)),
         Text(label, style: const TextStyle(fontSize: 11, color: Colors.brown)),
       ],
-    );
-  }
-}
-
-// ── date bar ─────────────────────────────────────────────────────────────────
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final isToday = DateUtils.isSameDay(selectedDate, DateTime.now());
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now().add(const Duration(days: 30)),
-                );
-                if (picked != null) onPick(picked);
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(
-                  children: [
-                    Text(
-                      DateFormat('EEEE, d MMMM yyyy').format(selectedDate),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (isToday)
-                      const Text('Today', style: TextStyle(fontSize: 11, color: Colors.blue)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => onPick(selectedDate.add(const Duration(days: 1))),
-          ),
-          if (!isToday)
-            TextButton(onPressed: () => onPick(DateTime.now()), child: const Text('Today')),
-        ],
-      ),
     );
   }
 }
@@ -393,99 +339,84 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     final vehicles = ref.watch(_vehiclesProvider);
     final vendors  = ref.watch(_vendorsProvider);
 
-    return AlertDialog(
-      title: Text(widget.existing == null ? 'Add Dabar Entry' : 'Edit Dabar Entry'),
-      content: SizedBox(
-        width: 420,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Date
-                InkWell(
-                  onTap: _pickDate,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Entry Date *',
-                      suffixIcon: Icon(Icons.calendar_today, size: 18),
-                    ),
-                    child: Text(DateFormat('dd/MM/yyyy').format(_entryDate)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Vehicle picker
-                vehicles.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('Error loading vehicles: $e'),
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vehicleId,
-                    decoration: const InputDecoration(labelText: 'Vehicle *'),
-                    items: list.map((v) => DropdownMenuItem(
-                      value: v['id'] as int,
-                      child: Text('${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})'),
-                    )).toList(),
-                    onChanged: (v) => setState(() => _vehicleId = v),
-                    validator: (v) => v == null ? 'Select vehicle' : null,
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Vendor picker
-                vendors.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('Error loading vendors: $e'),
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vendorId,
-                    decoration: const InputDecoration(labelText: 'Vendor (Supplier)'),
-                    items: list.map((v) => DropdownMenuItem(
-                      value: v['id'] as int,
-                      child: Text(v['name']),
-                    )).toList(),
-                    onChanged: (v) => setState(() => _vendorId = v),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Trips + Quantity row
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _trips,
-                        decoration: const InputDecoration(labelText: 'No. of Trips'),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _brass,
-                        decoration: const InputDecoration(labelText: 'Quantity (Brass)', suffixText: 'Brass'),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(labelText: 'Notes (optional)'),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      title: widget.existing == null ? 'Add Dabar Entry' : 'Edit Dabar Entry',
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Saving…' : 'Save')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
       ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DateField(label: 'Entry Date', date: _entryDate, onTap: _pickDate, required: true),
+            const SizedBox(height: 12),
+            vehicles.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (list) => DropdownButtonFormField<int>(
+                value: _vehicleId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Vehicle *'),
+                items: list.map((v) => DropdownMenuItem(
+                  value: v['id'] as int,
+                  child: Text('${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
+                      overflow: TextOverflow.ellipsis),
+                )).toList(),
+                onChanged: (v) => setState(() => _vehicleId = v),
+                validator: (v) => v == null ? 'Select vehicle' : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            vendors.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (list) => DropdownButtonFormField<int>(
+                value: _vendorId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Vendor / Supplier'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('— None —')),
+                  ...list.map((v) => DropdownMenuItem(
+                    value: v['id'] as int,
+                    child: Text(v['name'], overflow: TextOverflow.ellipsis),
+                  )),
+                ],
+                onChanged: (v) => setState(() => _vendorId = v),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _trips,
+                  decoration: const InputDecoration(labelText: 'No. of Trips'),
+                  keyboardType: TextInputType.number,
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _brass,
+                  decoration: const InputDecoration(labelText: 'Quantity', suffixText: 'Brass'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _notes,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

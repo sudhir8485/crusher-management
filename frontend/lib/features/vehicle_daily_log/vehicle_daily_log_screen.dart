@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ class VehicleDailyLogScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_dateProvider.notifier).state = d,
           ),
@@ -137,54 +138,6 @@ class VehicleDailyLogScreen extends ConsumerWidget {
               ref.invalidate(_logsProvider(dateKey));
             },
             child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── date bar ──────────────────────────────────────────────────────────────────
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = DateFormat('EEE, d MMM yyyy').format(selectedDate);
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () =>
-                onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () async {
-                final d = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (d != null) onPick(d);
-              },
-              child: Text(label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 15)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () =>
-                onPick(selectedDate.add(const Duration(days: 1))),
           ),
         ],
       ),
@@ -571,218 +524,9 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final vehicles = ref.watch(_vehiclesProvider);
     final isEdit = widget.existing != null;
 
-    return AlertDialog(
-      title: Text(isEdit ? 'Edit Entry' : 'Vehicle Daily Log'),
-      content: SizedBox(
-        width: 480,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Date + Vehicle
-                Row(
-                  children: [
-                    Expanded(
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        leading: const Icon(Icons.calendar_today, size: 20),
-                        title: Text(
-                            DateFormat('d MMM yyyy').format(_date),
-                            style: const TextStyle(fontSize: 13)),
-                        onTap: () async {
-                          final d = await showDatePicker(
-                            context: context,
-                            initialDate: _date,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030),
-                          );
-                          if (d != null) setState(() => _date = d);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: vehicles.when(
-                        loading: () => const LinearProgressIndicator(),
-                        error: (e, _) => Text('$e'),
-                        data: (list) {
-                          final active = list
-                              .where((v) => v['status'] == 'ACTIVE')
-                              .toList();
-                          return DropdownButtonFormField<int>(
-                            decoration: const InputDecoration(
-                                labelText: 'Vehicle *', isDense: true),
-                            initialValue: _vehicleId,
-                            items: active
-                                .map((v) => DropdownMenuItem<int>(
-                                      value: v['id'] as int,
-                                      child: Text(
-                                          v['displayName'] as String? ??
-                                              v['plateNumber'] as String),
-                                    ))
-                                .toList(),
-                            onChanged: (v) => setState(() => _vehicleId = v),
-                            validator: (v) =>
-                                v == null ? 'Select vehicle' : null,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Locations
-                TextFormField(
-                  controller: _loadCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Loading Location',
-                    hintText: 'Where material was picked up',
-                    prefixIcon: Icon(Icons.upload_outlined, size: 18),
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _unloadCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Unloading Location',
-                    hintText: 'Where material was delivered',
-                    prefixIcon: Icon(Icons.download_outlined, size: 18),
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Readings
-                const Text('Odometer Reading',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _openCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Opening', isDense: true),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _closeCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Closing', isDense: true),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final c = double.tryParse(v);
-                          final o = double.tryParse(_openCtrl.text);
-                          if (c != null && o != null && c < o) {
-                            return 'Must be ≥ opening';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                // KM preview
-                if (_previewKm != null) ...[
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.speed,
-                            size: 14, color: Colors.teal),
-                        const SizedBox(width: 6),
-                        Text(
-                            '${_previewKm!.toStringAsFixed(1)} km',
-                            style: const TextStyle(
-                                color: Colors.teal,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                // Trips
-                const Text('Trips',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _dayCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Day', isDense: true),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _nightCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Night', isDense: true),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                    if (_previewTrips > 0) ...[
-                      const SizedBox(width: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          'Total: $_previewTrips',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Diesel note
-                TextFormField(
-                  controller: _dieselCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Diesel / Other Notes',
-                    hintText: 'e.g. 30L diesel received from R.D. Samant',
-                    prefixIcon:
-                        Icon(Icons.local_gas_station_outlined, size: 18),
-                  ),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      title: isEdit ? 'Edit Vehicle Log' : 'Add Vehicle Daily Log',
+      maxWidth: 500,
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
@@ -791,13 +535,147 @@ class _LogFormState extends ConsumerState<_LogForm> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save'),
         ),
       ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DateField(
+              label: 'Date', date: _date, required: true,
+              onTap: () async {
+                final d = await showDatePicker(
+                  context: context, initialDate: _date,
+                  firstDate: DateTime(2020), lastDate: DateTime(2030),
+                );
+                if (d != null) setState(() => _date = d);
+              },
+            ),
+            const SizedBox(height: 12),
+            vehicles.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) {
+                final active = list.where((v) => v['status'] == 'ACTIVE').toList();
+                return DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(labelText: 'Vehicle *'),
+                  value: _vehicleId,
+                  isExpanded: true,
+                  items: active.map((v) => DropdownMenuItem<int>(
+                    value: v['id'] as int,
+                    child: Text(
+                      v['displayName'] as String? ?? v['plateNumber'] as String,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _vehicleId = v),
+                  validator: (v) => v == null ? 'Select vehicle' : null,
+                );
+              },
+            ),
+            const SectionLabel('Locations'),
+            TextFormField(
+              controller: _loadCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Loading Location',
+                hintText: 'Where material was picked up',
+                prefixIcon: Icon(Icons.upload_outlined, size: 18),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _unloadCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Unloading Location',
+                hintText: 'Where material was delivered',
+                prefixIcon: Icon(Icons.download_outlined, size: 18),
+              ),
+            ),
+            const SectionLabel('Odometer Reading'),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _openCtrl,
+                  decoration: const InputDecoration(labelText: 'Opening'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _closeCtrl,
+                  decoration: const InputDecoration(labelText: 'Closing'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return null;
+                    final c = double.tryParse(v);
+                    final o = double.tryParse(_openCtrl.text);
+                    if (c != null && o != null && c < o) return 'Must be ≥ opening';
+                    return null;
+                  },
+                )),
+              ],
+            ),
+            if (_previewKm != null) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.speed, size: 14, color: Colors.teal),
+                  const SizedBox(width: 6),
+                  Text('${_previewKm!.toStringAsFixed(1)} km',
+                      style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.bold)),
+                ]),
+              ),
+            ],
+            const SectionLabel('Trips'),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _dayCtrl,
+                  decoration: const InputDecoration(labelText: 'Day Trips'),
+                  keyboardType: TextInputType.number,
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _nightCtrl,
+                  decoration: const InputDecoration(labelText: 'Night Trips'),
+                  keyboardType: TextInputType.number,
+                )),
+                if (_previewTrips > 0) ...[
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text('Total: $_previewTrips',
+                        style: TextStyle(fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary)),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _dieselCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Diesel / Other Notes',
+                hintText: 'e.g. 30L diesel received',
+                prefixIcon: Icon(Icons.local_gas_station_outlined, size: 18),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

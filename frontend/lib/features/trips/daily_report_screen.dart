@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 final _reportDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
@@ -32,7 +33,7 @@ class DailyReportScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_reportDateProvider.notifier).state = d,
           ),
@@ -43,66 +44,6 @@ class DailyReportScreen extends ConsumerWidget {
               data: (data) => _ReportBody(data: data),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final isToday = DateUtils.isSameDay(selectedDate, DateTime.now());
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime.now().add(const Duration(days: 30)),
-                );
-                if (picked != null) onPick(picked);
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(
-                  children: [
-                    Text(
-                      DateFormat('EEEE, d MMMM yyyy').format(selectedDate),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (isToday)
-                      const Text('Today', style: TextStyle(fontSize: 11, color: Colors.blue)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => onPick(selectedDate.add(const Duration(days: 1))),
-          ),
-          if (!isToday)
-            TextButton(
-              onPressed: () => onPick(DateTime.now()),
-              child: const Text('Today'),
-            ),
         ],
       ),
     );

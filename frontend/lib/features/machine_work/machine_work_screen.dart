@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ class MachineWorkScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _DateBar(
+          AppDateBar(
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_dateProvider.notifier).state = d,
           ),
@@ -64,17 +65,10 @@ class MachineWorkScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (data) {
                 if (data.isEmpty) {
-                  return const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.construction_outlined,
-                            size: 64, color: Colors.grey),
-                        SizedBox(height: 12),
-                        Text('No machine work entries for this date',
-                            style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
+                  return AppEmptyState(
+                    icon: Icons.construction_outlined,
+                    message: 'No machine work entries for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                    hint: 'Tap + to add an entry',
                   );
                 }
                 return ListView.separated(
@@ -135,54 +129,6 @@ class MachineWorkScreen extends ConsumerWidget {
               ref.invalidate(_logsProvider(dateKey));
             },
             child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── date bar ─────────────────────────────────────────────────────────────────
-
-class _DateBar extends StatelessWidget {
-  final DateTime selectedDate;
-  final ValueChanged<DateTime> onPick;
-  const _DateBar({required this.selectedDate, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = DateFormat('EEE, d MMM yyyy').format(selectedDate);
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () =>
-                onPick(selectedDate.subtract(const Duration(days: 1))),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () async {
-                final d = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (d != null) onPick(d);
-              },
-              child: Text(label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 15)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () =>
-                onPick(selectedDate.add(const Duration(days: 1))),
           ),
         ],
       ),
@@ -461,159 +407,9 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final machines = ref.watch(_machinesProvider);
     final isEdit = widget.existing != null;
 
-    return AlertDialog(
-      title: Text(isEdit ? 'Edit Entry' : 'Add Machine Work'),
-      content: SizedBox(
-        width: 440,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Date
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.calendar_today),
-                  title: Text(DateFormat('EEE, d MMM yyyy').format(_date)),
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: _date,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) setState(() => _date = d);
-                  },
-                ),
-                const SizedBox(height: 8),
-                // Machine
-                machines.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('Error: $e'),
-                  data: (list) {
-                    final active = list
-                        .where((m) => m['status'] == 'ACTIVE')
-                        .toList();
-                    return DropdownButtonFormField<int>(
-                      decoration:
-                          const InputDecoration(labelText: 'Machine *'),
-                      initialValue: _machineId,
-                      items: active
-                          .map((m) => DropdownMenuItem<int>(
-                                value: m['id'] as int,
-                                child: Text(m['name'] as String),
-                              ))
-                          .toList(),
-                      onChanged: (v) => setState(() => _machineId = v),
-                      validator: (v) =>
-                          v == null ? 'Select a machine' : null,
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Mode toggle
-                const Text('Mode',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 6),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                        value: 'BUCKET',
-                        label: Text('Bucket'),
-                        icon: Icon(Icons.crop_square)),
-                    ButtonSegment(
-                        value: 'BREAKER',
-                        label: Text('Breaker'),
-                        icon: Icon(Icons.hardware)),
-                  ],
-                  selected: {_mode},
-                  onSelectionChanged: (s) =>
-                      setState(() => _mode = s.first),
-                ),
-                const SizedBox(height: 16),
-                // Work description
-                TextFormField(
-                  controller: _descCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Work Description',
-                    hintText: 'e.g. Loading khadi to screen',
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                // Readings row
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _openCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Opening Reading'),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _closeCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Closing Reading'),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return null;
-                          final c = double.tryParse(v);
-                          final o = double.tryParse(_openCtrl.text);
-                          if (c != null && o != null && c < o) {
-                            return 'Must be ≥ opening';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                // Live hours preview
-                if (_previewHours != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.timer,
-                            size: 16, color: Colors.green),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Total: ${_previewHours!.toStringAsFixed(2)} hours',
-                          style: const TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                // Notes
-                TextFormField(
-                  controller: _notesCtrl,
-                  decoration: const InputDecoration(labelText: 'Notes'),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      title: isEdit ? 'Edit Machine Work Entry' : 'Add Machine Work',
+      maxWidth: 460,
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
@@ -622,13 +418,112 @@ class _LogFormState extends ConsumerState<_LogForm> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save'),
         ),
       ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DateField(label: 'Date', date: _date, required: true,
+              onTap: () async {
+                final d = await showDatePicker(
+                  context: context, initialDate: _date,
+                  firstDate: DateTime(2020), lastDate: DateTime(2030),
+                );
+                if (d != null) setState(() => _date = d);
+              },
+            ),
+            const SizedBox(height: 12),
+            machines.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+              data: (list) {
+                final active = list.where((m) => m['status'] == 'ACTIVE').toList();
+                return DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(labelText: 'Machine *'),
+                  value: _machineId,
+                  isExpanded: true,
+                  items: active.map((m) => DropdownMenuItem<int>(
+                    value: m['id'] as int,
+                    child: Text(m['name'] as String, overflow: TextOverflow.ellipsis),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _machineId = v),
+                  validator: (v) => v == null ? 'Select a machine' : null,
+                );
+              },
+            ),
+            const SectionLabel('Mode'),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'BUCKET', label: Text('Bucket'), icon: Icon(Icons.crop_square)),
+                ButtonSegment(value: 'BREAKER', label: Text('Breaker'), icon: Icon(Icons.hardware)),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (s) => setState(() => _mode = s.first),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _descCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Work Description',
+                hintText: 'e.g. Loading khadi to screen',
+              ),
+              maxLines: 2,
+            ),
+            const SectionLabel('Readings'),
+            Row(
+              children: [
+                Expanded(child: TextFormField(
+                  controller: _openCtrl,
+                  decoration: const InputDecoration(labelText: 'Opening Reading'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _closeCtrl,
+                  decoration: const InputDecoration(labelText: 'Closing Reading'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return null;
+                    final c = double.tryParse(v);
+                    final o = double.tryParse(_openCtrl.text);
+                    if (c != null && o != null && c < o) {
+                      return 'Must be ≥ opening reading';
+                    }
+                    return null;
+                  },
+                )),
+              ],
+            ),
+            if (_previewHours != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.timer, size: 16, color: Colors.green),
+                  const SizedBox(width: 6),
+                  Text('Total: ${_previewHours!.toStringAsFixed(2)} hours',
+                      style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                ]),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _notesCtrl,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

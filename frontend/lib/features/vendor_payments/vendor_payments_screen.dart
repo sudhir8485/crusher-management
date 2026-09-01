@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
 
@@ -49,16 +50,10 @@ class VendorPaymentsScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (data) {
           if (data.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.payments_outlined, size: 64, color: Colors.grey),
-                  SizedBox(height: 12),
-                  Text('No payments recorded',
-                      style: TextStyle(color: Colors.grey)),
-                ],
-              ),
+            return const AppEmptyState(
+              icon: Icons.payments_outlined,
+              message: 'No payments recorded yet',
+              hint: 'Tap + to record a vendor payment',
             );
           }
 
@@ -327,103 +322,9 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
     final vendors = ref.watch(_vendorsProvider);
     final isEdit = widget.existing != null;
 
-    return AlertDialog(
-      title: Text(isEdit ? 'Edit Payment' : 'Record Payment'),
-      content: SizedBox(
-        width: 400,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                vendors.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('$e'),
-                  data: (list) {
-                    final active =
-                        list.where((v) => v['status'] == 'ACTIVE').toList();
-                    return DropdownButtonFormField<int>(
-                      decoration:
-                          const InputDecoration(labelText: 'Vendor *'),
-                      initialValue: _vendorId,
-                      items: active
-                          .map((v) => DropdownMenuItem<int>(
-                                value: v['id'] as int,
-                                child: Text(v['name'] as String),
-                              ))
-                          .toList(),
-                      onChanged: (v) => setState(() => _vendorId = v),
-                      validator: (v) =>
-                          v == null ? 'Select vendor' : null,
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                // Date picker
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.calendar_today),
-                  title: Text(_dateFmt.format(_date)),
-                  subtitle: const Text('Payment Date'),
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: _date,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) setState(() => _date = d);
-                  },
-                ),
-                const SizedBox(height: 8),
-                // Amount
-                TextFormField(
-                  controller: _amtCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Amount (₹) *', prefixText: '₹ '),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Required';
-                    if (double.tryParse(v) == null) return 'Invalid number';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Payment mode
-                const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Payment Mode',
-                        style: TextStyle(fontSize: 12, color: Colors.grey))),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  children: ['CASH', 'BANK', 'CHEQUE', 'UPI']
-                      .map((m) => ChoiceChip(
-                            label: Text(m),
-                            selected: _mode == m,
-                            onSelected: (_) => setState(() => _mode = m),
-                          ))
-                      .toList(),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _refCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Reference No. / Cheque No.'),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _notesCtrl,
-                  decoration: const InputDecoration(labelText: 'Notes'),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      title: isEdit ? 'Edit Payment' : 'Record Payment',
+      maxWidth: 420,
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
@@ -432,13 +333,83 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save'),
         ),
       ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            vendors.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) {
+                final active = list.where((v) => v['status'] == 'ACTIVE').toList();
+                return DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(labelText: 'Vendor *'),
+                  value: _vendorId,
+                  isExpanded: true,
+                  items: active.map((v) => DropdownMenuItem<int>(
+                    value: v['id'] as int,
+                    child: Text(v['name'] as String, overflow: TextOverflow.ellipsis),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _vendorId = v),
+                  validator: (v) => v == null ? 'Select vendor' : null,
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            DateField(
+              label: 'Payment Date',
+              date: _date,
+              required: true,
+              onTap: () async {
+                final d = await showDatePicker(
+                  context: context, initialDate: _date,
+                  firstDate: DateTime(2020), lastDate: DateTime(2030),
+                );
+                if (d != null) setState(() => _date = d);
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _amtCtrl,
+              decoration: const InputDecoration(labelText: 'Amount *', prefixText: '₹ '),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              validator: (v) {
+                if (v == null || v.isEmpty) return 'Required';
+                if (double.tryParse(v) == null) return 'Invalid number';
+                return null;
+              },
+            ),
+            const SectionLabel('Payment Mode'),
+            Wrap(
+              spacing: 8,
+              children: ['CASH', 'BANK', 'CHEQUE', 'UPI']
+                  .map((m) => ChoiceChip(
+                        label: Text(m),
+                        selected: _mode == m,
+                        onSelected: (_) => setState(() => _mode = m),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _refCtrl,
+              decoration: const InputDecoration(labelText: 'Reference No. / Cheque No.'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _notesCtrl,
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
