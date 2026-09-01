@@ -561,17 +561,12 @@ class _LogFormState extends ConsumerState<_LogForm> {
               error: (e, _) => Text('$e'),
               data: (list) {
                 final active = list.where((v) => v['status'] == 'ACTIVE').toList();
-                return DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'Vehicle *'),
-                  value: _vehicleId,
-                  isExpanded: true,
-                  items: active.map((v) => DropdownMenuItem<int>(
-                    value: v['id'] as int,
-                    child: Text(
+                return SearchablePicker(
+                  items: active,
+                  itemLabel: (v) =>
                       v['displayName'] as String? ?? v['plateNumber'] as String,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  )).toList(),
+                  fieldLabel: 'Vehicle *',
+                  value: _vehicleId,
                   onChanged: (v) => setState(() => _vehicleId = v),
                   validator: (v) => v == null ? 'Select vehicle' : null,
                 );

@@ -365,15 +365,12 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
             vehicles.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (v) =>
+                    '${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
+                fieldLabel: 'Vehicle *',
                 value: _vehicleId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Vehicle *'),
-                items: list.map((v) => DropdownMenuItem(
-                  value: v['id'] as int,
-                  child: Text('${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
-                      overflow: TextOverflow.ellipsis),
-                )).toList(),
                 onChanged: (v) => setState(() => _vehicleId = v),
                 validator: (v) => v == null ? 'Select vehicle' : null,
               ),
@@ -382,17 +379,12 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
             vendors.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (v) => v['name'] as String,
+                fieldLabel: 'Vendor / Supplier',
                 value: _vendorId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Vendor / Supplier'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('— None —')),
-                  ...list.map((v) => DropdownMenuItem(
-                    value: v['id'] as int,
-                    child: Text(v['name'], overflow: TextOverflow.ellipsis),
-                  )),
-                ],
+                clearable: true,
                 onChanged: (v) => setState(() => _vendorId = v),
               ),
             ),

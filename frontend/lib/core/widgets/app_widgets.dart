@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -254,6 +255,210 @@ class StatusBadge extends StatelessWidget {
                 color: color,
                 fontWeight: FontWeight.w600)),
       );
+}
+
+// ── Searchable entity picker ──────────────────────────────────────────────────
+
+Map<String, dynamic>? _findItem(List<Map<String, dynamic>> items, int? id) {
+  if (id == null) return null;
+  for (final m in items) {
+    if (m['id'] == id) return m;
+  }
+  return null;
+}
+
+/// Drop-in replacement for [DropdownButtonFormField<int>] that opens a search
+/// dialog instead of a flat list. [items] must have an 'id' (int) key.
+/// Set [clearable] to show a "None" option that sets the value to null.
+class SearchablePicker extends FormField<int> {
+  SearchablePicker({
+    super.key,
+    required List<Map<String, dynamic>> items,
+    required String Function(Map<String, dynamic>) itemLabel,
+    required String fieldLabel,
+    int? value,
+    void Function(int?)? onChanged,
+    FormFieldValidator<int>? validator,
+    bool clearable = false,
+    String clearLabel = '— None —',
+  }) : super(
+          initialValue: value,
+          validator: validator,
+          builder: (state) {
+            final selected = _findItem(items, state.value);
+            return GestureDetector(
+              onTap: () async {
+                final result = await showDialog<(bool, int?)>(
+                  context: state.context,
+                  builder: (_) => _SearchPickerDialog(
+                    items: items,
+                    itemLabel: itemLabel,
+                    title: fieldLabel,
+                    currentId: state.value,
+                    clearable: clearable,
+                    clearLabel: clearLabel,
+                  ),
+                );
+                if (result == null) return;
+                final (cleared, id) = result;
+                final newVal = cleared ? null : id;
+                state.didChange(newVal);
+                onChanged?.call(newVal);
+              },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: fieldLabel,
+                  errorText: state.errorText,
+                  suffixIcon: const Icon(Icons.arrow_drop_down),
+                ),
+                isEmpty: selected == null,
+                child: selected != null
+                    ? Text(itemLabel(selected),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16))
+                    : const SizedBox.shrink(),
+              ),
+            );
+          },
+        );
+}
+
+class _SearchPickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+  final String Function(Map<String, dynamic>) itemLabel;
+  final String title;
+  final int? currentId;
+  final bool clearable;
+  final String clearLabel;
+
+  const _SearchPickerDialog({
+    required this.items,
+    required this.itemLabel,
+    required this.title,
+    required this.currentId,
+    required this.clearable,
+    required this.clearLabel,
+  });
+
+  @override
+  State<_SearchPickerDialog> createState() => _SearchPickerDialogState();
+}
+
+class _SearchPickerDialogState extends State<_SearchPickerDialog> {
+  final _ctrl = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearch(String q) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) setState(() => _query = q.toLowerCase().trim());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _query.isEmpty
+        ? widget.items
+        : widget.items
+            .where((m) => widget.itemLabel(m).toLowerCase().contains(_query))
+            .toList();
+    final cs = Theme.of(context).colorScheme;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _ctrl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Search…',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _query.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              _ctrl.clear();
+                              setState(() => _query = '');
+                            },
+                          )
+                        : null,
+                    isDense: true,
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                  ),
+                  onChanged: _onSearch,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 320),
+            child: filtered.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(
+                      child: Text('No results',
+                          style: TextStyle(color: Colors.grey)),
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final item = filtered[i];
+                      final id = item['id'] as int?;
+                      final isSelected = id == widget.currentId;
+                      return ListTile(
+                        dense: true,
+                        title: Text(widget.itemLabel(item)),
+                        trailing: isSelected
+                            ? Icon(Icons.check, color: cs.primary, size: 20)
+                            : null,
+                        tileColor: isSelected
+                            ? cs.primary.withValues(alpha: 0.06)
+                            : null,
+                        onTap: () => Navigator.pop(context, (false, id)),
+                      );
+                    },
+                  ),
+          ),
+          if (widget.clearable) ...[
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              title: Text(widget.clearLabel,
+                  style: const TextStyle(color: Colors.grey)),
+              onTap: () => Navigator.pop(context, (true, null)),
+            ),
+          ],
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Date field tappable ───────────────────────────────────────────────────────

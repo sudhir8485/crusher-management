@@ -486,19 +486,12 @@ class _TripFormState extends ConsumerState<_TripForm> {
             vehicles.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
-                initialValue: _vehicleId,
-                decoration: const InputDecoration(labelText: 'Vehicle *'),
-                isExpanded: true,
-                items: list
-                    .map((v) => DropdownMenuItem(
-                          value: v['id'] as int,
-                          child: Text(
-                            '${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
-                    .toList(),
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (v) =>
+                    '${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
+                fieldLabel: 'Vehicle *',
+                value: _vehicleId,
                 onChanged: (v) => setState(() => _vehicleId = v),
                 validator: (v) => v == null ? 'Select vehicle' : null,
               ),
@@ -507,17 +500,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
             vendors.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
-                initialValue: _vendorId,
-                decoration: const InputDecoration(labelText: 'Vendor *'),
-                isExpanded: true,
-                items: list
-                    .map((v) => DropdownMenuItem(
-                          value: v['id'] as int,
-                          child: Text(v['name'],
-                              overflow: TextOverflow.ellipsis),
-                        ))
-                    .toList(),
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (v) => v['name'] as String,
+                fieldLabel: 'Vendor *',
+                value: _vendorId,
                 onChanged: (v) => setState(() => _vendorId = v),
                 validator: (v) => v == null ? 'Select vendor' : null,
               ),
@@ -528,17 +515,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
             materials.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
-                initialValue: _materialId,
-                decoration: const InputDecoration(labelText: 'Material *'),
-                isExpanded: true,
-                items: list
-                    .map((m) => DropdownMenuItem(
-                          value: m['id'] as int,
-                          child: Text(m['name'],
-                              overflow: TextOverflow.ellipsis),
-                        ))
-                    .toList(),
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (m) => m['name'] as String,
+                fieldLabel: 'Material *',
+                value: _materialId,
                 onChanged: (v) => setState(() => _materialId = v),
                 validator: (v) => v == null ? 'Select material' : null,
               ),

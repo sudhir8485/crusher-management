@@ -159,30 +159,19 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                   data: (list) {
                     final active =
                         list.where((v) => v['status'] == 'ACTIVE').toList();
-                    return DropdownButtonFormField<int>(
-                      decoration: InputDecoration(
-                        labelText: 'Select Vendor',
-                        filled: true,
-                        fillColor: Theme.of(context).colorScheme.surface,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                      ),
+                    return SearchablePicker(
+                      items: active,
+                      itemLabel: (v) => v['name'] as String,
+                      fieldLabel: 'Select Vendor',
                       value: _vendorId,
-                      isExpanded: true,
-                      items: active
-                          .map((v) => DropdownMenuItem<int>(
-                                value: v['id'] as int,
-                                child: Text(v['name'] as String,
-                                    overflow: TextOverflow.ellipsis),
-                              ))
-                          .toList(),
                       onChanged: (v) {
                         setState(() {
                           _vendorId = v;
-                          _vendorName = active
-                              .firstWhere((e) => e['id'] == v)['name'] as String;
+                          if (v != null) {
+                            _vendorName = active
+                                .firstWhere((e) => e['id'] == v)['name']
+                                as String;
+                          }
                         });
                       },
                     );

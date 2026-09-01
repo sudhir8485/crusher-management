@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/widgets/app_widgets.dart';
 import '../vehicles/vehicles_screen.dart' show vendorListProvider;
 import '../widgets/master_list_screen.dart';
 
@@ -135,10 +136,11 @@ class _MachineFormState extends ConsumerState<_MachineForm> {
               if (_owner == 'VENDOR') ...[
                 const SizedBox(height: 12),
                 vendors.when(
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vendorId,
-                    decoration: const InputDecoration(labelText: 'Vendor'),
-                    items: list.map((v) => DropdownMenuItem(value: v['id'] as int, child: Text(v['name']))).toList(),
+                  data: (list) => SearchablePicker(
+                    items: list,
+                    itemLabel: (v) => v['name'] as String,
+                    fieldLabel: 'Vendor',
+                    value: _vendorId,
                     onChanged: (v) => setState(() => _vendorId = v),
                     validator: (v) => v == null ? 'Select vendor' : null,
                   ),

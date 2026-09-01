@@ -465,17 +465,14 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
               error: (e, _) => Text('$e'),
               data: (list) {
                 final active = list.where((v) => v['status'] == 'ACTIVE').toList();
-                return DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'Vendor *'),
+                return SearchablePicker(
+                  items: active,
+                  itemLabel: (v) => v['name'] as String,
+                  fieldLabel: 'Vendor *',
                   value: _vendorId,
-                  isExpanded: true,
-                  items: active.map((v) => DropdownMenuItem<int>(
-                    value: v['id'] as int,
-                    child: Text(v['name'] as String, overflow: TextOverflow.ellipsis),
-                  )).toList(),
                   onChanged: (v) => setState(() {
                     _vendorId = v;
-                    _invoiceId = null; // reset invoice when vendor changes
+                    _invoiceId = null;
                   }),
                   validator: (v) => v == null ? 'Select vendor' : null,
                 );

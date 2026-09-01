@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
 
@@ -704,13 +705,12 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
                 vendors.when(
                   loading: () => const LinearProgressIndicator(),
                   error: (e, _) => Text('Error: $e'),
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vendorId,
-                    decoration: const InputDecoration(labelText: 'Supplier (optional)'),
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('— None —')),
-                      ...list.map((v) => DropdownMenuItem(value: v['id'] as int, child: Text(v['name']))),
-                    ],
+                  data: (list) => SearchablePicker(
+                    items: list,
+                    itemLabel: (v) => v['name'] as String,
+                    fieldLabel: 'Supplier (optional)',
+                    value: _vendorId,
+                    clearable: true,
                     onChanged: (v) => setState(() => _vendorId = v),
                   ),
                 ),
@@ -860,13 +860,11 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                   machines.when(
                     loading: () => const LinearProgressIndicator(),
                     error: (e, _) => Text('Error: $e'),
-                    data: (list) => DropdownButtonFormField<int>(
-                      initialValue: _machineId,
-                      decoration: const InputDecoration(labelText: 'Machine *'),
-                      items: list.map((m) => DropdownMenuItem(
-                        value: m['id'] as int,
-                        child: Text('${m['name']}  (${m['machineType'] ?? ''})'),
-                      )).toList(),
+                    data: (list) => SearchablePicker(
+                      items: list,
+                      itemLabel: (m) => '${m['name']}  (${m['machineType'] ?? ''})',
+                      fieldLabel: 'Machine *',
+                      value: _machineId,
                       onChanged: (v) => setState(() => _machineId = v),
                       validator: (v) => v == null ? 'Select machine' : null,
                     ),
@@ -875,13 +873,11 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                   vehicles.when(
                     loading: () => const LinearProgressIndicator(),
                     error: (e, _) => Text('Error: $e'),
-                    data: (list) => DropdownButtonFormField<int>(
-                      initialValue: _vehicleId,
-                      decoration: const InputDecoration(labelText: 'Vehicle *'),
-                      items: list.map((v) => DropdownMenuItem(
-                        value: v['id'] as int,
-                        child: Text('${v['displayName'] ?? v['plateNumber']}'),
-                      )).toList(),
+                    data: (list) => SearchablePicker(
+                      items: list,
+                      itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
+                      fieldLabel: 'Vehicle *',
+                      value: _vehicleId,
                       onChanged: (v) => setState(() => _vehicleId = v),
                       validator: (v) => v == null ? 'Select vehicle' : null,
                     ),

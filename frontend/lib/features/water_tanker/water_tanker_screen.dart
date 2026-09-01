@@ -365,15 +365,12 @@ class _TankerFormState extends ConsumerState<_TankerForm> {
             vehicles.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
-              data: (list) => DropdownButtonFormField<int>(
-                initialValue: _vehicleId,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Vehicle *'),
-                items: list.map((v) => DropdownMenuItem(
-                  value: v['id'] as int,
-                  child: Text('${v['displayName'] ?? v['plateNumber']}',
-                      overflow: TextOverflow.ellipsis),
-                )).toList(),
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (v) =>
+                    '${v['displayName'] ?? v['plateNumber']}',
+                fieldLabel: 'Vehicle *',
+                value: _vehicleId,
                 onChanged: (v) => setState(() => _vehicleId = v),
                 validator: (v) => v == null ? 'Select vehicle' : null,
               ),

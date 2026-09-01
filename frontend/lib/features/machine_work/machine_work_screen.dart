@@ -443,14 +443,11 @@ class _LogFormState extends ConsumerState<_LogForm> {
               error: (e, _) => Text('Error: $e'),
               data: (list) {
                 final active = list.where((m) => m['status'] == 'ACTIVE').toList();
-                return DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(labelText: 'Machine *'),
+                return SearchablePicker(
+                  items: active,
+                  itemLabel: (m) => m['name'] as String,
+                  fieldLabel: 'Machine *',
                   value: _machineId,
-                  isExpanded: true,
-                  items: active.map((m) => DropdownMenuItem<int>(
-                    value: m['id'] as int,
-                    child: Text(m['name'] as String, overflow: TextOverflow.ellipsis),
-                  )).toList(),
                   onChanged: (v) => setState(() => _machineId = v),
                   validator: (v) => v == null ? 'Select a machine' : null,
                 );

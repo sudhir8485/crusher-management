@@ -746,21 +746,14 @@ class _VehicleReportTabState extends ConsumerState<_VehicleReportTab> {
             data: (list) => Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<int?>(
-                    decoration: _dropDec('Vehicle'),
+                  child: SearchablePicker(
+                    items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                    itemLabel: (v) =>
+                        '${v['displayName'] ?? v['plateNumber']}',
+                    fieldLabel: 'Vehicle',
                     value: _vehicleId,
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('All Vehicles')),
-                      ...list.where((v) => v['status'] == 'ACTIVE').map((v) =>
-                          DropdownMenuItem(
-                            value: v['id'] as int,
-                            child: Text(
-                              '${v['displayName'] ?? v['plateNumber']}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          )),
-                    ],
+                    clearable: true,
+                    clearLabel: 'All Vehicles',
                     onChanged: (v) => setState(() => _vehicleId = v),
                   ),
                 ),
@@ -826,19 +819,13 @@ class _MachineReportTabState extends ConsumerState<_MachineReportTab> {
             data: (list) => Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<int?>(
-                    decoration: _dropDec('Machine'),
+                  child: SearchablePicker(
+                    items: list.where((m) => m['status'] == 'ACTIVE').toList(),
+                    itemLabel: (m) => m['name'] as String,
+                    fieldLabel: 'Machine',
                     value: _machineId,
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('All Machines')),
-                      ...list.where((m) => m['status'] == 'ACTIVE').map((m) =>
-                          DropdownMenuItem(
-                            value: m['id'] as int,
-                            child: Text(m['name'] as String,
-                                overflow: TextOverflow.ellipsis),
-                          )),
-                    ],
+                    clearable: true,
+                    clearLabel: 'All Machines',
                     onChanged: (v) => setState(() => _machineId = v),
                   ),
                 ),
@@ -968,17 +955,13 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
               Expanded(child: vehicles.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('$e'),
-                data: (list) => DropdownButtonFormField<int?>(
-                  decoration: _dropDec('Vehicle'),
+                data: (list) => SearchablePicker(
+                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                  itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
+                  fieldLabel: 'Vehicle',
                   value: _vehicleId,
-                  isExpanded: true,
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All Vehicles')),
-                    ...list.where((v) => v['status'] == 'ACTIVE').map((v) =>
-                        DropdownMenuItem(value: v['id'] as int,
-                            child: Text('${v['displayName'] ?? v['plateNumber']}',
-                                overflow: TextOverflow.ellipsis))),
-                  ],
+                  clearable: true,
+                  clearLabel: 'All Vehicles',
                   onChanged: (v) => setState(() => _vehicleId = v),
                 ),
               )),
@@ -986,15 +969,13 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
               Expanded(child: materials.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('$e'),
-                data: (list) => DropdownButtonFormField<int?>(
-                  decoration: _dropDec('Material'),
+                data: (list) => SearchablePicker(
+                  items: list,
+                  itemLabel: (m) => m['name'] as String,
+                  fieldLabel: 'Material',
                   value: _materialId,
-                  isExpanded: true,
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All Materials')),
-                    ...list.map((m) => DropdownMenuItem(value: m['id'] as int,
-                        child: Text(m['name'] as String, overflow: TextOverflow.ellipsis))),
-                  ],
+                  clearable: true,
+                  clearLabel: 'All Materials',
                   onChanged: (v) => setState(() => _materialId = v),
                 ),
               )),
@@ -1002,16 +983,13 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
               Expanded(child: vendors.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('$e'),
-                data: (list) => DropdownButtonFormField<int?>(
-                  decoration: _dropDec('Vendor'),
+                data: (list) => SearchablePicker(
+                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                  itemLabel: (v) => v['name'] as String,
+                  fieldLabel: 'Vendor',
                   value: _vendorId,
-                  isExpanded: true,
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('All Vendors')),
-                    ...list.where((v) => v['status'] == 'ACTIVE').map((v) =>
-                        DropdownMenuItem(value: v['id'] as int,
-                            child: Text(v['name'] as String, overflow: TextOverflow.ellipsis))),
-                  ],
+                  clearable: true,
+                  clearLabel: 'All Vendors',
                   onChanged: (v) => setState(() => _vendorId = v),
                 ),
               )),
@@ -1042,13 +1020,3 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
   }
 }
 
-// ── Shared decoration ─────────────────────────────────────────────────────────
-
-InputDecoration _dropDec(String label) => InputDecoration(
-      labelText: label,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      filled: true,
-      fillColor: Colors.white,
-      isDense: true,
-    );

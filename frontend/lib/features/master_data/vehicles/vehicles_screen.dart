@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/widgets/app_widgets.dart';
 import '../widgets/master_list_screen.dart';
 
 final vehiclesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -147,10 +148,11 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
               if (_owner == 'VENDOR') ...[
                 const SizedBox(height: 12),
                 vendors.when(
-                  data: (list) => DropdownButtonFormField<int>(
-                    initialValue: _vendorId,
-                    decoration: const InputDecoration(labelText: 'Vendor'),
-                    items: list.map((v) => DropdownMenuItem(value: v['id'] as int, child: Text(v['name']))).toList(),
+                  data: (list) => SearchablePicker(
+                    items: list,
+                    itemLabel: (v) => v['name'] as String,
+                    fieldLabel: 'Vendor',
+                    value: _vendorId,
                     onChanged: (v) => setState(() => _vendorId = v),
                     validator: (v) => v == null ? 'Select vendor' : null,
                   ),
