@@ -22,8 +22,6 @@ final _dailyReportProvider =
   return Map<String, dynamic>.from(res.data);
 });
 
-final _numFmt  = NumberFormat('#,##,##0.##',  'en_IN');
-final _currFmt = NumberFormat('#,##,##0.00', 'en_IN');
 final _dateFmt = DateFormat('EEEE, d MMMM yyyy');
 
 // ── screen ────────────────────────────────────────────────────────────────────
@@ -126,7 +124,7 @@ class DailyReportScreen extends ConsumerWidget {
     final trips = d['trips'] as Map<String, dynamic>? ?? {};
     widgets.add(_pdfSection('TRIPS'));
     widgets.add(pw.Text(
-        'Total: ${trips['tripCount'] ?? 0} trips  |  ${_numFmt.format(trips['totalBrass'] ?? 0)} Brass',
+        'Total: ${trips['tripCount'] ?? 0} trips  |  ${numFmt.format(trips['totalBrass'] ?? 0)} Brass',
         style: const pw.TextStyle(fontSize: 9)));
     final byMat = trips['byMaterial'] as List? ?? [];
     if (byMat.isNotEmpty) {
@@ -139,7 +137,7 @@ class DailyReportScreen extends ConsumerWidget {
         data: byMat.map((m) => [
           m['materialName'] ?? '—',
           m['tripCount'].toString(),
-          '${_numFmt.format(m['totalBrass'] ?? 0)} B',
+          '${numFmt.format(m['totalBrass'] ?? 0)} B',
         ]).toList(),
         border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
       ));
@@ -151,7 +149,7 @@ class DailyReportScreen extends ConsumerWidget {
     if ((dabar['entryCount'] ?? 0) > 0) {
       widgets.add(_pdfSection('DABAR (RAW STONE INTAKE)'));
       widgets.add(pw.Text(
-          'Entries: ${dabar['entryCount']}  |  Trips: ${dabar['totalTrips']}  |  Brass: ${_numFmt.format(dabar['totalBrass'] ?? 0)}',
+          'Entries: ${dabar['entryCount']}  |  Trips: ${dabar['totalTrips']}  |  Brass: ${numFmt.format(dabar['totalBrass'] ?? 0)}',
           style: const pw.TextStyle(fontSize: 9)));
       widgets.add(pw.SizedBox(height: 8));
     }
@@ -161,7 +159,7 @@ class DailyReportScreen extends ConsumerWidget {
     if ((wt['entryCount'] ?? 0) > 0) {
       widgets.add(_pdfSection('WATER TANKER'));
       widgets.add(pw.Text(
-          'Entries: ${wt['entryCount']}  |  Hours: ${_numFmt.format(wt['totalHours'] ?? 0)}  |  KM: ${_numFmt.format(wt['totalKm'] ?? 0)}  |  Amount: ₹${_currFmt.format(wt['totalAmount'] ?? 0)}',
+          'Entries: ${wt['entryCount']}  |  Hours: ${numFmt.format(wt['totalHours'] ?? 0)}  |  KM: ${numFmt.format(wt['totalKm'] ?? 0)}  |  Amount: ${fmtCurr(wt['totalAmount'] ?? 0)}',
           style: const pw.TextStyle(fontSize: 9)));
       widgets.add(pw.SizedBox(height: 8));
     }
@@ -170,7 +168,7 @@ class DailyReportScreen extends ConsumerWidget {
     final diesel = d['diesel'] as Map<String, dynamic>? ?? {};
     widgets.add(_pdfSection('DIESEL'));
     widgets.add(pw.Text(
-        'Received: ${_numFmt.format(diesel['receivedToday'] ?? 0)} L  |  Used: ${_numFmt.format(diesel['usedToday'] ?? 0)} L  |  Stock: ${_numFmt.format(diesel['closingStock'] ?? 0)} L',
+        'Received: ${numFmt.format(diesel['receivedToday'] ?? 0)} L  |  Used: ${numFmt.format(diesel['usedToday'] ?? 0)} L  |  Stock: ${numFmt.format(diesel['closingStock'] ?? 0)} L',
         style: const pw.TextStyle(fontSize: 9)));
     widgets.add(pw.SizedBox(height: 8));
 
@@ -179,7 +177,7 @@ class DailyReportScreen extends ConsumerWidget {
     if ((machine['entryCount'] ?? 0) > 0) {
       widgets.add(_pdfSection('MACHINE WORK'));
       widgets.add(pw.Text(
-          'Total: ${_numFmt.format(machine['totalHours'] ?? 0)} hrs  |  Bucket: ${_numFmt.format(machine['bucketHours'] ?? 0)} hrs  |  Breaker: ${_numFmt.format(machine['breakerHours'] ?? 0)} hrs',
+          'Total: ${numFmt.format(machine['totalHours'] ?? 0)} hrs  |  Bucket: ${numFmt.format(machine['bucketHours'] ?? 0)} hrs  |  Breaker: ${numFmt.format(machine['breakerHours'] ?? 0)} hrs',
           style: const pw.TextStyle(fontSize: 9)));
       widgets.add(pw.SizedBox(height: 8));
     }
@@ -200,11 +198,11 @@ class DailyReportScreen extends ConsumerWidget {
       widgets.add(_pdfSection('FINANCIAL'));
       if ((fin['invoiceCount'] ?? 0) > 0)
         widgets.add(pw.Text(
-            'Invoices: ${fin['invoiceCount']}  |  Amount: ₹${_currFmt.format(fin['invoiceTotal'] ?? 0)}',
+            'Invoices: ${fin['invoiceCount']}  |  Amount: ${fmtCurr(fin['invoiceTotal'] ?? 0)}',
             style: const pw.TextStyle(fontSize: 9)));
       if ((fin['paymentCount'] ?? 0) > 0)
         widgets.add(pw.Text(
-            'Payments: ${fin['paymentCount']}  |  Amount: ₹${_currFmt.format(fin['paymentTotal'] ?? 0)}',
+            'Payments: ${fin['paymentCount']}  |  Amount: ${fmtCurr(fin['paymentTotal'] ?? 0)}',
             style: const pw.TextStyle(fontSize: 9)));
     }
 
@@ -420,9 +418,9 @@ class _TripsCard extends StatelessWidget {
         const Divider(height: 12),
         ...byMat.map((m) => _statRow(
             m['materialName'] as String? ?? '—',
-            '${m['tripCount']} trips · ${_numFmt.format(m['totalBrass'] ?? 0)} B')),
+            '${m['tripCount']} trips · ${numFmt.format(m['totalBrass'] ?? 0)} B')),
         if (byMat.isNotEmpty) const Divider(height: 12),
-        _statRow('Grand Total', '${_numFmt.format(total)} Brass', bold: true),
+        _statRow('Grand Total', '${numFmt.format(total)} Brass', bold: true),
       ],
     );
   }
@@ -441,7 +439,7 @@ class _DabarCard extends StatelessWidget {
           _statRow('Entries', '${dabar['entryCount'] ?? 0}'),
           _statRow('Total Trips', '${dabar['totalTrips'] ?? 0}'),
           _statRow('Total Brass',
-              '${_numFmt.format(dabar['totalBrass'] ?? 0)} B',
+              '${numFmt.format(dabar['totalBrass'] ?? 0)} B',
               bold: true),
         ],
       );
@@ -458,9 +456,9 @@ class _WaterTankerCard extends StatelessWidget {
         color: Colors.lightBlue,
         children: [
           _statRow('Entries', '${wt['entryCount'] ?? 0}'),
-          _statRow('Hours', '${_numFmt.format(wt['totalHours'] ?? 0)} hrs'),
-          _statRow('KM', '${_numFmt.format(wt['totalKm'] ?? 0)} km'),
-          _statRow('Amount', '₹${_currFmt.format(wt['totalAmount'] ?? 0)}',
+          _statRow('Hours', '${numFmt.format(wt['totalHours'] ?? 0)} hrs'),
+          _statRow('KM', '${numFmt.format(wt['totalKm'] ?? 0)} km'),
+          _statRow('Amount', fmtCurr(wt['totalAmount'] ?? 0),
               bold: true),
         ],
       );
@@ -479,15 +477,15 @@ class _DieselCard extends StatelessWidget {
       icon: Icons.local_gas_station,
       color: Colors.amber.shade800,
       children: [
-        _statRow('Received', '${_numFmt.format(diesel['receivedToday'] ?? 0)} L'),
-        _statRow('Used', '${_numFmt.format(diesel['usedToday'] ?? 0)} L'),
+        _statRow('Received', '${numFmt.format(diesel['receivedToday'] ?? 0)} L'),
+        _statRow('Used', '${numFmt.format(diesel['usedToday'] ?? 0)} L'),
         const Divider(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('Closing Stock',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            Text('${_numFmt.format(stock)} L',
+            Text('${numFmt.format(stock)} L',
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -510,10 +508,10 @@ class _MachineCard extends StatelessWidget {
         color: Colors.orange,
         children: [
           _statRow('Entries', '${machine['entryCount'] ?? 0}'),
-          _statRow('Bucket', '${_numFmt.format(machine['bucketHours'] ?? 0)} hrs'),
-          _statRow('Breaker', '${_numFmt.format(machine['breakerHours'] ?? 0)} hrs'),
+          _statRow('Bucket', '${numFmt.format(machine['bucketHours'] ?? 0)} hrs'),
+          _statRow('Breaker', '${numFmt.format(machine['breakerHours'] ?? 0)} hrs'),
           _statRow('Total Hours',
-              '${_numFmt.format(machine['totalHours'] ?? 0)} hrs',
+              '${numFmt.format(machine['totalHours'] ?? 0)} hrs',
               bold: true),
         ],
       );
@@ -553,7 +551,7 @@ class _FinancialCard extends StatelessWidget {
           if ((fin['invoiceCount'] ?? 0) > 0) ...[
             _statRow('Invoices', '${fin['invoiceCount']}'),
             _statRow('Invoice Amount',
-                '₹${_currFmt.format(fin['invoiceTotal'] ?? 0)}',
+                fmtCurr(fin['invoiceTotal'] ?? 0),
                 bold: true),
           ] else
             _statRow('Invoices', 'None today'),
@@ -561,7 +559,7 @@ class _FinancialCard extends StatelessWidget {
           if ((fin['paymentCount'] ?? 0) > 0) ...[
             _statRow('Payments', '${fin['paymentCount']}'),
             _statRow('Payment Amount',
-                '₹${_currFmt.format(fin['paymentTotal'] ?? 0)}',
+                fmtCurr(fin['paymentTotal'] ?? 0),
                 bold: true),
           ] else
             _statRow('Payments', 'None today'),
@@ -615,7 +613,7 @@ class _TripsDetailTable extends StatelessWidget {
                       _TD(t['vehicle'] as String? ?? '—'),
                       _TD(t['material'] as String? ?? '—'),
                       _TD(t['quantityBrass'] != null
-                          ? '${_numFmt.format(t['quantityBrass'])} B'
+                          ? '${numFmt.format(t['quantityBrass'])} B'
                           : '—'),
                       _TD(loc.isEmpty ? '—' : loc),
                       _TD(t['dspChallanNo'] as String? ?? '—'),

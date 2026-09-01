@@ -730,10 +730,7 @@ class _LedgerTable extends StatelessWidget {
     );
   }
 
-  String _fmtNum(double v) {
-    final fmt = NumberFormat('#,##,##0.00', 'en_IN');
-    return fmt.format(v);
-  }
+  String _fmtNum(double v) => currFmt.format(v);
 }
 
 // ── Balance tile ──────────────────────────────────────────────────────────────

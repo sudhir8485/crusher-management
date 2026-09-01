@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
@@ -13,8 +14,6 @@ final _dashboardProvider =
   return Map<String, dynamic>.from(res.data as Map);
 });
 
-final _numFmt = NumberFormat('#,##,##0.##', 'en_IN');
-final _currFmt = NumberFormat('₹#,##,##0.00', 'en_IN');
 
 // ── screen ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +99,7 @@ class _DashboardBody extends StatelessWidget {
                   label: 'Trips Today',
                   value: '$todayTrips',
                   sub: todayBrass > 0
-                      ? '${_numFmt.format(todayBrass)} Brass'
+                      ? '${numFmt.format(todayBrass)} Brass'
                       : 'No brass recorded',
                   color: Colors.blue,
                   route: '/trips',
@@ -139,7 +138,7 @@ class _DashboardBody extends StatelessWidget {
                 child: _ClickCard(
                   icon: Icons.construction,
                   label: 'Machine Hrs',
-                  value: '${_numFmt.format(todayMachine)} hrs',
+                  value: '${numFmt.format(todayMachine)} hrs',
                   sub: todayMachine > 0 ? 'Today' : 'None today',
                   color: Colors.orange,
                   route: '/machine-work',
@@ -150,7 +149,7 @@ class _DashboardBody extends StatelessWidget {
                 child: _ClickCard(
                   icon: Icons.landscape,
                   label: 'Dabar Brass',
-                  value: '${_numFmt.format(todayDabar)}',
+                  value: numFmt.format(todayDabar),
                   sub: todayDabar > 0 ? 'Brass today' : 'None today',
                   color: Colors.brown,
                   route: '/dabar',
@@ -183,7 +182,7 @@ class _DashboardBody extends StatelessWidget {
                 child: _ClickCard(
                   icon: Icons.construction,
                   label: 'Machine Hours',
-                  value: '${_numFmt.format(monthMachine)} hrs',
+                  value: '${numFmt.format(monthMachine)} hrs',
                   sub: 'This month',
                   color: Colors.orange,
                   route: '/machine-work',
@@ -194,7 +193,7 @@ class _DashboardBody extends StatelessWidget {
                 child: _ClickCard(
                   icon: Icons.receipt_long,
                   label: 'Invoices',
-                  value: _currFmt.format(monthInvTotal),
+                  value: fmtCurr(monthInvTotal),
                   sub: '$monthInvCount invoice${monthInvCount == 1 ? '' : 's'}',
                   color: Colors.purple,
                   route: '/invoices',
@@ -205,7 +204,7 @@ class _DashboardBody extends StatelessWidget {
                 child: _ClickCard(
                   icon: Icons.payments,
                   label: 'Payments',
-                  value: _currFmt.format(monthPayTotal),
+                  value: fmtCurr(monthPayTotal),
                   sub: 'Received this month',
                   color: Colors.green,
                   route: '/vendor-payments',
@@ -352,7 +351,7 @@ class _DieselCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              Text('${_numFmt.format(balance)} L',
+              Text('${numFmt.format(balance)} L',
                   style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -361,11 +360,11 @@ class _DieselCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(Icons.arrow_downward, size: 11, color: Colors.green[700]),
-                  Text(' ${_numFmt.format(received)} in',
+                  Text(' ${numFmt.format(received)} in',
                       style: TextStyle(fontSize: 11, color: Colors.green[700])),
                   const SizedBox(width: 8),
                   Icon(Icons.arrow_upward, size: 11, color: Colors.red[700]),
-                  Text(' ${_numFmt.format(used)} out',
+                  Text(' ${numFmt.format(used)} out',
                       style: TextStyle(fontSize: 11, color: Colors.red[700])),
                 ],
               ),
@@ -429,7 +428,7 @@ class _FinancialCard extends StatelessWidget {
                           color: Colors.grey[600],
                           fontWeight: FontWeight.w500)),
                   const SizedBox(height: 4),
-                  Text(_currFmt.format(outstanding),
+                  Text(fmtCurr(outstanding),
                       style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
@@ -475,7 +474,7 @@ class _FinancialCard extends StatelessWidget {
                               style: TextStyle(
                                   fontSize: 11, color: Colors.grey[600])),
                           const SizedBox(height: 4),
-                          Text(_currFmt.format(totalInvoiced),
+                          Text(fmtCurr(totalInvoiced),
                               style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -503,7 +502,7 @@ class _FinancialCard extends StatelessWidget {
                               style: TextStyle(
                                   fontSize: 11, color: Colors.grey[600])),
                           const SizedBox(height: 4),
-                          Text(_currFmt.format(totalPaid),
+                          Text(fmtCurr(totalPaid),
                               style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -561,7 +560,7 @@ class _TripSummaryTable extends StatelessWidget {
             return _TR(
               label: size.isNotEmpty ? '$name ($size)' : name,
               trips: '$trips',
-              brass: _numFmt.format(brass),
+              brass: numFmt.format(brass),
             );
           }),
           Container(
@@ -573,7 +572,7 @@ class _TripSummaryTable extends StatelessWidget {
             child: _TR(
               label: 'Grand Total',
               trips: '',
-              brass: _numFmt.format(grandTotal),
+              brass: numFmt.format(grandTotal),
               bold: true,
             ),
           ),

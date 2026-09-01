@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
+import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,7 @@ class _EmployeeCard extends StatelessWidget {
 
     String wageLabel = wageType == 'MONTHLY' ? 'Monthly' : 'Daily';
     if (wageRate != null) {
-      wageLabel += ' ₹${(wageRate as num).toStringAsFixed(0)}';
+      wageLabel += ' ${fmtCurr(wageRate as num)}';
     }
 
     return Card(

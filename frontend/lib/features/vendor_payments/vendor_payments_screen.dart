@@ -33,7 +33,6 @@ final _vendorOpenInvoicesProvider =
       .toList();
 });
 
-final _fmt = NumberFormat('#,##,##0.00', 'en_IN');
 final _dateFmt = DateFormat('d MMM yyyy');
 
 // ── screen ───────────────────────────────────────────────────────────────────
@@ -119,7 +118,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
       builder: (_) => AlertDialog(
         title: const Text('Delete Payment'),
         content: Text(
-            'Delete ₹${_fmt.format(p['amount'] as num? ?? 0)} payment to ${p['vendorName']}?'),
+            'Delete ${fmtCurr(p['amount'] as num? ?? 0)} payment to ${p['vendorName']}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -162,7 +161,7 @@ class _SummaryBanner extends StatelessWidget {
           Text('Total Paid to ${totals.keys.first}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
           const Spacer(),
-          Text('₹${_fmt.format(total)}',
+          Text(fmtCurr(total),
               style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
@@ -243,7 +242,7 @@ class _PaymentCard extends StatelessWidget {
                 ],
               ),
             ),
-            Text('₹${_fmt.format(amount)}',
+            Text(fmtCurr(amount),
                 style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
