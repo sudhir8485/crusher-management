@@ -18,6 +18,21 @@ final _vendorsProvider =
   return List<Map<String, dynamic>>.from(res.data);
 });
 
+// Open invoices for a vendor (unpaid + partial)
+final _vendorOpenInvoicesProvider =
+    FutureProvider.autoDispose.family<List<Map<String, dynamic>>, int>(
+        (ref, vendorId) async {
+  final res = await ref
+      .read(apiClientProvider)
+      .get('/api/invoices', params: {'vendorId': vendorId.toString()});
+  final all = List<Map<String, dynamic>>.from(res.data);
+  return all
+      .where((i) =>
+          i['paymentStatus'] == 'UNPAID' ||
+          i['paymentStatus'] == 'PARTIAL')
+      .toList();
+});
+
 final _fmt = NumberFormat('#,##,##0.00', 'en_IN');
 final _dateFmt = DateFormat('d MMM yyyy');
 
@@ -213,6 +228,10 @@ class _PaymentCard extends StatelessWidget {
                   Text(_dateFmt.format(payDate),
                       style:
                           TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  if (payment['invoiceNo'] != null)
+                    Text('Invoice: ${payment['invoiceNo']}',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.blue[700])),
                   if (ref.isNotEmpty)
                     Text('Ref: $ref',
                         style: TextStyle(
@@ -263,6 +282,7 @@ class _PaymentForm extends ConsumerStatefulWidget {
 class _PaymentFormState extends ConsumerState<_PaymentForm> {
   final _formKey = GlobalKey<FormState>();
   int? _vendorId;
+  int? _invoiceId;
   late DateTime _date;
   String _mode = 'CASH';
   final _amtCtrl = TextEditingController();
@@ -279,6 +299,7 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
         : DateTime.now();
     if (e != null) {
       _vendorId = e['vendorId'] as int?;
+      _invoiceId = e['invoiceId'] as int?;
       _mode = e['paymentMode'] as String? ?? 'CASH';
       _amtCtrl.text = (e['amount'] as num? ?? 0).toString();
       _refCtrl.text = e['referenceNo'] as String? ?? '';
@@ -298,13 +319,13 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     final body = {
-      'vendorId': _vendorId,
+      'vendorId':    _vendorId,
+      'invoiceId':   _invoiceId,
       'paymentDate': DateFormat('yyyy-MM-dd').format(_date),
-      'amount': double.parse(_amtCtrl.text),
+      'amount':      double.parse(_amtCtrl.text),
       'paymentMode': _mode,
-      'referenceNo':
-          _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
-      'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      'referenceNo': _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
+      'notes':       _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
     };
     final api = ref.read(apiClientProvider);
     final e = widget.existing;
@@ -324,7 +345,7 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
 
     return AppDialog(
       title: isEdit ? 'Edit Payment' : 'Record Payment',
-      maxWidth: 420,
+      maxWidth: 440,
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
@@ -356,11 +377,55 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
                     value: v['id'] as int,
                     child: Text(v['name'] as String, overflow: TextOverflow.ellipsis),
                   )).toList(),
-                  onChanged: (v) => setState(() => _vendorId = v),
+                  onChanged: (v) => setState(() {
+                    _vendorId = v;
+                    _invoiceId = null; // reset invoice when vendor changes
+                  }),
                   validator: (v) => v == null ? 'Select vendor' : null,
                 );
               },
             ),
+            const SizedBox(height: 12),
+            // Invoice selector — only shown when vendor is picked
+            if (_vendorId != null)
+              ref.watch(_vendorOpenInvoicesProvider(_vendorId!)).when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (invoices) => invoices.isEmpty
+                    ? const SizedBox.shrink()
+                    : DropdownButtonFormField<int?>(
+                        decoration: const InputDecoration(
+                          labelText: 'Apply to Invoice (optional)',
+                          helperText: 'Only open invoices shown',
+                        ),
+                        value: _invoiceId,
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem(
+                              value: null, child: Text('— Not linked to an invoice —')),
+                          ...invoices.map((inv) => DropdownMenuItem<int>(
+                                value: inv['id'] as int,
+                                child: Text(
+                                  '${inv['invoiceNo']}  •  Due: ${fmtCurr(inv['outstandingAmount'] as num? ?? 0)}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              )),
+                        ],
+                        onChanged: (v) {
+                          setState(() {
+                            _invoiceId = v;
+                            // Pre-fill amount with outstanding if selected
+                            if (v != null) {
+                              final inv = invoices.firstWhere((i) => i['id'] == v);
+                              final outstanding = inv['outstandingAmount'] as num? ?? 0;
+                              if (outstanding > 0) {
+                                _amtCtrl.text = outstanding.toStringAsFixed(2);
+                              }
+                            }
+                          });
+                        },
+                      ),
+              ),
             const SizedBox(height: 12),
             DateField(
               label: 'Payment Date',

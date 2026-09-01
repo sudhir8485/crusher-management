@@ -7,6 +7,7 @@ import com.dsp.crusher.entity.GstInvoiceItem;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class GstInvoiceService {
 
     private final GstInvoiceRepository invoiceRepo;
     private final VendorRepository vendorRepo;
+    private final VendorPaymentRepository paymentRepo;
 
     public List<GstInvoiceResponse> list(Long vendorId, LocalDate from, LocalDate to) {
         List<GstInvoice> rows;
@@ -157,6 +159,19 @@ public class GstInvoiceService {
                 ir.setAmount(item.getAmount());
                 return ir;
             }).collect(Collectors.toList()));
+
+            // Payment totals
+            BigDecimal paid = paymentRepo.sumByInvoiceId(inv.getId());
+            BigDecimal outstanding = inv.getGrandTotal().subtract(paid);
+            r.setTotalPaid(paid);
+            r.setOutstandingAmount(outstanding.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : outstanding);
+            if (paid.compareTo(BigDecimal.ZERO) == 0) {
+                r.setPaymentStatus("UNPAID");
+            } else if (outstanding.compareTo(BigDecimal.valueOf(0.01)) > 0) {
+                r.setPaymentStatus("PARTIAL");
+            } else {
+                r.setPaymentStatus("PAID");
+            }
 
             return r;
         }).collect(Collectors.toList());

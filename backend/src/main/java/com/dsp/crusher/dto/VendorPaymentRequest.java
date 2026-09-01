@@ -23,4 +23,5 @@ public class VendorPaymentRequest {
 
     private String referenceNo;
     private String notes;
+    private Long invoiceId;   // optional — link payment to a specific invoice
 }

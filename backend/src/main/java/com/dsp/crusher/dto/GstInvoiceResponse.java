@@ -25,4 +25,9 @@ public class GstInvoiceResponse {
     private String notes;
     private String status;
     private List<GstInvoiceItemResponse> items;
+
+    // Computed payment info
+    private BigDecimal totalPaid;
+    private BigDecimal outstandingAmount;
+    private String paymentStatus;   // UNPAID | PARTIAL | PAID
 }

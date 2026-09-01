@@ -2,7 +2,9 @@ package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.GstInvoiceRequest;
 import com.dsp.crusher.dto.GstInvoiceResponse;
+import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.service.GstInvoiceService;
+import com.dsp.crusher.service.VendorPaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -18,6 +20,7 @@ import java.util.List;
 public class GstInvoiceController {
 
     private final GstInvoiceService service;
+    private final VendorPaymentService paymentService;
 
     @GetMapping
     public List<GstInvoiceResponse> list(
@@ -40,6 +43,11 @@ public class GstInvoiceController {
     @PutMapping("/{id}")
     public GstInvoiceResponse update(@PathVariable Long id, @Valid @RequestBody GstInvoiceRequest req) {
         return service.update(id, req);
+    }
+
+    @GetMapping("/{id}/payments")
+    public List<VendorPaymentResponse> payments(@PathVariable Long id) {
+        return paymentService.listByInvoice(id);
     }
 
     @DeleteMapping("/{id}")

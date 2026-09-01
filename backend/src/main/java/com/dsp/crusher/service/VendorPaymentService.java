@@ -3,9 +3,11 @@ package com.dsp.crusher.service;
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
+import com.dsp.crusher.entity.GstInvoice;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
+import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class VendorPaymentService {
 
     private final VendorPaymentRepository repo;
     private final VendorRepository vendorRepo;
+    private final GstInvoiceRepository invoiceRepo;
 
     public List<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to) {
         List<VendorPayment> rows;
@@ -67,6 +70,10 @@ public class VendorPaymentService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    public List<VendorPaymentResponse> listByInvoice(Long invoiceId) {
+        return enrich(repo.findByInvoiceIdAndStatusOrderByPaymentDateAscIdAsc(invoiceId, "ACTIVE"));
+    }
+
     private void apply(VendorPayment p, VendorPaymentRequest req) {
         p.setVendorId(req.getVendorId());
         p.setPaymentDate(req.getPaymentDate());
@@ -74,6 +81,7 @@ public class VendorPaymentService {
         p.setPaymentMode(req.getPaymentMode() != null ? req.getPaymentMode() : "CASH");
         p.setReferenceNo(req.getReferenceNo());
         p.setNotes(req.getNotes());
+        p.setInvoiceId(req.getInvoiceId());
     }
 
     private List<VendorPaymentResponse> enrich(List<VendorPayment> rows) {
@@ -82,10 +90,18 @@ public class VendorPaymentService {
         Map<Long, Vendor> vendors = vendorRepo.findAllById(vendorIds).stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
 
+        List<Long> invoiceIds = rows.stream()
+                .map(VendorPayment::getInvoiceId).filter(id -> id != null)
+                .distinct().collect(Collectors.toList());
+        Map<Long, GstInvoice> invoices = invoiceIds.isEmpty() ? Map.of()
+                : invoiceRepo.findAllById(invoiceIds).stream()
+                        .collect(Collectors.toMap(GstInvoice::getId, i -> i));
+
         return rows.stream().map(p -> {
             VendorPaymentResponse r = new VendorPaymentResponse();
             r.setId(p.getId());
             r.setVendorId(p.getVendorId());
+            r.setInvoiceId(p.getInvoiceId());
             r.setPaymentDate(p.getPaymentDate());
             r.setAmount(p.getAmount());
             r.setPaymentMode(p.getPaymentMode());
@@ -94,6 +110,10 @@ public class VendorPaymentService {
             r.setStatus(p.getStatus());
             Vendor v = vendors.get(p.getVendorId());
             if (v != null) r.setVendorName(v.getName());
+            if (p.getInvoiceId() != null) {
+                GstInvoice inv = invoices.get(p.getInvoiceId());
+                if (inv != null) r.setInvoiceNo(inv.getInvoiceNo());
+            }
             return r;
         }).collect(Collectors.toList());
     }

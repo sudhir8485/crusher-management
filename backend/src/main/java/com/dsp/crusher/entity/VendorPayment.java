@@ -40,6 +40,9 @@ public class VendorPayment {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    @Column(name = "invoice_id")
+    private Long invoiceId;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

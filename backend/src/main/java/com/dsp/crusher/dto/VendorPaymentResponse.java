@@ -10,6 +10,8 @@ public class VendorPaymentResponse {
     private Long id;
     private Long vendorId;
     private String vendorName;
+    private Long invoiceId;
+    private String invoiceNo;
     private LocalDate paymentDate;
     private BigDecimal amount;
     private String paymentMode;
