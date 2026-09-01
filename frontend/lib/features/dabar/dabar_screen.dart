@@ -83,7 +83,7 @@ class DabarScreen extends ConsumerWidget {
                         itemBuilder: (_, i) => _DabarCard(
                           entry: list[i],
                           onEdit: () => _showForm(context, ref, list[i], selectedDate),
-                          onDelete: () => _confirmDelete(context, ref, list[i]['id'], dateKey),
+                          onDelete: () => _confirmDelete(context, ref, list[i], dateKey),
                         ),
                       ),
                     ),
@@ -111,19 +111,23 @@ class DabarScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref, dynamic id, String dateKey) {
+  void _confirmDelete(BuildContext context, WidgetRef ref, Map<String, dynamic> entry, String dateKey) {
+    final vehicle = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
+    final vendor  = entry['vendorName'] ?? '—';
+    final brass   = entry['quantityBrass'];
+    final detail  = brass != null ? '$vehicle · $vendor · ${numFmt.format(brass)} Brass' : '$vehicle · $vendor';
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete this entry?'),
-        content: const Text('This dabar entry will be removed from the record.'),
+        title: const Text('Delete dabar entry?'),
+        content: Text('Delete: $detail?\n\nThis cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/dabar/$id');
+              await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
               ref.invalidate(_dabarProvider(dateKey));
             },
             child: const Text('Delete'),

@@ -76,7 +76,7 @@ class WaterTankerScreen extends ConsumerWidget {
                         itemBuilder: (_, i) => _TankerCard(
                           log: list[i],
                           onEdit: () => _showForm(context, ref, list[i], selectedDate),
-                          onDelete: () => _confirmDelete(context, ref, list[i]['id'], dateKey),
+                          onDelete: () => _confirmDelete(context, ref, list[i], dateKey),
                         ),
                       ),
                     ),
@@ -104,19 +104,22 @@ class WaterTankerScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref, dynamic id, String dateKey) {
+  void _confirmDelete(BuildContext context, WidgetRef ref, Map<String, dynamic> log, String dateKey) {
+    final vehicle = log['vehicleDisplayName'] ?? log['vehiclePlateNumber'] ?? '—';
+    final amount  = (log['amount'] as num?)?.toDouble();
+    final detail  = amount != null ? '$vehicle · ${fmtCurr(amount)}' : vehicle;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete this log?'),
-        content: const Text('This water tanker log will be removed.'),
+        title: const Text('Delete water tanker log?'),
+        content: Text('Delete: $detail?\n\nThis cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/water-tanker/$id');
+              await ref.read(apiClientProvider).delete('/api/water-tanker/${log['id']}');
               ref.invalidate(_tankerProvider(dateKey));
             },
             child: const Text('Delete'),

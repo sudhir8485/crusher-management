@@ -30,7 +30,7 @@ class MachinesScreen extends ConsumerWidget {
           children: [
             IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showForm(context, ref, m)),
             IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () => _confirmDelete(context, ref, m['id'])),
+                onPressed: () => _confirmDelete(context, ref, m['id'] as int, m['name'] as String)),
           ],
         ),
       ),
@@ -44,11 +44,12 @@ class MachinesScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref, int id) {
+  void _confirmDelete(BuildContext context, WidgetRef ref, int id, String name) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Deactivate machine?'),
+        content: Text('Deactivate "$name"? It will be hidden from new work log entries.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(

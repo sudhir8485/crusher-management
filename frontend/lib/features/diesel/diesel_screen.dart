@@ -206,7 +206,8 @@ class _ReceiptsTab extends ConsumerWidget {
                       itemBuilder: (_, i) => _ReceiptCard(
                         r: list[i],
                         onEdit: () => _showReceiptForm(context, ref, list[i], selectedDate, onChanged),
-                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/receipts/${list[i]['id']}', dateKey, onChanged),
+                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/receipts/${list[i]['id']}', dateKey, onChanged,
+                            label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L from ${list[i]['vendorName'] ?? "pump"}'),
                       ),
                     ),
                   ),
@@ -258,7 +259,8 @@ class _UsagesTab extends ConsumerWidget {
                       itemBuilder: (_, i) => _UsageCard(
                         u: list[i],
                         onEdit: () => _showUsageForm(context, ref, list[i], selectedDate, onChanged),
-                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/usages/${list[i]['id']}', dateKey, onChanged),
+                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/usages/${list[i]['id']}', dateKey, onChanged,
+                            label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L used by ${list[i]['machineName'] ?? list[i]['vehicleDisplayName'] ?? "unknown"}'),
                       ),
                     ),
                   ),
@@ -298,12 +300,13 @@ void _showUsageForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? e
   );
 }
 
-void _confirmDelete(BuildContext context, WidgetRef ref, String path, String dateKey, VoidCallback onChanged) {
+void _confirmDelete(BuildContext context, WidgetRef ref, String path, String dateKey, VoidCallback onChanged,
+    {String label = 'this entry'}) {
   showDialog(
     context: context,
     builder: (_) => AlertDialog(
-      title: const Text('Delete this entry?'),
-      content: const Text('This record will be removed.'),
+      title: const Text('Delete diesel entry?'),
+      content: Text('Delete $label?\n\nThis cannot be undone.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
