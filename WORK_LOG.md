@@ -328,8 +328,45 @@ Dashboard · Trips · Daily Report · Dabar · Water Tanker · Diesel · Machine
 
 ---
 
+## Rename Vendor → Party (2026-09-02, commit: 346347f)
+
+### Context
+The app used "Vendor" everywhere for the parties DSP sells material to — but in a GST invoice, DSP is the seller and R.D. Samant / Malganga Construction are the buyers (customers). However, the same entity can also supply diesel to DSP, making them a vendor in that context. Indian accounting software (Tally) uses "Party" for this dual-role concept. Changed throughout.
+
+### Strategy
+Renamed only user-visible labels and API paths. Internal Java class names (`VendorService`, `VendorController`, `Vendor` entity, `VendorPayment`, etc.) and Dart provider names left unchanged to avoid large churn with no user benefit.
+
+### Backend (4 files)
+- `VendorController.java`: `@RequestMapping("/api/vendors")` → `@RequestMapping("/api/parties")`; Swagger tag/summary strings updated
+- `VendorPaymentController.java`: `@RequestMapping("/api/vendor-payments")` → `@RequestMapping("/api/party-payments")`
+- `LedgerController.java`: `@GetMapping("/vendor/{vendorId}")` → `@GetMapping("/party/{partyId}")`
+- `SecurityConfig.java`: path matcher `"/api/vendor-payments/**"` → `"/api/party-payments/**"`
+
+### Frontend (13 files)
+| What changed | Before | After |
+|---|---|---|
+| Sidebar nav item | Vendors | Parties |
+| Routes | /vendors, /vendor-payments | /parties, /party-payments |
+| Screen titles | Vendor Payments, Vendor Ledger | Party Payments, Party Ledger |
+| Picker labels | Vendor *, Select vendor | Party *, Select party |
+| Dabar picker | Vendor / Supplier | Party |
+| Reports filter | Vendor, All Vendors | Party, All Parties |
+| Vehicle/Machine owner | Vendor | Party (External) |
+| Dashboard nav | context.go('/vendor-payments') | context.go('/party-payments') |
+| All API calls | /api/vendors, /api/vendor-payments, /api/ledger/vendor/ | /api/parties, /api/party-payments, /api/ledger/party/ |
+
+### Verified
+- `GET /api/parties` → 200 ✓
+- `GET /api/party-payments` → 200 ✓
+- `GET /api/ledger/party/2` → 200 ✓
+- Old paths (`/api/vendors`, `/api/vendor-payments`, `/api/ledger/vendor/*`) → no longer served ✓
+- SITE_STAFF blocked from `/api/party-payments` → 403 ✓
+- `dart analyze` → 0 errors ✓
+
+---
+
 ## Final State
 
-**Git:** branch `master`, last commit `6f9783c` (production readiness audit)
-**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`, role-gated financial endpoints, input validation
-**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar, redesigned accounting ledger
+**Git:** branch `master`, last commit `346347f` (Vendor → Party rename)
+**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`, role-gated financial endpoints, input validation; API paths use `/api/parties`, `/api/party-payments`, `/api/ledger/party/`
+**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar, redesigned accounting ledger; all "Vendor" labels replaced with "Party"
