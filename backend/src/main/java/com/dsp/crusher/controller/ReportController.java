@@ -1,6 +1,8 @@
 package com.dsp.crusher.controller;
 
+import com.dsp.crusher.dto.ConsolidatedDailyReport;
 import com.dsp.crusher.dto.ReportResponse;
+import com.dsp.crusher.service.DailyReportService;
 import com.dsp.crusher.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -14,6 +16,13 @@ import java.time.LocalDate;
 public class ReportController {
 
     private final ReportService service;
+    private final DailyReportService dailyService;
+
+    @GetMapping("/daily")
+    public ConsolidatedDailyReport daily(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return dailyService.build(date != null ? date : LocalDate.now());
+    }
 
     private LocalDate defaultFrom(LocalDate to) {
         return to.withDayOfMonth(1);
