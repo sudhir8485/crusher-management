@@ -38,12 +38,48 @@ class MasterShell extends StatelessWidget {
 
 // ── sidebar ───────────────────────────────────────────────────────────────────
 
-class _AppSidebar extends StatelessWidget {
+class _AppSidebar extends StatefulWidget {
   final int selectedIndex;
   const _AppSidebar({required this.selectedIndex});
 
   @override
+  State<_AppSidebar> createState() => _AppSidebarState();
+}
+
+class _AppSidebarState extends State<_AppSidebar> {
+  String? _role;
+
+  @override
+  void initState() {
+    super.initState();
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _role = r);
+    });
+  }
+
+  // SITE_STAFF cannot see Finance (8/9/10) or Admin/Users (13).
+  // Default (null role = still loading) shows everything so there's no flash.
+  bool _visible(int index) {
+    if (_role == 'SITE_STAFF') {
+      return !const {8, 9, 10, 13}.contains(index);
+    }
+    return true;
+  }
+
+  Widget _item(IconData icon, IconData selIcon, String label, int index) {
+    if (!_visible(index)) return const SizedBox.shrink();
+    return _NavItem(
+      icon: icon, selectedIcon: selIcon,
+      label: label, index: index,
+      selected: widget.selectedIndex,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final showFinance = _visible(8) || _visible(9) || _visible(10);
+    final showAdmin   = _visible(13);
+
     return Container(
       width: 200,
       color: Theme.of(context).colorScheme.surface,
@@ -90,61 +126,45 @@ class _AppSidebar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _NavSection('Operations'),
-                _NavItem(icon: Icons.dashboard_outlined, selectedIcon: Icons.dashboard,
-                    label: 'Dashboard', index: 0, selected: selectedIndex),
-                _NavItem(icon: Icons.swap_horiz_outlined, selectedIcon: Icons.swap_horiz,
-                    label: 'Trips', index: 1, selected: selectedIndex),
-                _NavItem(icon: Icons.summarize_outlined, selectedIcon: Icons.summarize,
-                    label: 'Daily Report', index: 2, selected: selectedIndex),
-                _NavItem(icon: Icons.terrain_outlined, selectedIcon: Icons.terrain,
-                    label: 'Dabar', index: 3, selected: selectedIndex),
-                _NavItem(icon: Icons.water_drop_outlined, selectedIcon: Icons.water_drop,
-                    label: 'Water Tanker', index: 4, selected: selectedIndex),
-                _NavItem(icon: Icons.local_gas_station_outlined, selectedIcon: Icons.local_gas_station,
-                    label: 'Diesel', index: 5, selected: selectedIndex),
-                _NavItem(icon: Icons.construction_outlined, selectedIcon: Icons.construction,
-                    label: 'Machine Work', index: 6, selected: selectedIndex),
-                _NavItem(icon: Icons.bar_chart_outlined, selectedIcon: Icons.bar_chart,
-                    label: 'Reports', index: 7, selected: selectedIndex),
+                _item(Icons.dashboard_outlined, Icons.dashboard, 'Dashboard', 0),
+                _item(Icons.swap_horiz_outlined, Icons.swap_horiz, 'Trips', 1),
+                _item(Icons.summarize_outlined, Icons.summarize, 'Daily Report', 2),
+                _item(Icons.terrain_outlined, Icons.terrain, 'Dabar', 3),
+                _item(Icons.water_drop_outlined, Icons.water_drop, 'Water Tanker', 4),
+                _item(Icons.local_gas_station_outlined, Icons.local_gas_station, 'Diesel', 5),
+                _item(Icons.construction_outlined, Icons.construction, 'Machine Work', 6),
+                _item(Icons.bar_chart_outlined, Icons.bar_chart, 'Reports', 7),
 
-                const SizedBox(height: 4),
-                _NavSection('Finance'),
-                _NavItem(icon: Icons.receipt_long_outlined, selectedIcon: Icons.receipt_long,
-                    label: 'Invoices', index: 8, selected: selectedIndex),
-                _NavItem(icon: Icons.payments_outlined, selectedIcon: Icons.payments,
-                    label: 'Payments', index: 9, selected: selectedIndex),
-                _NavItem(icon: Icons.account_balance_outlined, selectedIcon: Icons.account_balance,
-                    label: 'Ledger', index: 10, selected: selectedIndex),
+                if (showFinance) ...[
+                  const SizedBox(height: 4),
+                  _NavSection('Finance'),
+                  _item(Icons.receipt_long_outlined, Icons.receipt_long, 'Invoices', 8),
+                  _item(Icons.payments_outlined, Icons.payments, 'Payments', 9),
+                  _item(Icons.account_balance_outlined, Icons.account_balance, 'Ledger', 10),
+                ],
 
                 const SizedBox(height: 4),
                 _NavSection('Workforce'),
-                _NavItem(icon: Icons.fact_check_outlined, selectedIcon: Icons.fact_check,
-                    label: 'Attendance', index: 11, selected: selectedIndex),
-                _NavItem(icon: Icons.badge_outlined, selectedIcon: Icons.badge,
-                    label: 'Employees', index: 14, selected: selectedIndex),
+                _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 11),
+                _item(Icons.badge_outlined, Icons.badge, 'Employees', 14),
 
                 const SizedBox(height: 4),
                 _NavSection('Vehicles'),
-                _NavItem(icon: Icons.directions_car_outlined, selectedIcon: Icons.directions_car,
-                    label: 'Vehicle Log', index: 12, selected: selectedIndex),
-                _NavItem(icon: Icons.local_shipping_outlined, selectedIcon: Icons.local_shipping,
-                    label: 'Vehicles', index: 16, selected: selectedIndex),
+                _item(Icons.directions_car_outlined, Icons.directions_car, 'Vehicle Log', 12),
+                _item(Icons.local_shipping_outlined, Icons.local_shipping, 'Vehicles', 16),
 
                 const SizedBox(height: 4),
                 _NavSection('Master Data'),
-                _NavItem(icon: Icons.people_outline, selectedIcon: Icons.people,
-                    label: 'Vendors', index: 15, selected: selectedIndex),
-                _NavItem(icon: Icons.precision_manufacturing_outlined, selectedIcon: Icons.precision_manufacturing,
-                    label: 'Machines', index: 17, selected: selectedIndex),
-                _NavItem(icon: Icons.category_outlined, selectedIcon: Icons.category,
-                    label: 'Materials', index: 18, selected: selectedIndex),
-                _NavItem(icon: Icons.location_on_outlined, selectedIcon: Icons.location_on,
-                    label: 'Sites', index: 19, selected: selectedIndex),
+                _item(Icons.people_outline, Icons.people, 'Vendors', 15),
+                _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 17),
+                _item(Icons.category_outlined, Icons.category, 'Materials', 18),
+                _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 19),
 
-                const SizedBox(height: 4),
-                _NavSection('Admin'),
-                _NavItem(icon: Icons.manage_accounts_outlined, selectedIcon: Icons.manage_accounts,
-                    label: 'Users', index: 13, selected: selectedIndex),
+                if (showAdmin) ...[
+                  const SizedBox(height: 4),
+                  _NavSection('Admin'),
+                  _item(Icons.manage_accounts_outlined, Icons.manage_accounts, 'Users', 13),
+                ],
               ],
             ),
           ),
