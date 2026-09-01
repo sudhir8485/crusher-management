@@ -24,4 +24,13 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
 
     @Query("SELECT t.materialId, COUNT(t), COALESCE(SUM(t.quantityBrass), 0) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' GROUP BY t.materialId")
     List<Object[]> summarizeByMaterial(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    // for reports — ASC order, with optional filters
+    List<Trip> findByTripDateBetweenAndStatusOrderByTripDateAscIdAsc(LocalDate from, LocalDate to, String status);
+
+    List<Trip> findByVehicleIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(Long vehicleId, LocalDate from, LocalDate to, String status);
+
+    List<Trip> findByMaterialIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(Long materialId, LocalDate from, LocalDate to, String status);
+
+    List<Trip> findByVendorIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(Long vendorId, LocalDate from, LocalDate to, String status);
 }

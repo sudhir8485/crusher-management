@@ -20,4 +20,11 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     @Query("SELECT COALESCE(SUM(m.totalHours), 0) FROM MachineWorkLog m WHERE m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE'")
     BigDecimal sumHoursByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    // for reports — ASC order, optional machine filter
+    List<MachineWorkLog> findByLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
+            LocalDate from, LocalDate to, String status);
+
+    List<MachineWorkLog> findByMachineIdAndLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
+            Long machineId, LocalDate from, LocalDate to, String status);
 }

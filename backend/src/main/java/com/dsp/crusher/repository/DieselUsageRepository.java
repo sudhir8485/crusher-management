@@ -14,4 +14,9 @@ public interface DieselUsageRepository extends JpaRepository<DieselUsage, Long> 
 
     @Query("SELECT COALESCE(SUM(u.quantityLiters), 0) FROM DieselUsage u WHERE u.status = 'ACTIVE'")
     BigDecimal sumTotalUsed();
+
+    List<DieselUsage> findByUsageDateBetweenAndStatusOrderByUsageDateAscIdAsc(LocalDate from, LocalDate to, String status);
+
+    @Query("SELECT COALESCE(SUM(u.quantityLiters), 0) FROM DieselUsage u WHERE u.usageDate < :before AND u.status = 'ACTIVE'")
+    BigDecimal sumUsedBefore(@org.springframework.data.repository.query.Param("before") LocalDate before);
 }

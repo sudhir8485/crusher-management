@@ -13,4 +13,11 @@ public interface VehicleDailyLogRepository extends JpaRepository<VehicleDailyLog
 
     List<VehicleDailyLog> findByLogDateBetweenAndStatusOrderByLogDateDescIdDesc(
             LocalDate from, LocalDate to, String status);
+
+    // for reports — ASC order, optional vehicle filter
+    List<VehicleDailyLog> findByLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
+            LocalDate from, LocalDate to, String status);
+
+    List<VehicleDailyLog> findByVehicleIdAndLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
+            Long vehicleId, LocalDate from, LocalDate to, String status);
 }
