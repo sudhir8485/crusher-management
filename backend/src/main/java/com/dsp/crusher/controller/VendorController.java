@@ -15,41 +15,41 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/vendors")
-@Tag(name = "Vendors")
+@RequestMapping("/api/parties")
+@Tag(name = "Parties")
 @RequiredArgsConstructor
 public class VendorController {
 
     private final VendorService service;
 
     @GetMapping
-    @Operation(summary = "List all active vendors")
+    @Operation(summary = "List all active parties")
     public List<Vendor> list() {
         return service.listActive();
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get vendor by ID")
+    @Operation(summary = "Get party by ID")
     public Vendor get(@PathVariable Long id) {
         return service.getById(id);
     }
 
     @PostMapping
-    @Operation(summary = "Add a new vendor")
+    @Operation(summary = "Add a new party")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public ResponseEntity<Vendor> create(@Valid @RequestBody VendorRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update vendor")
+    @Operation(summary = "Update party")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public Vendor update(@PathVariable Long id, @Valid @RequestBody VendorRequest req) {
         return service.update(id, req);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate vendor")
+    @Operation(summary = "Deactivate party")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);

@@ -19,7 +19,7 @@ final _vehiclesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>
 });
 
 final _vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendors');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -382,7 +382,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
               data: (list) => SearchablePicker(
                 items: list,
                 itemLabel: (v) => v['name'] as String,
-                fieldLabel: 'Vendor / Supplier',
+                fieldLabel: 'Party',
                 value: _vendorId,
                 clearable: true,
                 onChanged: (v) => setState(() => _vendorId = v),

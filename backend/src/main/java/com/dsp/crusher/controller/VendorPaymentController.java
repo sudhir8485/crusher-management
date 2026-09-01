@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 
 @RestController
-@RequestMapping("/api/vendor-payments")
+@RequestMapping("/api/party-payments")
 @RequiredArgsConstructor
 public class VendorPaymentController {
 

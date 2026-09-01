@@ -15,14 +15,14 @@ public class LedgerController {
 
     private final LedgerService service;
 
-    @GetMapping("/vendor/{vendorId}")
+    @GetMapping("/party/{partyId}")
     public VendorLedgerResponse vendorLedger(
-            @PathVariable Long vendorId,
+            @PathVariable Long partyId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
 
         LocalDate effectiveTo   = (to   != null) ? to   : LocalDate.now();
         LocalDate effectiveFrom = (from != null) ? from : effectiveTo.withDayOfMonth(1);
-        return service.vendorLedger(vendorId, effectiveFrom, effectiveTo);
+        return service.vendorLedger(partyId, effectiveFrom, effectiveTo);
     }
 }

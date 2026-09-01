@@ -129,7 +129,7 @@ class _MachineFormState extends ConsumerState<_MachineForm> {
                 decoration: const InputDecoration(labelText: 'Owner'),
                 items: const [
                   DropdownMenuItem(value: 'TENANT', child: Text('Tenant (our own)')),
-                  DropdownMenuItem(value: 'VENDOR', child: Text('Vendor')),
+                  DropdownMenuItem(value: 'VENDOR', child: Text('Party (External)')),
                 ],
                 onChanged: (v) => setState(() => _owner = v!),
               ),
@@ -139,7 +139,7 @@ class _MachineFormState extends ConsumerState<_MachineForm> {
                   data: (list) => SearchablePicker(
                     items: list,
                     itemLabel: (v) => v['name'] as String,
-                    fieldLabel: 'Vendor',
+                    fieldLabel: 'Party',
                     value: _vendorId,
                     onChanged: (v) => setState(() => _vendorId = v),
                     validator: (v) => v == null ? 'Select vendor' : null,

@@ -12,7 +12,7 @@ final vehiclesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
 
 final vendorListProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final api = ref.read(apiClientProvider);
-  final res = await api.get('/api/vendors');
+  final res = await api.get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -141,7 +141,7 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
                 decoration: const InputDecoration(labelText: 'Owner'),
                 items: const [
                   DropdownMenuItem(value: 'TENANT', child: Text('Tenant (our own)')),
-                  DropdownMenuItem(value: 'VENDOR', child: Text('Vendor')),
+                  DropdownMenuItem(value: 'VENDOR', child: Text('Party (External)')),
                 ],
                 onChanged: (v) => setState(() => _owner = v!),
               ),
@@ -151,7 +151,7 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
                   data: (list) => SearchablePicker(
                     items: list,
                     itemLabel: (v) => v['name'] as String,
-                    fieldLabel: 'Vendor',
+                    fieldLabel: 'Party',
                     value: _vendorId,
                     onChanged: (v) => setState(() => _vendorId = v),
                     validator: (v) => v == null ? 'Select vendor' : null,

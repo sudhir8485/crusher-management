@@ -25,9 +25,9 @@ class MasterShell extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
-    '/invoices', '/vendor-payments', '/ledger',
+    '/invoices', '/party-payments', '/ledger',
     '/attendance', '/vehicle-daily-log',
-    '/users', '/employees', '/vendors', '/vehicles', '/machines', '/materials', '/sites',
+    '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
   ];
 
   int _indexFor(String location) {
@@ -155,7 +155,7 @@ class _AppSidebarState extends State<_AppSidebar> {
 
                 const SizedBox(height: 4),
                 _NavSection('Master Data'),
-                _item(Icons.people_outline, Icons.people, 'Vendors', 15),
+                _item(Icons.people_outline, Icons.people, 'Parties', 15),
                 _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 17),
                 _item(Icons.category_outlined, Icons.category, 'Materials', 18),
                 _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 19),
@@ -226,9 +226,9 @@ class _NavItem extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
-    '/invoices', '/vendor-payments', '/ledger',
+    '/invoices', '/party-payments', '/ledger',
     '/attendance', '/vehicle-daily-log',
-    '/users', '/employees', '/vendors', '/vehicles', '/machines', '/materials', '/sites',
+    '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
   ];
 
   @override

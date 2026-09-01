@@ -46,7 +46,7 @@ _DateRange _presetRange(DateRangePreset p) {
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendors');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -72,7 +72,7 @@ final _ledgerProvider =
         (ref, p) async {
   final res = await ref
       .read(apiClientProvider)
-      .get('/api/ledger/vendor/${p.vendorId}', params: {'from': p.from, 'to': p.to});
+      .get('/api/ledger/party/${p.vendorId}', params: {'from': p.from, 'to': p.to});
   return Map<String, dynamic>.from(res.data);
 });
 
@@ -127,7 +127,7 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
     final vendors = ref.watch(_vendorsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Vendor Ledger')),
+      appBar: AppBar(title: const Text('Party Ledger')),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -146,7 +146,7 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                     return SearchablePicker(
                       items: active,
                       itemLabel: (v) => v['name'] as String,
-                      fieldLabel: 'Select Vendor / Party',
+                      fieldLabel: 'Select Party',
                       value: _vendorId,
                       onChanged: (v) {
                         setState(() {
@@ -194,8 +194,8 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
             child: _vendorId == null
                 ? const AppEmptyState(
                     icon: Icons.account_balance_outlined,
-                    message: 'Select a vendor to view their ledger',
-                    hint: 'Choose vendor and date range above',
+                    message: 'Select a party to view their ledger',
+                    hint: 'Choose party and date range above',
                   )
                 : _LedgerContent(
                     params: _LedgerParams(_vendorId!, _fromStr, _toStr),

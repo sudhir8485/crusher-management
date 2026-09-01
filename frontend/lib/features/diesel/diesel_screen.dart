@@ -25,7 +25,7 @@ final _usagesProvider = FutureProvider.autoDispose.family<List<Map<String, dynam
 });
 
 final _vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendors');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 

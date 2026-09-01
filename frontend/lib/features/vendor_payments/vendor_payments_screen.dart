@@ -37,7 +37,7 @@ class _PaymentsNotifier
 
   Future<void> _load(int page, List<Map<String, dynamic>> existing) async {
     try {
-      final res = await _api.get('/api/vendor-payments',
+      final res = await _api.get('/api/party-payments',
           params: {'page': '$page', 'size': '$_pageSize'});
       final d = res.data as Map<String, dynamic>;
       final content =
@@ -76,7 +76,7 @@ final _paymentsNotifierProvider = StateNotifierProvider.autoDispose<
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendors');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -110,7 +110,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vendor Payments'),
+        title: const Text('Party Payments'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -131,7 +131,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
             return const AppEmptyState(
               icon: Icons.payments_outlined,
               message: 'No payments recorded yet',
-              hint: 'Tap + to record a vendor payment',
+              hint: 'Tap + to record a party payment',
             );
           }
 
@@ -203,7 +203,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
               Navigator.pop(ctx);
               await ref
                   .read(apiClientProvider)
-                  .delete('/api/vendor-payments/${p['id']}');
+                  .delete('/api/party-payments/${p['id']}');
               ref.read(_paymentsNotifierProvider.notifier).refresh();
             },
             child: const Text('Delete'),
@@ -426,9 +426,9 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
     final api = ref.read(apiClientProvider);
     final e = widget.existing;
     if (e == null) {
-      await api.post('/api/vendor-payments', data: body);
+      await api.post('/api/party-payments', data: body);
     } else {
-      await api.put('/api/vendor-payments/${e['id']}', data: body);
+      await api.put('/api/party-payments/${e['id']}', data: body);
     }
     widget.onSaved();
     if (mounted) Navigator.pop(context);
@@ -468,13 +468,13 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
                 return SearchablePicker(
                   items: active,
                   itemLabel: (v) => v['name'] as String,
-                  fieldLabel: 'Vendor *',
+                  fieldLabel: 'Party *',
                   value: _vendorId,
                   onChanged: (v) => setState(() {
                     _vendorId = v;
                     _invoiceId = null;
                   }),
-                  validator: (v) => v == null ? 'Select vendor' : null,
+                  validator: (v) => v == null ? 'Select party' : null,
                 );
               },
             ),

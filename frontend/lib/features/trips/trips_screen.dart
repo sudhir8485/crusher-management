@@ -30,7 +30,7 @@ final _vehiclesProvider =
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendors');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -503,10 +503,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
               data: (list) => SearchablePicker(
                 items: list,
                 itemLabel: (v) => v['name'] as String,
-                fieldLabel: 'Vendor *',
+                fieldLabel: 'Party *',
                 value: _vendorId,
                 onChanged: (v) => setState(() => _vendorId = v),
-                validator: (v) => v == null ? 'Select vendor' : null,
+                validator: (v) => v == null ? 'Select party' : null,
               ),
             ),
 

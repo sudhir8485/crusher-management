@@ -168,7 +168,7 @@ class _DashboardBody extends StatelessWidget {
             totalPaid: totalPaid,
             outstanding: outstanding,
             onInvoices: () => context.go('/invoices'),
-            onPayments: () => context.go('/vendor-payments'),
+            onPayments: () => context.go('/party-payments'),
           ),
 
           const SizedBox(height: 20),
@@ -207,7 +207,7 @@ class _DashboardBody extends StatelessWidget {
                   value: fmtCurr(monthPayTotal),
                   sub: 'Received this month',
                   color: Colors.green,
-                  route: '/vendor-payments',
+                  route: '/party-payments',
                 ),
               ),
             ],

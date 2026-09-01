@@ -5,7 +5,7 @@ import '../widgets/master_list_screen.dart';
 
 final vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final api = ref.read(apiClientProvider);
-  final res = await api.get('/api/vendors');
+  final res = await api.get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -16,7 +16,7 @@ class VendorsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final vendors = ref.watch(vendorsProvider);
     return MasterListScreen(
-      title: 'Vendors',
+      title: 'Parties',
       items: vendors,
       onRefresh: () => ref.invalidate(vendorsProvider),
       onAdd: () => _showForm(context, ref, null),
@@ -47,7 +47,7 @@ class VendorsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Deactivate vendor?'),
+        title: const Text('Deactivate party?'),
         content: Text('Deactivate "$name"? They will be marked inactive and hidden from new entries.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
@@ -55,7 +55,7 @@ class VendorsScreen extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(context);
               final api = ref.read(apiClientProvider);
-              await api.delete('/api/vendors/$id');
+              await api.delete('/api/parties/$id');
               ref.invalidate(vendorsProvider);
             },
             child: const Text('Deactivate'),
@@ -95,9 +95,9 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
     final api = ref.read(apiClientProvider);
     final data = {'name': _name.text, 'gstin': _gstin.text, 'contact': _contact.text, 'address': _address.text};
     if (widget.existing == null) {
-      await api.post('/api/vendors', data: data);
+      await api.post('/api/parties', data: data);
     } else {
-      await api.put('/api/vendors/${widget.existing!['id']}', data: data);
+      await api.put('/api/parties/${widget.existing!['id']}', data: data);
     }
     if (mounted) { Navigator.pop(context); widget.onSaved(); }
   }
@@ -105,7 +105,7 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.existing == null ? 'Add Vendor' : 'Edit Vendor'),
+      title: Text(widget.existing == null ? 'Add Party' : 'Edit Party'),
       content: SizedBox(
         width: 400,
         child: Form(
