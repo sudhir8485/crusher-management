@@ -30,4 +30,8 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
     // All invoices for a vendor up to a date (for opening balance calculation)
     @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.vendorId = :vendorId AND i.invoiceDate < :before AND i.status = 'ACTIVE'")
     BigDecimal sumGrandTotalByVendorBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
+
+    // Total invoiced (all active invoices)
+    @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.status = 'ACTIVE'")
+    BigDecimal sumAllGrandTotal();
 }

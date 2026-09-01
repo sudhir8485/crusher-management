@@ -26,6 +26,17 @@ public class DashboardResponse {
     private long monthlyInvoiceCount;
     private BigDecimal monthlyPaymentsTotal;
 
+    // Today extras
+    private int todayAttendancePresent;
+    private int todayAttendanceTotal;
+    private BigDecimal todayMachineHours;
+    private BigDecimal todayDabarBrass;
+
+    // Financial position (all time)
+    private BigDecimal totalInvoiced;
+    private BigDecimal totalPaymentsLinked;
+    private BigDecimal totalOutstanding;
+
     // Month trip summary by material
     private List<MaterialSummary> monthlyTripSummary;
 

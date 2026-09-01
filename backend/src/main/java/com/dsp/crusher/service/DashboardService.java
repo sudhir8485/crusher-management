@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.DashboardResponse;
+import com.dsp.crusher.entity.DabarEntry;
 import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ public class DashboardService {
     private final GstInvoiceRepository invoiceRepo;
     private final VendorPaymentRepository paymentRepo;
     private final MaterialRepository materialRepo;
+    private final AttendanceService attendanceService;
+    private final DabarEntryRepository dabarRepo;
 
     public DashboardResponse get() {
         LocalDate today = LocalDate.now();
@@ -47,6 +51,28 @@ public class DashboardService {
         r.setMonthlyInvoiceTotal(invoiceRepo.sumGrandTotalByDateRange(monthStart, today));
         r.setMonthlyInvoiceCount(invoiceRepo.countByInvoiceDateBetweenAndStatus(monthStart, today, "ACTIVE"));
         r.setMonthlyPaymentsTotal(paymentRepo.sumByDateRange(monthStart, today));
+
+        // Today's attendance
+        AttendanceDayResponse att = attendanceService.getDay(today);
+        r.setTodayAttendancePresent(att.getPresentCount());
+        r.setTodayAttendanceTotal(att.getEmployees().size());
+
+        // Today's machine hours
+        r.setTodayMachineHours(machineRepo.sumHoursByDateRange(today, today));
+
+        // Today's dabar brass
+        List<DabarEntry> dabarToday = dabarRepo.findByEntryDateAndStatusOrderByIdAsc(today, "ACTIVE");
+        BigDecimal dabarBrass = dabarToday.stream()
+                .map(e -> e.getQuantityBrass() != null ? e.getQuantityBrass() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        r.setTodayDabarBrass(dabarBrass);
+
+        // Financial position (all-time)
+        BigDecimal totalInv = invoiceRepo.sumAllGrandTotal();
+        BigDecimal totalPaid = paymentRepo.sumAllLinkedPayments();
+        r.setTotalInvoiced(totalInv);
+        r.setTotalPaymentsLinked(totalPaid);
+        r.setTotalOutstanding(totalInv.subtract(totalPaid));
 
         // Monthly trip summary by material
         List<Object[]> rows = tripRepo.summarizeByMaterial(monthStart, today);

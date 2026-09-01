@@ -3,6 +3,7 @@ package com.dsp.crusher.service;
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.AttendanceMarkRequest;
+import com.dsp.crusher.dto.AttendanceMonthlyResponse;
 import com.dsp.crusher.entity.AttendanceRecord;
 import com.dsp.crusher.entity.Employee;
 import com.dsp.crusher.repository.AttendanceRepository;
@@ -12,9 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.time.YearMonth;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -95,5 +95,55 @@ public class AttendanceService {
         attendanceRepo.save(rec);
 
         return getDay(req.getDate());
+    }
+
+    public AttendanceMonthlyResponse getMonth(YearMonth ym) {
+        LocalDate from = ym.atDay(1);
+        LocalDate to = ym.atEndOfMonth();
+        int daysInMonth = ym.lengthOfMonth();
+
+        List<Employee> activeEmployees = employeeRepo.findByStatusOrderByNameAsc("ACTIVE");
+        List<AttendanceRecord> records =
+                attendanceRepo.findByAttendanceDateBetweenOrderByAttendanceDateAscEmployeeIdAsc(from, to);
+
+        // employeeId → (dayOfMonth → status)
+        Map<Long, Map<Integer, String>> byEmployee = new HashMap<>();
+        for (AttendanceRecord rec : records) {
+            byEmployee
+                .computeIfAbsent(rec.getEmployeeId(), k -> new HashMap<>())
+                .put(rec.getAttendanceDate().getDayOfMonth(), rec.getStatus());
+        }
+
+        List<AttendanceMonthlyResponse.EmployeeMonth> empList = activeEmployees.stream().map(emp -> {
+            AttendanceMonthlyResponse.EmployeeMonth em = new AttendanceMonthlyResponse.EmployeeMonth();
+            em.setEmployeeId(emp.getId());
+            em.setEmployeeName(emp.getName());
+            em.setDesignation(emp.getDesignation());
+            em.setWageType(emp.getWageType());
+
+            Map<Integer, String> dayMap = byEmployee.getOrDefault(emp.getId(), Collections.emptyMap());
+            List<String> days = new ArrayList<>();
+            int present = 0, half = 0, absent = 0, leave = 0;
+            for (int d = 1; d <= daysInMonth; d++) {
+                String status = dayMap.get(d);
+                days.add(status);
+                if ("PRESENT".equals(status)) present++;
+                else if ("HALF_DAY".equals(status)) half++;
+                else if ("ABSENT".equals(status)) absent++;
+                else if ("LEAVE".equals(status)) leave++;
+            }
+            em.setDays(days);
+            em.setPresentCount(present);
+            em.setHalfDayCount(half);
+            em.setAbsentCount(absent);
+            em.setLeaveCount(leave);
+            return em;
+        }).collect(Collectors.toList());
+
+        AttendanceMonthlyResponse r = new AttendanceMonthlyResponse();
+        r.setMonth(ym.toString());
+        r.setDaysInMonth(daysInMonth);
+        r.setEmployees(empList);
+        return r;
     }
 }

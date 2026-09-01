@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
@@ -13,7 +14,7 @@ final _dashboardProvider =
 });
 
 final _numFmt = NumberFormat('#,##,##0.##', 'en_IN');
-final _currFmt = NumberFormat('#,##,##0.00', 'en_IN');
+final _currFmt = NumberFormat('₹#,##,##0.00', 'en_IN');
 
 // ── screen ────────────────────────────────────────────────────────────────────
 
@@ -54,21 +55,33 @@ class _DashboardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final todayTrips = data['todayTripCount'] as int? ?? 0;
-    final todayBrass = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
-    final dieselBalance =
-        (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
-    final dieselReceived =
-        (data['dieselTotalReceived'] as num?)?.toDouble() ?? 0;
-    final dieselUsed = (data['dieselTotalUsed'] as num?)?.toDouble() ?? 0;
-    final machineHours =
-        (data['monthlyMachineHours'] as num?)?.toDouble() ?? 0;
-    final invoiceTotal =
-        (data['monthlyInvoiceTotal'] as num?)?.toDouble() ?? 0;
-    final invoiceCount = data['monthlyInvoiceCount'] as int? ?? 0;
-    final payTotal = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
-    final tripSummary =
-        List<Map<String, dynamic>>.from(data['monthlyTripSummary'] as List? ?? []);
+    // Today
+    final todayTrips     = data['todayTripCount'] as int? ?? 0;
+    final todayBrass     = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
+    final attPresent     = data['todayAttendancePresent'] as int? ?? 0;
+    final attTotal       = data['todayAttendanceTotal'] as int? ?? 0;
+    final todayMachine   = (data['todayMachineHours'] as num?)?.toDouble() ?? 0;
+    final todayDabar     = (data['todayDabarBrass'] as num?)?.toDouble() ?? 0;
+
+    // Diesel
+    final dieselBalance  = (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
+    final dieselReceived = (data['dieselTotalReceived'] as num?)?.toDouble() ?? 0;
+    final dieselUsed     = (data['dieselTotalUsed'] as num?)?.toDouble() ?? 0;
+
+    // Financial position
+    final totalInv       = (data['totalInvoiced'] as num?)?.toDouble() ?? 0;
+    final totalPaid      = (data['totalPaymentsLinked'] as num?)?.toDouble() ?? 0;
+    final outstanding    = (data['totalOutstanding'] as num?)?.toDouble() ?? 0;
+
+    // This month
+    final monthMachine   = (data['monthlyMachineHours'] as num?)?.toDouble() ?? 0;
+    final monthInvTotal  = (data['monthlyInvoiceTotal'] as num?)?.toDouble() ?? 0;
+    final monthInvCount  = data['monthlyInvoiceCount'] as int? ?? 0;
+    final monthPayTotal  = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
+
+    // Material summary
+    final tripSummary = List<Map<String, dynamic>>.from(
+        data['monthlyTripSummary'] as List? ?? []);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -76,16 +89,13 @@ class _DashboardBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Today ──────────────────────────────────────────────────────────
-          Text('Today',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold)),
+          _SectionLabel('Today'),
           const SizedBox(height: 8),
+          // Row 1: Trips + Attendance
           Row(
             children: [
               Expanded(
-                child: _MetricCard(
+                child: _ClickCard(
                   icon: Icons.swap_horiz,
                   label: 'Trips Today',
                   value: '$todayTrips',
@@ -93,14 +103,57 @@ class _DashboardBody extends StatelessWidget {
                       ? '${_numFmt.format(todayBrass)} Brass'
                       : 'No brass recorded',
                   color: Colors.blue,
+                  route: '/trips',
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _DieselCard(
-                  balance: dieselBalance,
-                  received: dieselReceived,
-                  used: dieselUsed,
+                child: _ClickCard(
+                  icon: Icons.people,
+                  label: 'Attendance',
+                  value: '$attPresent / $attTotal',
+                  sub: attTotal == 0
+                      ? 'No employees'
+                      : attPresent == attTotal
+                          ? 'All present'
+                          : '${attTotal - attPresent} absent/unmarked',
+                  color: attPresent == attTotal && attTotal > 0
+                      ? Colors.green
+                      : Colors.orange,
+                  route: '/attendance',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Row 2: Diesel + Machine hours + Dabar
+          Row(
+            children: [
+              Expanded(child: _DieselCard(
+                balance: dieselBalance,
+                received: dieselReceived,
+                used: dieselUsed,
+              )),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _ClickCard(
+                  icon: Icons.construction,
+                  label: 'Machine Hrs',
+                  value: '${_numFmt.format(todayMachine)} hrs',
+                  sub: todayMachine > 0 ? 'Today' : 'None today',
+                  color: Colors.orange,
+                  route: '/machine-work',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _ClickCard(
+                  icon: Icons.landscape,
+                  label: 'Dabar Brass',
+                  value: '${_numFmt.format(todayDabar)}',
+                  sub: todayDabar > 0 ? 'Brass today' : 'None today',
+                  color: Colors.brown,
+                  route: '/dabar',
                 ),
               ),
             ],
@@ -108,55 +161,63 @@ class _DashboardBody extends StatelessWidget {
 
           const SizedBox(height: 20),
 
+          // ── Financial Position ──────────────────────────────────────────────
+          _SectionLabel('Financial Position'),
+          const SizedBox(height: 8),
+          _FinancialCard(
+            totalInvoiced: totalInv,
+            totalPaid: totalPaid,
+            outstanding: outstanding,
+            onInvoices: () => context.go('/invoices'),
+            onPayments: () => context.go('/vendor-payments'),
+          ),
+
+          const SizedBox(height: 20),
+
           // ── This Month ─────────────────────────────────────────────────────
-          Text(monthName,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold)),
+          _SectionLabel(monthName),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                child: _MetricCard(
+                child: _ClickCard(
                   icon: Icons.construction,
                   label: 'Machine Hours',
-                  value: '${_numFmt.format(machineHours)} hrs',
-                  sub: 'JCB / Comosko work',
+                  value: '${_numFmt.format(monthMachine)} hrs',
+                  sub: 'This month',
                   color: Colors.orange,
+                  route: '/machine-work',
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _MetricCard(
+                child: _ClickCard(
                   icon: Icons.receipt_long,
                   label: 'Invoices',
-                  value: '₹${_currFmt.format(invoiceTotal)}',
-                  sub: '$invoiceCount invoice${invoiceCount == 1 ? '' : 's'} issued',
+                  value: _currFmt.format(monthInvTotal),
+                  sub: '$monthInvCount invoice${monthInvCount == 1 ? '' : 's'}',
                   color: Colors.purple,
+                  route: '/invoices',
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _MetricCard(
+                child: _ClickCard(
                   icon: Icons.payments,
-                  label: 'Payments Received',
-                  value: '₹${_currFmt.format(payTotal)}',
-                  sub: 'from vendor',
+                  label: 'Payments',
+                  value: _currFmt.format(monthPayTotal),
+                  sub: 'Received this month',
                   color: Colors.green,
+                  route: '/vendor-payments',
                 ),
               ),
             ],
           ),
 
-          // ── Monthly Trip Summary ───────────────────────────────────────────
+          // ── Material Summary ───────────────────────────────────────────────
           if (tripSummary.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Text('Material Summary — $monthName',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
+            _SectionLabel('Material Summary — $monthName'),
             const SizedBox(height: 8),
             _TripSummaryTable(rows: tripSummary),
           ],
@@ -166,61 +227,79 @@ class _DashboardBody extends StatelessWidget {
   }
 }
 
-// ── metric card ───────────────────────────────────────────────────────────────
+// ── section label ─────────────────────────────────────────────────────────────
 
-class _MetricCard extends StatelessWidget {
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+  @override
+  Widget build(BuildContext context) => Text(text,
+      style: Theme.of(context)
+          .textTheme
+          .titleMedium
+          ?.copyWith(fontWeight: FontWeight.bold));
+}
+
+// ── clickable metric card ─────────────────────────────────────────────────────
+
+class _ClickCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
   final String sub;
   final Color color;
-  const _MetricCard({
+  final String route;
+  const _ClickCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.sub,
     required this.color,
+    required this.route,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.go(route),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Icon(icon, color: color, size: 18),
                   ),
-                  child: Icon(icon, color: color, size: 20),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(label,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: color)),
-            const SizedBox(height: 2),
-            Text(sub,
-                style:
-                    TextStyle(fontSize: 11, color: Colors.grey[500])),
-          ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(label,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(value,
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: color)),
+              const SizedBox(height: 2),
+              Text(sub,
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            ],
+          ),
         ),
       ),
     );
@@ -246,63 +325,196 @@ class _DieselCard extends StatelessWidget {
             : Colors.teal;
 
     return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.go('/diesel'),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: Icon(Icons.local_gas_station, color: color, size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('Diesel Stock',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text('${_numFmt.format(balance)} L',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: color)),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(Icons.arrow_downward, size: 11, color: Colors.green[700]),
+                  Text(' ${_numFmt.format(received)} in',
+                      style: TextStyle(fontSize: 11, color: Colors.green[700])),
+                  const SizedBox(width: 8),
+                  Icon(Icons.arrow_upward, size: 11, color: Colors.red[700]),
+                  Text(' ${_numFmt.format(used)} out',
+                      style: TextStyle(fontSize: 11, color: Colors.red[700])),
+                ],
+              ),
+              if (isLow && balance > 0) ...[
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('Low — refill soon',
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── financial position card ───────────────────────────────────────────────────
+
+class _FinancialCard extends StatelessWidget {
+  final double totalInvoiced;
+  final double totalPaid;
+  final double outstanding;
+  final VoidCallback onInvoices;
+  final VoidCallback onPayments;
+  const _FinancialCard({
+    required this.totalInvoiced,
+    required this.totalPaid,
+    required this.outstanding,
+    required this.onInvoices,
+    required this.onPayments,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final outColor = outstanding > 0 ? Colors.red[700]! : Colors.green[700]!;
+
+    return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.local_gas_station, color: color, size: 20),
-                ),
-                const SizedBox(width: 8),
-                Text('Diesel Stock',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text('${_numFmt.format(balance)} L',
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: color)),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.arrow_downward, size: 12, color: Colors.green[700]),
-                Text(' ${_numFmt.format(received)} in',
-                    style: TextStyle(fontSize: 11, color: Colors.green[700])),
-                const SizedBox(width: 8),
-                Icon(Icons.arrow_upward, size: 12, color: Colors.red[700]),
-                Text(' ${_numFmt.format(used)} out',
-                    style: TextStyle(fontSize: 11, color: Colors.red[700])),
-              ],
-            ),
-            if (isLow && balance > 0) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text('Low stock — refill soon',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w600)),
+            // Outstanding — prominent
+            Center(
+              child: Column(
+                children: [
+                  Text('Outstanding Balance',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 4),
+                  Text(_currFmt.format(outstanding),
+                      style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: outColor)),
+                  if (outstanding <= 0)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text('All invoices paid',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                ],
               ),
-            ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+            // Total invoiced + paid row
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: onInvoices,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Total Invoiced',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey[600])),
+                          const SizedBox(height: 4),
+                          Text(_currFmt.format(totalInvoiced),
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.primary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: InkWell(
+                    onTap: onPayments,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Total Paid',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey[600])),
+                          const SizedBox(height: 4),
+                          Text(_currFmt.format(totalPaid),
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -325,82 +537,71 @@ class _TripSummaryTable extends StatelessWidget {
     }
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(0),
-        child: Column(
-          children: [
-            // Header
-            Container(
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.08),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
-              ),
-              child: const Row(
-                children: [
-                  Expanded(
-                      flex: 3,
-                      child: _TableHeader('Material')),
-                  Expanded(
-                      child: _TableHeader('Trips', right: true)),
-                  Expanded(
-                      child: _TableHeader('Brass', right: true)),
-                ],
-              ),
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.08),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
             ),
-            // Rows
-            ...rows.map((r) {
-              final name = r['materialName'] as String? ?? '—';
-              final size = r['sizeLabel'] as String? ?? '';
-              final trips = r['tripCount'] as int? ?? 0;
-              final brass = (r['totalBrass'] as num?)?.toDouble() ?? 0;
-              return _TableRow(
-                label: size.isNotEmpty ? '$name ($size)' : name,
-                trips: '$trips',
-                brass: _numFmt.format(brass),
-              );
-            }),
-            // Grand total
-            Container(
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.06),
-                borderRadius:
-                    const BorderRadius.vertical(bottom: Radius.circular(12)),
-              ),
-              child: _TableRow(
-                label: 'Grand Total',
-                trips: '',
-                brass: _numFmt.format(grandTotal),
-                bold: true,
-              ),
+            child: const Row(
+              children: [
+                Expanded(flex: 3, child: _TH('Material')),
+                Expanded(child: _TH('Trips', right: true)),
+                Expanded(child: _TH('Brass', right: true)),
+              ],
             ),
-          ],
-        ),
+          ),
+          ...rows.map((r) {
+            final name = r['materialName'] as String? ?? '—';
+            final size = r['sizeLabel'] as String? ?? '';
+            final trips = r['tripCount'] as int? ?? 0;
+            final brass = (r['totalBrass'] as num?)?.toDouble() ?? 0;
+            return _TR(
+              label: size.isNotEmpty ? '$name ($size)' : name,
+              trips: '$trips',
+              brass: _numFmt.format(brass),
+            );
+          }),
+          Container(
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.06),
+              borderRadius:
+                  const BorderRadius.vertical(bottom: Radius.circular(12)),
+            ),
+            child: _TR(
+              label: 'Grand Total',
+              trips: '',
+              brass: _numFmt.format(grandTotal),
+              bold: true,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _TableHeader extends StatelessWidget {
+class _TH extends StatelessWidget {
   final String text;
   final bool right;
-  const _TableHeader(this.text, {this.right = false});
+  const _TH(this.text, {this.right = false});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Text(text,
             textAlign: right ? TextAlign.right : TextAlign.left,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 12)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
       );
 }
 
-class _TableRow extends StatelessWidget {
+class _TR extends StatelessWidget {
   final String label;
   final String trips;
   final String brass;
   final bool bold;
-  const _TableRow(
+  const _TR(
       {required this.label,
       required this.trips,
       required this.brass,
@@ -411,8 +612,8 @@ class _TableRow extends StatelessWidget {
           Expanded(
               flex: 3,
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Text(label,
                     style: TextStyle(
                         fontWeight:
@@ -421,8 +622,8 @@ class _TableRow extends StatelessWidget {
               )),
           Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Text(trips,
                     textAlign: TextAlign.right,
                     style: TextStyle(
@@ -432,8 +633,8 @@ class _TableRow extends StatelessWidget {
               )),
           Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Text(brass,
                     textAlign: TextAlign.right,
                     style: TextStyle(

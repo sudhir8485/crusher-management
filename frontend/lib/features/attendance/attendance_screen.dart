@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
+
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 
@@ -14,6 +18,20 @@ final _attendanceProvider = FutureProvider.autoDispose
   final res = await ref
       .read(apiClientProvider)
       .get('/api/attendance', params: {'date': date});
+  return Map<String, dynamic>.from(res.data as Map);
+});
+
+// Month in "yyyy-MM" format
+final _monthProvider = StateProvider<String>((ref) {
+  final now = DateTime.now();
+  return DateFormat('yyyy-MM').format(now);
+});
+
+final _monthlyProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, month) async {
+  final res = await ref
+      .read(apiClientProvider)
+      .get('/api/attendance/monthly', params: {'month': month});
   return Map<String, dynamic>.from(res.data as Map);
 });
 
@@ -35,6 +53,13 @@ const _statusColors = {
   'LEAVE': Colors.blue,
 };
 
+const _statusShort = {
+  'PRESENT': 'P',
+  'HALF_DAY': 'H',
+  'ABSENT': 'A',
+  'LEAVE': 'L',
+};
+
 // ── screen ────────────────────────────────────────────────────────────────────
 
 class AttendanceScreen extends ConsumerWidget {
@@ -42,71 +67,83 @@ class AttendanceScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Attendance'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Daily'),
+              Tab(text: 'Monthly'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: [
+            _DailyTab(),
+            _MonthlyTab(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Daily tab
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _DailyTab extends ConsumerWidget {
+  const _DailyTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(_attendanceDateProvider);
     final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
     final data = ref.watch(_attendanceProvider(dateKey));
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Attendance'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_attendanceProvider(dateKey)),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          AppDateBar(
-            selectedDate: selectedDate,
-            onPick: (d) =>
-                ref.read(_attendanceDateProvider.notifier).state = d,
-          ),
-          data.when(
-            loading: () => const SizedBox(),
-            error: (_, s) => const SizedBox(),
-            data: (d) => _SummaryBar(data: d),
-          ),
-          Expanded(
-            child: data.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (d) {
-                final employees = List<Map<String, dynamic>>.from(
-                    d['employees'] as List? ?? []);
-                if (employees.isEmpty) {
-                  return const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.people_outline,
-                            size: 64, color: Colors.grey),
-                        SizedBox(height: 12),
-                        Text('No active employees.\nAdd employees first.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
-                  );
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: employees.length,
-                  separatorBuilder: (_, idx) => const SizedBox(height: 6),
-                  itemBuilder: (_, i) => _EmployeeAttendanceTile(
-                    emp: employees[i],
-                    date: dateKey,
-                    onMarked: () =>
-                        ref.invalidate(_attendanceProvider(dateKey)),
-                  ),
+    return Column(
+      children: [
+        AppDateBar(
+          selectedDate: selectedDate,
+          onPick: (d) =>
+              ref.read(_attendanceDateProvider.notifier).state = d,
+        ),
+        data.when(
+          loading: () => const SizedBox(),
+          error: (_, s) => const SizedBox(),
+          data: (d) => _SummaryBar(data: d),
+        ),
+        Expanded(
+          child: data.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (d) {
+              final employees = List<Map<String, dynamic>>.from(
+                  d['employees'] as List? ?? []);
+              if (employees.isEmpty) {
+                return const AppEmptyState(
+                  icon: Icons.people_outline,
+                  message: 'No active employees',
+                  hint: 'Add employees in the Employees section',
                 );
-              },
-            ),
+              }
+              return ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: employees.length,
+                separatorBuilder: (_, idx) => const SizedBox(height: 6),
+                itemBuilder: (_, i) => _EmployeeAttendanceTile(
+                  emp: employees[i],
+                  date: dateKey,
+                  onMarked: () =>
+                      ref.invalidate(_attendanceProvider(dateKey)),
+                ),
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -119,10 +156,10 @@ class _SummaryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final present = data['presentCount'] as int? ?? 0;
-    final halfDay = data['halfDayCount'] as int? ?? 0;
-    final absent = data['absentCount'] as int? ?? 0;
-    final leave = data['leaveCount'] as int? ?? 0;
+    final present  = data['presentCount']  as int? ?? 0;
+    final halfDay  = data['halfDayCount']  as int? ?? 0;
+    final absent   = data['absentCount']   as int? ?? 0;
+    final leave    = data['leaveCount']    as int? ?? 0;
     final unmarked = data['unmarkedCount'] as int? ?? 0;
 
     return Container(
@@ -135,8 +172,7 @@ class _SummaryBar extends StatelessWidget {
           _SummaryChip('Half', halfDay, Colors.orange),
           _SummaryChip('Absent', absent, Colors.red),
           _SummaryChip('Leave', leave, Colors.blue),
-          if (unmarked > 0)
-            _SummaryChip('Unmarked', unmarked, Colors.grey),
+          if (unmarked > 0) _SummaryChip('Unmarked', unmarked, Colors.grey),
         ],
       ),
     );
@@ -154,9 +190,7 @@ class _SummaryChip extends StatelessWidget {
         children: [
           Text('$count',
               style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: color)),
+                  fontWeight: FontWeight.bold, fontSize: 18, color: color)),
           Text(label,
               style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ],
@@ -195,8 +229,7 @@ class _EmployeeAttendanceTileState
   @override
   Widget build(BuildContext context) {
     final name = widget.emp['employeeName'] as String? ?? '—';
-    final designation =
-        (widget.emp['designation'] as String?)?.trim() ?? '';
+    final designation = (widget.emp['designation'] as String?)?.trim() ?? '';
     final wageType = widget.emp['wageType'] as String? ?? 'DAILY';
     final currentStatus = widget.emp['attendanceStatus'] as String?;
 
@@ -205,7 +238,6 @@ class _EmployeeAttendanceTileState
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            // Avatar
             CircleAvatar(
               radius: 20,
               backgroundColor: currentStatus != null
@@ -223,7 +255,6 @@ class _EmployeeAttendanceTileState
               ),
             ),
             const SizedBox(width: 12),
-            // Name + designation
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,13 +268,12 @@ class _EmployeeAttendanceTileState
                         if (designation.isNotEmpty) designation,
                         wageType == 'MONTHLY' ? 'Monthly' : 'Daily',
                       ].join(' · '),
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey[500]),
+                      style:
+                          TextStyle(fontSize: 11, color: Colors.grey[500]),
                     ),
                 ],
               ),
             ),
-            // Status chips — tap to mark
             if (_saving)
               const SizedBox(
                 width: 24,
@@ -286,6 +316,376 @@ class _EmployeeAttendanceTileState
                 }).toList(),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Monthly tab
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _MonthlyTab extends ConsumerWidget {
+  const _MonthlyTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final month = ref.watch(_monthProvider);
+    final data = ref.watch(_monthlyProvider(month));
+
+    final parsed = DateTime.parse('$month-01');
+    final monthLabel = DateFormat('MMMM yyyy').format(parsed);
+
+    return Column(
+      children: [
+        // Month navigator
+        Container(
+          color: Colors.grey[50],
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () {
+                  final prev = DateTime(parsed.year, parsed.month - 1);
+                  ref.read(_monthProvider.notifier).state =
+                      DateFormat('yyyy-MM').format(prev);
+                },
+              ),
+              Expanded(
+                child: Text(monthLabel,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () {
+                  final next = DateTime(parsed.year, parsed.month + 1);
+                  final now = DateTime.now();
+                  if (next.year > now.year ||
+                      (next.year == now.year && next.month > now.month)) {
+                    return; // don't go into future months
+                  }
+                  ref.read(_monthProvider.notifier).state =
+                      DateFormat('yyyy-MM').format(next);
+                },
+              ),
+              data.whenOrNull(
+                data: (d) => IconButton(
+                  icon: const Icon(Icons.table_chart_outlined),
+                  tooltip: 'Export Excel',
+                  onPressed: () => _exportExcel(d, monthLabel),
+                ),
+              ) ?? const SizedBox(width: 48),
+            ],
+          ),
+        ),
+        Expanded(
+          child: data.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (d) {
+              final employees = List<Map<String, dynamic>>.from(
+                  d['employees'] as List? ?? []);
+              final daysInMonth = d['daysInMonth'] as int? ?? 30;
+              if (employees.isEmpty) {
+                return const AppEmptyState(
+                  icon: Icons.people_outline,
+                  message: 'No active employees',
+                  hint: 'Add employees in the Employees section',
+                );
+              }
+              return _MonthGrid(
+                  employees: employees,
+                  daysInMonth: daysInMonth,
+                  month: month);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _exportExcel(Map<String, dynamic> d, String monthLabel) async {
+    final employees = List<Map<String, dynamic>>.from(
+        d['employees'] as List? ?? []);
+    final daysInMonth = d['daysInMonth'] as int? ?? 30;
+
+    final wb = xl.Excel.createExcel();
+    final sheet = wb['Attendance'];
+
+    // Header row: Name | 1..N | P | H | A | L
+    final headers = <String>['Employee'];
+    for (int i = 1; i <= daysInMonth; i++) {
+      headers.add('$i');
+    }
+    headers.addAll(['Present', 'Half Day', 'Absent', 'Leave']);
+
+    for (var i = 0; i < headers.length; i++) {
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+          .value = xl.TextCellValue(headers[i]);
+    }
+
+    for (var ri = 0; ri < employees.length; ri++) {
+      final emp = employees[ri];
+      final name = emp['employeeName'] as String? ?? '—';
+      final days = List<String?>.from(emp['days'] as List? ?? []);
+      final rowIndex = ri + 1;
+
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(
+              columnIndex: 0, rowIndex: rowIndex))
+          .value = xl.TextCellValue(name);
+
+      for (var di = 0; di < days.length; di++) {
+        final status = days[di];
+        sheet
+            .cell(xl.CellIndex.indexByColumnRow(
+                columnIndex: di + 1, rowIndex: rowIndex))
+            .value = xl.TextCellValue(
+                status != null ? (_statusShort[status] ?? status) : '');
+      }
+
+      final colBase = daysInMonth + 1;
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(
+              columnIndex: colBase, rowIndex: rowIndex))
+          .value = xl.IntCellValue(emp['presentCount'] as int? ?? 0);
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(
+              columnIndex: colBase + 1, rowIndex: rowIndex))
+          .value = xl.IntCellValue(emp['halfDayCount'] as int? ?? 0);
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(
+              columnIndex: colBase + 2, rowIndex: rowIndex))
+          .value = xl.IntCellValue(emp['absentCount'] as int? ?? 0);
+      sheet
+          .cell(xl.CellIndex.indexByColumnRow(
+              columnIndex: colBase + 3, rowIndex: rowIndex))
+          .value = xl.IntCellValue(emp['leaveCount'] as int? ?? 0);
+    }
+
+    final bytes = wb.save();
+    if (bytes == null) return;
+    await Printing.sharePdf(
+      bytes: Uint8List.fromList(bytes),
+      filename: 'Attendance_$monthLabel.xlsx',
+    );
+  }
+}
+
+// ── monthly grid ──────────────────────────────────────────────────────────────
+
+class _MonthGrid extends StatelessWidget {
+  final List<Map<String, dynamic>> employees;
+  final int daysInMonth;
+  final String month;
+
+  const _MonthGrid({
+    required this.employees,
+    required this.daysInMonth,
+    required this.month,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    const nameWidth = 130.0;
+    const dayWidth = 32.0;
+    const summaryWidth = 40.0;
+
+    return SingleChildScrollView(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: nameWidth +
+                (dayWidth * daysInMonth) +
+                (summaryWidth * 4) +
+                16,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row
+              Container(
+                color: cs.primary.withValues(alpha: 0.08),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: nameWidth,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        child: Text('Employee',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12)),
+                      ),
+                    ),
+                    ...List.generate(daysInMonth, (i) {
+                      final day = i + 1;
+                      // Highlight today
+                      final parsed = DateTime.parse('$month-01');
+                      final now = DateTime.now();
+                      final isToday = parsed.year == now.year &&
+                          parsed.month == now.month &&
+                          day == now.day;
+                      return SizedBox(
+                        width: dayWidth,
+                        child: Center(
+                          child: Text('$day',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isToday
+                                      ? cs.primary
+                                      : Colors.grey[700])),
+                        ),
+                      );
+                    }),
+                    SizedBox(
+                      width: summaryWidth,
+                      child: Center(
+                        child: Text('P',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green[700])),
+                      ),
+                    ),
+                    SizedBox(
+                      width: summaryWidth,
+                      child: Center(
+                        child: Text('H',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange[700])),
+                      ),
+                    ),
+                    SizedBox(
+                      width: summaryWidth,
+                      child: Center(
+                        child: Text('A',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red[700])),
+                      ),
+                    ),
+                    SizedBox(
+                      width: summaryWidth,
+                      child: Center(
+                        child: Text('L',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue[700])),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Employee rows
+              ...employees.asMap().entries.map((entry) {
+                final i = entry.key;
+                final emp = entry.value;
+                final name = emp['employeeName'] as String? ?? '—';
+                final days = List<String?>.from(emp['days'] as List? ?? []);
+                final p = emp['presentCount'] as int? ?? 0;
+                final h = emp['halfDayCount'] as int? ?? 0;
+                final a = emp['absentCount'] as int? ?? 0;
+                final l = emp['leaveCount'] as int? ?? 0;
+
+                return Container(
+                  color: i.isEven ? Colors.transparent : Colors.grey[50],
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: nameWidth,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          child: Text(name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                      ...List.generate(daysInMonth, (di) {
+                        final status = di < days.length ? days[di] : null;
+                        final short = status != null
+                            ? (_statusShort[status] ?? '?')
+                            : '·';
+                        final color = status != null
+                            ? (_statusColors[status] ?? Colors.grey)
+                            : Colors.grey[300]!;
+                        return SizedBox(
+                          width: dayWidth,
+                          height: 32,
+                          child: Center(
+                            child: Text(
+                              short,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: status != null
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color: color,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                      SizedBox(
+                        width: summaryWidth,
+                        child: Center(
+                          child: Text('$p',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green[700])),
+                        ),
+                      ),
+                      SizedBox(
+                        width: summaryWidth,
+                        child: Center(
+                          child: Text('$h',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange[700])),
+                        ),
+                      ),
+                      SizedBox(
+                        width: summaryWidth,
+                        child: Center(
+                          child: Text('$a',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red[700])),
+                        ),
+                      ),
+                      SizedBox(
+                        width: summaryWidth,
+                        child: Center(
+                          child: Text('$l',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[700])),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
         ),
       ),
     );

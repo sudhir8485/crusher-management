@@ -23,6 +23,10 @@ public interface VendorPaymentRepository extends JpaRepository<VendorPayment, Lo
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.paymentDate BETWEEN :from AND :to AND p.status = 'ACTIVE'")
     BigDecimal sumByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
+    // Sum of all payments linked to invoices (for outstanding calculation)
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.invoiceId IS NOT NULL AND p.status = 'ACTIVE'")
+    BigDecimal sumAllLinkedPayments();
+
     List<VendorPayment> findByVendorIdAndPaymentDateBetweenAndStatusOrderByPaymentDateAscIdAsc(
             Long vendorId, LocalDate from, LocalDate to, String status);
 
