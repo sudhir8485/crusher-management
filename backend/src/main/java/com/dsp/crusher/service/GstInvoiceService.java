@@ -10,6 +10,9 @@ import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,15 +31,16 @@ public class GstInvoiceService {
     private final VendorRepository vendorRepo;
     private final VendorPaymentRepository paymentRepo;
 
-    public List<GstInvoiceResponse> list(Long vendorId, LocalDate from, LocalDate to) {
-        List<GstInvoice> rows;
+    public PageResponse<GstInvoiceResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<GstInvoice> invoicePage;
         if (vendorId != null)
-            rows = invoiceRepo.findByVendorIdAndStatusOrderByInvoiceDateDescIdDesc(vendorId, "ACTIVE");
+            invoicePage = invoiceRepo.findByVendorIdAndStatusOrderByInvoiceDateDescIdDesc(vendorId, "ACTIVE", pageable);
         else if (from != null && to != null)
-            rows = invoiceRepo.findByInvoiceDateBetweenAndStatusOrderByInvoiceDateDescIdDesc(from, to, "ACTIVE");
+            invoicePage = invoiceRepo.findByInvoiceDateBetweenAndStatusOrderByInvoiceDateDescIdDesc(from, to, "ACTIVE", pageable);
         else
-            rows = invoiceRepo.findByStatusOrderByInvoiceDateDescIdDesc("ACTIVE");
-        return enrich(rows);
+            invoicePage = invoiceRepo.findByStatusOrderByInvoiceDateDescIdDesc("ACTIVE", pageable);
+        return PageResponse.of(invoicePage, enrich(invoicePage.getContent()));
     }
 
     public GstInvoiceResponse get(Long id) {

@@ -4,13 +4,75 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 
-// ── providers ────────────────────────────────────────────────────────────────
+// ── paginated invoices state + notifier ───────────────────────────────────────
 
-final _invoicesProvider =
-    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/invoices');
-  return List<Map<String, dynamic>>.from(res.data);
-});
+class _InvoicesState {
+  final List<Map<String, dynamic>> items;
+  final bool hasMore;
+  final bool loadingMore;
+  final int nextPage;
+  final int totalElements;
+  const _InvoicesState({
+    required this.items,
+    required this.hasMore,
+    required this.loadingMore,
+    required this.nextPage,
+    required this.totalElements,
+  });
+  _InvoicesState copyWith({bool? loadingMore}) => _InvoicesState(
+        items: items, hasMore: hasMore, nextPage: nextPage,
+        totalElements: totalElements,
+        loadingMore: loadingMore ?? this.loadingMore,
+      );
+}
+
+class _InvoicesNotifier
+    extends StateNotifier<AsyncValue<_InvoicesState>> {
+  final ApiClient _api;
+  static const _pageSize = 25;
+
+  _InvoicesNotifier(this._api) : super(const AsyncValue.loading()) {
+    _load(0, []);
+  }
+
+  Future<void> _load(int page, List<Map<String, dynamic>> existing) async {
+    try {
+      final res = await _api.get('/api/invoices',
+          params: {'page': '$page', 'size': '$_pageSize'});
+      final d = res.data as Map<String, dynamic>;
+      final content =
+          List<Map<String, dynamic>>.from(d['content'] as List);
+      final last = d['last'] as bool;
+      final total = (d['totalElements'] as num).toInt();
+      state = AsyncValue.data(_InvoicesState(
+        items: [...existing, ...content],
+        hasMore: !last,
+        loadingMore: false,
+        nextPage: page + 1,
+        totalElements: total,
+      ));
+    } catch (e, st) {
+      if (page == 0) state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> loadMore() async {
+    final s = state.valueOrNull;
+    if (s == null || !s.hasMore || s.loadingMore) return;
+    state = AsyncValue.data(s.copyWith(loadingMore: true));
+    await _load(s.nextPage, s.items);
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    await _load(0, []);
+  }
+}
+
+final _invoicesNotifierProvider = StateNotifierProvider.autoDispose<
+    _InvoicesNotifier, AsyncValue<_InvoicesState>>(
+  (ref) => _InvoicesNotifier(ref.read(apiClientProvider)),
+);
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -49,7 +111,8 @@ class InvoicesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final invoices = ref.watch(_invoicesProvider);
+    final asyncState = ref.watch(_invoicesNotifierProvider);
+    final notifier = ref.read(_invoicesNotifierProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
@@ -57,7 +120,7 @@ class InvoicesScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_invoicesProvider),
+            onPressed: notifier.refresh,
           ),
         ],
       ),
@@ -66,25 +129,23 @@ class InvoicesScreen extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('New Invoice'),
       ),
-      body: invoices.when(
+      body: asyncState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (data) {
-          if (data.isEmpty) {
+        data: (state) {
+          if (state.items.isEmpty) {
             return const AppEmptyState(
               icon: Icons.receipt_long_outlined,
               message: 'No invoices yet',
               hint: 'Tap + to create your first GST invoice',
             );
           }
-          // Group by status for summary
-          final unpaid  = data.where((i) => i['paymentStatus'] == 'UNPAID').length;
-          final partial = data.where((i) => i['paymentStatus'] == 'PARTIAL').length;
-          final paid    = data.where((i) => i['paymentStatus'] == 'PAID').length;
+          final unpaid  = state.items.where((i) => i['paymentStatus'] == 'UNPAID').length;
+          final partial = state.items.where((i) => i['paymentStatus'] == 'PARTIAL').length;
+          final paid    = state.items.where((i) => i['paymentStatus'] == 'PAID').length;
 
           return Column(
             children: [
-              // Summary strip
               Container(
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -96,24 +157,38 @@ class InvoicesScreen extends ConsumerWidget {
                     const SizedBox(width: 12),
                     _SummaryPill('Paid', paid, Colors.green),
                     const Spacer(),
-                    Text('${data.length} invoices',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    Text(
+                      state.totalElements == state.items.length
+                          ? '${state.items.length} invoices'
+                          : '${state.items.length} of ${state.totalElements}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
                   ],
                 ),
               ),
               Expanded(
-                child: ListView.separated(
+                child: ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
-                  itemCount: data.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _InvoiceCard(
-                    invoice: data[i],
-                    onTap: () => _showDetail(context, ref, data[i]),
-                    onEdit: () => _showForm(context, ref, data[i]),
-                    onDelete: () => _confirmDelete(context, ref, data[i]),
-                    onRecordPayment: () =>
-                        _showPaymentForm(context, ref, data[i]),
-                  ),
+                  itemCount: state.items.length + (state.hasMore ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    if (i == state.items.length) {
+                      return _LoadMoreButton(
+                        loading: state.loadingMore,
+                        onTap: notifier.loadMore,
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _InvoiceCard(
+                        invoice: state.items[i],
+                        onTap: () => _showDetail(context, ref, state.items[i]),
+                        onEdit: () => _showForm(context, ref, state.items[i]),
+                        onDelete: () => _confirmDelete(context, ref, state.items[i]),
+                        onRecordPayment: () =>
+                            _showPaymentForm(context, ref, state.items[i]),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -129,7 +204,7 @@ class InvoicesScreen extends ConsumerWidget {
       barrierDismissible: false,
       builder: (_) => _InvoiceForm(
         existing: inv,
-        onSaved: () => ref.invalidate(_invoicesProvider),
+        onSaved: () => ref.read(_invoicesNotifierProvider.notifier).refresh(),
       ),
     );
   }
@@ -149,9 +224,8 @@ class InvoicesScreen extends ConsumerWidget {
       builder: (_) => _QuickPaymentDialog(
         invoice: inv,
         onSaved: () {
-          ref.invalidate(_invoicesProvider);
-          ref.invalidate(
-              _invoicePaymentsProvider(inv['id'] as int));
+          ref.read(_invoicesNotifierProvider.notifier).refresh();
+          ref.invalidate(_invoicePaymentsProvider(inv['id'] as int));
         },
       ),
     );
@@ -172,7 +246,7 @@ class InvoicesScreen extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(ctx);
               await ref.read(apiClientProvider).delete('/api/invoices/${inv['id']}');
-              ref.invalidate(_invoicesProvider);
+              ref.read(_invoicesNotifierProvider.notifier).refresh();
             },
             child: const Text('Cancel Invoice'),
           ),
@@ -180,6 +254,30 @@ class InvoicesScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ── load more button ──────────────────────────────────────────────────────────
+
+class _LoadMoreButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+  const _LoadMoreButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: loading
+              ? const SizedBox(
+                  width: 24, height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : OutlinedButton(
+                  onPressed: onTap,
+                  child: const Text('Load more'),
+                ),
+        ),
+      );
 }
 
 // ── summary pill ──────────────────────────────────────────────────────────────

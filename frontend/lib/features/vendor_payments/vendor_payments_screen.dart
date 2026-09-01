@@ -4,13 +4,75 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 
-// ── providers ────────────────────────────────────────────────────────────────
+// ── paginated payments state + notifier ───────────────────────────────────────
 
-final _paymentsProvider =
-    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/vendor-payments');
-  return List<Map<String, dynamic>>.from(res.data);
-});
+class _PaymentsState {
+  final List<Map<String, dynamic>> items;
+  final bool hasMore;
+  final bool loadingMore;
+  final int nextPage;
+  final int totalElements;
+  const _PaymentsState({
+    required this.items,
+    required this.hasMore,
+    required this.loadingMore,
+    required this.nextPage,
+    required this.totalElements,
+  });
+  _PaymentsState copyWith({bool? loadingMore}) => _PaymentsState(
+        items: items, hasMore: hasMore, nextPage: nextPage,
+        totalElements: totalElements,
+        loadingMore: loadingMore ?? this.loadingMore,
+      );
+}
+
+class _PaymentsNotifier
+    extends StateNotifier<AsyncValue<_PaymentsState>> {
+  final ApiClient _api;
+  static const _pageSize = 25;
+
+  _PaymentsNotifier(this._api) : super(const AsyncValue.loading()) {
+    _load(0, []);
+  }
+
+  Future<void> _load(int page, List<Map<String, dynamic>> existing) async {
+    try {
+      final res = await _api.get('/api/vendor-payments',
+          params: {'page': '$page', 'size': '$_pageSize'});
+      final d = res.data as Map<String, dynamic>;
+      final content =
+          List<Map<String, dynamic>>.from(d['content'] as List);
+      final last = d['last'] as bool;
+      final total = (d['totalElements'] as num).toInt();
+      state = AsyncValue.data(_PaymentsState(
+        items: [...existing, ...content],
+        hasMore: !last,
+        loadingMore: false,
+        nextPage: page + 1,
+        totalElements: total,
+      ));
+    } catch (e, st) {
+      if (page == 0) state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> loadMore() async {
+    final s = state.valueOrNull;
+    if (s == null || !s.hasMore || s.loadingMore) return;
+    state = AsyncValue.data(s.copyWith(loadingMore: true));
+    await _load(s.nextPage, s.items);
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncValue.loading();
+    await _load(0, []);
+  }
+}
+
+final _paymentsNotifierProvider = StateNotifierProvider.autoDispose<
+    _PaymentsNotifier, AsyncValue<_PaymentsState>>(
+  (ref) => _PaymentsNotifier(ref.read(apiClientProvider)),
+);
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -18,14 +80,15 @@ final _vendorsProvider =
   return List<Map<String, dynamic>>.from(res.data);
 });
 
-// Open invoices for a vendor (unpaid + partial)
+// Open invoices for a vendor (unpaid + partial) — use large size since it's for a dropdown
 final _vendorOpenInvoicesProvider =
     FutureProvider.autoDispose.family<List<Map<String, dynamic>>, int>(
         (ref, vendorId) async {
   final res = await ref
       .read(apiClientProvider)
-      .get('/api/invoices', params: {'vendorId': vendorId.toString()});
-  final all = List<Map<String, dynamic>>.from(res.data);
+      .get('/api/invoices', params: {'vendorId': vendorId.toString(), 'size': '200'});
+  final d = res.data as Map<String, dynamic>;
+  final all = List<Map<String, dynamic>>.from(d['content'] as List);
   return all
       .where((i) =>
           i['paymentStatus'] == 'UNPAID' ||
@@ -42,7 +105,8 @@ class VendorPaymentsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final payments = ref.watch(_paymentsProvider);
+    final asyncState = ref.watch(_paymentsNotifierProvider);
+    final notifier = ref.read(_paymentsNotifierProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
@@ -50,7 +114,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_paymentsProvider),
+            onPressed: notifier.refresh,
           ),
         ],
       ),
@@ -59,11 +123,11 @@ class VendorPaymentsScreen extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('Record Payment'),
       ),
-      body: payments.when(
+      body: asyncState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (data) {
-          if (data.isEmpty) {
+        data: (state) {
+          if (state.items.isEmpty) {
             return const AppEmptyState(
               icon: Icons.payments_outlined,
               message: 'No payments recorded yet',
@@ -71,9 +135,8 @@ class VendorPaymentsScreen extends ConsumerWidget {
             );
           }
 
-          // Group by vendor for summary banner
           final Map<String, double> totals = {};
-          for (final p in data) {
+          for (final p in state.items) {
             final name = p['vendorName'] as String? ?? 'Unknown';
             totals[name] = (totals[name] ?? 0) + ((p['amount'] as num?) ?? 0);
           }
@@ -82,15 +145,25 @@ class VendorPaymentsScreen extends ConsumerWidget {
             children: [
               if (totals.length == 1) _SummaryBanner(totals: totals),
               Expanded(
-                child: ListView.separated(
+                child: ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: data.length,
-                  separatorBuilder: (_, idx) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _PaymentCard(
-                    payment: data[i],
-                    onEdit: () => _showForm(context, ref, data[i]),
-                    onDelete: () => _confirmDelete(context, ref, data[i]),
-                  ),
+                  itemCount: state.items.length + (state.hasMore ? 1 : 0),
+                  itemBuilder: (_, i) {
+                    if (i == state.items.length) {
+                      return _LoadMoreButton(
+                        loading: state.loadingMore,
+                        onTap: notifier.loadMore,
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _PaymentCard(
+                        payment: state.items[i],
+                        onEdit: () => _showForm(context, ref, state.items[i]),
+                        onDelete: () => _confirmDelete(context, ref, state.items[i]),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -106,7 +179,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
       barrierDismissible: false,
       builder: (_) => _PaymentForm(
         existing: p,
-        onSaved: () => ref.invalidate(_paymentsProvider),
+        onSaved: () => ref.read(_paymentsNotifierProvider.notifier).refresh(),
       ),
     );
   }
@@ -131,7 +204,7 @@ class VendorPaymentsScreen extends ConsumerWidget {
               await ref
                   .read(apiClientProvider)
                   .delete('/api/vendor-payments/${p['id']}');
-              ref.invalidate(_paymentsProvider);
+              ref.read(_paymentsNotifierProvider.notifier).refresh();
             },
             child: const Text('Delete'),
           ),
@@ -139,6 +212,30 @@ class VendorPaymentsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ── load more button ──────────────────────────────────────────────────────────
+
+class _LoadMoreButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+  const _LoadMoreButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: loading
+              ? const SizedBox(
+                  width: 24, height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : OutlinedButton(
+                  onPressed: onTap,
+                  child: const Text('Load more'),
+                ),
+        ),
+      );
 }
 
 // ── summary banner ────────────────────────────────────────────────────────────

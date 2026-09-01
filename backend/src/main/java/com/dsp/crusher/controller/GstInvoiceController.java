@@ -2,6 +2,7 @@ package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.GstInvoiceRequest;
 import com.dsp.crusher.dto.GstInvoiceResponse;
+import com.dsp.crusher.dto.PageResponse;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.service.GstInvoiceService;
 import com.dsp.crusher.service.VendorPaymentService;
@@ -23,11 +24,13 @@ public class GstInvoiceController {
     private final VendorPaymentService paymentService;
 
     @GetMapping
-    public List<GstInvoiceResponse> list(
+    public PageResponse<GstInvoiceResponse> list(
             @RequestParam(required = false) Long vendorId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return service.list(vendorId, from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return service.list(vendorId, from, to, page, size);
     }
 
     @GetMapping("/{id}")

@@ -1,6 +1,8 @@
 package com.dsp.crusher.repository;
 
 import com.dsp.crusher.entity.VendorPayment;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,11 +13,15 @@ import java.util.List;
 public interface VendorPaymentRepository extends JpaRepository<VendorPayment, Long> {
 
     List<VendorPayment> findByStatusOrderByPaymentDateDescIdDesc(String status);
+    Page<VendorPayment> findByStatusOrderByPaymentDateDescIdDesc(String status, Pageable pageable);
 
     List<VendorPayment> findByVendorIdAndStatusOrderByPaymentDateDescIdDesc(Long vendorId, String status);
+    Page<VendorPayment> findByVendorIdAndStatusOrderByPaymentDateDescIdDesc(Long vendorId, String status, Pageable pageable);
 
     List<VendorPayment> findByPaymentDateBetweenAndStatusOrderByPaymentDateDescIdDesc(
             LocalDate from, LocalDate to, String status);
+    Page<VendorPayment> findByPaymentDateBetweenAndStatusOrderByPaymentDateDescIdDesc(
+            LocalDate from, LocalDate to, String status, Pageable pageable);
 
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.status = 'ACTIVE'")
     BigDecimal sumByVendorId(@Param("vendorId") Long vendorId);

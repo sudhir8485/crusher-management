@@ -1,5 +1,6 @@
 package com.dsp.crusher.controller;
 
+import com.dsp.crusher.dto.PageResponse;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.service.VendorPaymentService;
@@ -10,7 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/vendor-payments")
@@ -20,11 +20,13 @@ public class VendorPaymentController {
     private final VendorPaymentService service;
 
     @GetMapping
-    public List<VendorPaymentResponse> list(
+    public PageResponse<VendorPaymentResponse> list(
             @RequestParam(required = false) Long vendorId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return service.list(vendorId, from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return service.list(vendorId, from, to, page, size);
     }
 
     @GetMapping("/{id}")

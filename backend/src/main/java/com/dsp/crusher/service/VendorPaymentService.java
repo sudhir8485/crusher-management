@@ -1,6 +1,7 @@
 package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.TenantContext;
+import com.dsp.crusher.dto.PageResponse;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.entity.GstInvoice;
@@ -11,6 +12,9 @@ import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,15 +31,16 @@ public class VendorPaymentService {
     private final VendorRepository vendorRepo;
     private final GstInvoiceRepository invoiceRepo;
 
-    public List<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to) {
-        List<VendorPayment> rows;
+    public PageResponse<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<VendorPayment> paymentPage;
         if (vendorId != null)
-            rows = repo.findByVendorIdAndStatusOrderByPaymentDateDescIdDesc(vendorId, "ACTIVE");
+            paymentPage = repo.findByVendorIdAndStatusOrderByPaymentDateDescIdDesc(vendorId, "ACTIVE", pageable);
         else if (from != null && to != null)
-            rows = repo.findByPaymentDateBetweenAndStatusOrderByPaymentDateDescIdDesc(from, to, "ACTIVE");
+            paymentPage = repo.findByPaymentDateBetweenAndStatusOrderByPaymentDateDescIdDesc(from, to, "ACTIVE", pageable);
         else
-            rows = repo.findByStatusOrderByPaymentDateDescIdDesc("ACTIVE");
-        return enrich(rows);
+            paymentPage = repo.findByStatusOrderByPaymentDateDescIdDesc("ACTIVE", pageable);
+        return PageResponse.of(paymentPage, enrich(paymentPage.getContent()));
     }
 
     public VendorPaymentResponse get(Long id) {
