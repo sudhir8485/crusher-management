@@ -1,15 +1,15 @@
 # update_2.md — Session State (2026-09-01)
 
 ## Context
-Continuation of crusher-management project. M1–M10 all done.  
-This session implemented Phases 1–5 from update_1.md, and Phase 6 was started but NOT committed (stashed).
+Continuation of crusher-management project. M1–M10 all done.
+This session implemented Phases 1–6 from update_1.md, plus all improvement items.
 
 ---
 
 ## Completed Phases (committed on master)
 
 ### Phase 1 — Sidebar + Design System (commit: afbe33e)
-- `frontend/lib/core/widgets/app_widgets.dart` — shared widgets: `AppDateBar`, `AppDialog` (max-height 88vh, scrollable body, pinned footer), `AppEmptyState`, `SectionLabel`, `DateField`, `fmtCurr/fmtNum`
+- `frontend/lib/core/widgets/app_widgets.dart` — shared widgets: `AppDateBar`, `AppDialog`, `AppEmptyState`, `SectionLabel`, `DateField`, `fmtCurr/fmtNum`
 - Sidebar replaced `NavigationRail` with custom scrollable 200px sidebar grouped into: Operations / Finance / Workforce / Vehicles / Master Data / Admin
 - Invoice form 4-column row split into 2×2 to fix RIGHT OVERFLOW
 - All 9 date-based screens now use shared `AppDateBar`
@@ -50,6 +50,44 @@ This session implemented Phases 1–5 from update_1.md, and Phase 6 was started 
   - Trip detail table at bottom
   - PDF export (A4, all sections) + Excel export buttons in AppBar
 
+### Phase 6 — Dashboard Overhaul + Monthly Attendance (commit: 0b43773)
+- Dashboard: Today row (Trips, Attendance X/Y, Diesel, Machine Hrs, Dabar), Financial Position card (Outstanding large + prominent), This Month section, all cards clickable via `context.go('/route')`
+- Backend: `DashboardService` populates todayAttendancePresent/Total, todayMachineHours, todayDabarBrass, totalInvoiced, totalPaymentsLinked, totalOutstanding
+- Monthly Attendance: Attendance screen has Daily / Monthly tabs; Monthly = employee × day grid (P/H/A/L cells) with Excel export
+- Backend: `GET /api/attendance/monthly?month=YYYY-MM` → `AttendanceMonthlyResponse`
+
+---
+
+## Post-Phase Improvements (all committed on master)
+
+### Role-Based Sidebar (commit: bf7a632)
+- `SITE_STAFF` role: Finance section (Invoices/Payments/Ledger) + Admin section (Users) hidden
+- `OWNER_ADMIN` and `OFFICE_ACCOUNTANT`: full sidebar
+- Implemented via `StateWidget` reading role from `AuthStorage` on mount
+
+### Currency Formatting (commit: 1434bab)
+- All monetary displays consolidated onto shared `fmtCurr()` / `currFmt` from `app_widgets.dart`
+- Removed local `NumberFormat` definitions from: dashboard, vendor_payments, daily_report, ledger, employees screens
+- Indian comma grouping: ₹1,23,456.00 everywhere
+
+### Delete Confirmations (commit: 8d561f4)
+- Every delete/deactivate dialog now names the specific item being removed
+- Dabar: vehicle · vendor · brass qty; Water Tanker: vehicle · amount
+- Diesel: litres + source/consumer; Vendors/Vehicles/Machines/Materials/Sites: entity name
+
+### Pagination (commit: 1692fec)
+- `PageResponse<T>` DTO — wraps content, page, size, totalElements, totalPages, last
+- `GET /api/invoices?page=0&size=25` and `GET /api/vendor-payments?page=0&size=25`
+- Frontend: `StateNotifier` accumulates pages; "Load more" button at list bottom
+- Summary strip shows "N of M" when not all records are loaded
+- Spring Data `Page<T>` overloads added to both repositories
+
+### Searchable Pickers (commit: a831f58)
+- `SearchablePicker` widget in `app_widgets.dart` — `FormField<int>` that opens a search dialog
+- 200ms debounce on typing, client-side filter, checkmark on selected item
+- `clearable: true` adds "None / All X" row for optional fields and report filters
+- Replaced all 19 entity pickers across 12 screens (vehicle, vendor, material, machine everywhere)
+
 ---
 
 ## Sidebar Route Index (current master)
@@ -61,10 +99,10 @@ This session implemented Phases 1–5 from update_1.md, and Phase 6 was started 
 4:  /water-tanker
 5:  /diesel
 6:  /machine-work
-7:  /reports        ← NEW Phase 3
+7:  /reports
 8:  /invoices
 9:  /vendor-payments
-10: /ledger         ← NEW Phase 2
+10: /ledger
 11: /attendance
 12: /vehicle-daily-log
 13: /users
@@ -78,56 +116,17 @@ This session implemented Phases 1–5 from update_1.md, and Phase 6 was started 
 
 ---
 
-## Phase 6 — IN PROGRESS (stashed, NOT committed)
-
-### What was started (git stash):
-Dashboard overhaul — was partway through when context ran out.
-
-### Files partially modified (in stash):
-- `DashboardResponse.java` — added fields: `todayAttendancePresent`, `todayAttendanceTotal`, `todayMachineHours`, `todayDabarBrass`, `totalInvoiced`, `totalPaymentsLinked`, `totalOutstanding`
-- `GstInvoiceRepository.java` — added `sumAllGrandTotal()` query
-- `VendorPaymentRepository.java` — added `sumAllLinkedPayments()` query
-
-### To complete Phase 6:
-1. `git stash pop` to restore the partial changes
-2. Update `DashboardService.java` to populate the new fields using:
-   - `DailyReportService.build(today)` OR direct repo calls for today's attendance/dabar/machine hours
-   - `invoiceRepo.sumAllGrandTotal()` for totalInvoiced
-   - `paymentRepo.sumAllLinkedPayments()` for totalPaymentsLinked
-   - `totalOutstanding = totalInvoiced - totalPaymentsLinked`
-3. Rewrite `frontend/.../dashboard/dashboard_screen.dart`:
-   - Today row: Trips+Brass, Attendance (X present/Y total), Diesel Stock, Machine Hours, Dabar Brass
-   - Financial position: Total Invoiced, Total Paid, Outstanding (large prominent)
-   - This Month: Machine hours, Invoices, Payments
-   - Material summary table
-   - All cards clickable → navigate to module using `context.go('/route')`
-4. Add **Monthly Attendance** tab to `attendance_screen.dart`:
-   - Month picker (prev/next)
-   - Table: employees (rows) × days (columns) with P/H/A/L status cells
-   - Summary row at bottom: count per day
-   - Excel export for payroll
-
----
-
-## Other remaining items from update_1.md
-
-### High priority:
-- **Role-based UI hiding** (§31): SITE_STAFF shouldn't see Invoices/Payments/Ledger/Users in sidebar
-  - JWT token contains role: `OWNER_ADMIN | OFFICE_ACCOUNTANT | SITE_STAFF`
-  - Read role from auth storage, hide nav items accordingly
-  - Backend already has `@PreAuthorize` on some endpoints
-
-- **Attendance monthly report** with Excel export
-
-### Medium priority:
-- Better dashboard (Phase 6)
-- Indian currency formatting everywhere (₹1,23,456.00 not ₹123456.00) — partially done via `fmtCurr`
-- Delete confirmations showing entity details (§36)
-
-### Lower priority (from update_1.md):
-- Print layouts (§53) — PDF serves this for now
-- Pagination for large lists
-- Debounced search in dropdowns
+## Nothing remaining from update_1.md
+All items from the original spec are complete:
+- ✅ All 10 modules (M1–M10)
+- ✅ Phases 1–6
+- ✅ Role-based UI hiding
+- ✅ Currency formatting (Indian)
+- ✅ Delete confirmations with entity details
+- ✅ Pagination (invoices + payments)
+- ✅ Debounced search in all entity pickers
+- ✅ Monthly attendance with Excel export
+- Print layouts (§53) — PDF already covers this; not needed
 
 ---
 
@@ -140,5 +139,9 @@ Login: admin@dsp.com / admin123
 
 ## Git state
 Branch: master
-Last commit: 0183fa8 (Phase 5)
-Stash: Phase 6 partial dashboard changes (git stash pop to restore)
+Last commit: a831f58 (Searchable pickers)
+No stash. Clean working tree.
+
+## DB
+PostgreSQL `crusher_management`, Flyway V1–V9
+DB user: crusher_admin / crusher123
