@@ -10,5 +10,6 @@ public class LoginResponse {
     private String role;
     private String fullName;
     private Long tenantId;
-    private Long siteId;  // null for admins; site assigned for SITE_STAFF
+    private Long siteId;      // null for admins; site assigned for SITE_STAFF
+    private String tenantName; // business/company name for display and documents
 }

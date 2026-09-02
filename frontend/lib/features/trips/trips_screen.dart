@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── Providers ────────────────────────────────────────────────────────────────
@@ -111,13 +112,13 @@ class TripsScreen extends ConsumerWidget {
 
   void _confirmDelete(BuildContext context, WidgetRef ref,
       Map<String, dynamic> trip, String dateKey) {
-    final party = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
+    final customer = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
     final material = trip['materialName'] ?? '—';
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete Trip?'),
-        content: Text('Delete trip: $party · $material?\n\nThis cannot be undone.'),
+        content: Text('Delete trip: $customer · $material?\n\nThis cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(
@@ -208,9 +209,10 @@ class _TripCard extends StatelessWidget {
   const _TripCard({required this.trip, required this.onEdit, required this.onDelete});
 
   static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
-    // Load Noto Sans for proper Rs. symbol support
-    final font     = await PdfGoogleFonts.notoSansRegular();
-    final fontBold = await PdfGoogleFonts.notoSansBold();
+    // Load Noto Sans for proper ₹ Rupee symbol rendering
+    final font       = await PdfGoogleFonts.notoSansRegular();
+    final fontBold   = await PdfGoogleFonts.notoSansBold();
+    final businessName = await AuthStorage.getTenantName() ?? '';
 
     final isOwn   = trip['vehicleMode'] == 'OWN_VEHICLE';
     final vehicle = isOwn
@@ -235,7 +237,7 @@ class _TripCard extends StatelessWidget {
     final tripDate   = trip['tripDate'] ?? '';
     final unloading  = trip['unloadingLocation'] ?? '';
 
-    String rs(dynamic v) => v != null ? 'Rs.${numFmt.format(v)}' : '—';
+    String rs(dynamic v) => v != null ? '₹${numFmt.format(v)}' : '—';
     String kg(dynamic v) => v != null ? '${numFmt.format(v)} kg' : '—';
 
     pw.Widget col(String label, String val, {bool bold = false}) => pw.Padding(
@@ -268,8 +270,12 @@ class _TripCard extends StatelessWidget {
             // Header
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
               pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                if (businessName.isNotEmpty)
+                  pw.Text(businessName,
+                      style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
                 pw.Text('DELIVERY CHALLAN',
-                    style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                    style: pw.TextStyle(fontSize: businessName.isNotEmpty ? 11 : 14,
+                        fontWeight: pw.FontWeight.bold)),
                 pw.Text(copyLabel,
                     style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
               ]),
@@ -874,7 +880,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
   Future<void> _save() async {
     // Manual validation for pickers
     setState(() {
-      _vendorError = (_partyType == 'REGULAR' && _vendorId == null) ? 'Select a party' : null;
+      _vendorError = (_partyType == 'REGULAR' && _vendorId == null) ? 'Select a customer' : null;
       _vehicleError = (_vehicleMode == 'COMPANY' && _vehicleId == null) ? 'Select a vehicle' : null;
     });
 
@@ -1050,7 +1056,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
       },
       child: InputDecorator(
         decoration: InputDecoration(
-          labelText: 'Party *',
+          labelText: 'Customer *',
           errorText: _vendorError,
           suffixIcon: const Icon(Icons.search),
           border: const OutlineInputBorder(),
@@ -1199,8 +1205,8 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 label: 'Trip Date', date: _tripDate,
                 onTap: _pickDate, required: true),
 
-            // ── 2. Party / Customer ─────────────────────────────────────────
-            _sectionHead('PARTY / CUSTOMER'),
+            // ── 2. Customer ─────────────────────────────────────────────────
+            _sectionHead('CUSTOMER'),
             Row(children: [
               Expanded(child: _pill('Regular Customer', _partyType == 'REGULAR', () {
                 setState(() { _partyType = 'REGULAR'; _vendorError = null; });

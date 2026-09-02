@@ -37,11 +37,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       });
 
       await AuthStorage.save(
-        token: res.data['token'],
-        role: res.data['role'],
-        name: res.data['fullName'],
-        tenantId: res.data['tenantId'] as int,
-        siteId: res.data['siteId'] as int?,
+        token:      res.data['token'],
+        role:       res.data['role'],
+        name:       res.data['fullName'],
+        tenantId:   res.data['tenantId'] as int,
+        siteId:     res.data['siteId'] as int?,
+        tenantName: res.data['tenantName'] as String?,
       );
 
       if (mounted) context.go('/dashboard');
