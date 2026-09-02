@@ -365,8 +365,96 @@ Renamed only user-visible labels and API paths. Internal Java class names (`Vend
 
 ---
 
+## 2026-09-02
+
+### OneDesk Feature Parity — Dashboard, Party List, Delivery Challan, Reports
+
+**Context:** Analyzed 20 screenshots of OneDesk (competitor stone crusher SaaS). Identified four gaps where our existing screens lacked depth vs OneDesk. No new modules or DB tables added — improvements to existing screens only.
+
+---
+
+### Improvement 1 — Dashboard Power-Up
+
+**What OneDesk has:** Today's Sales card, Cash Sales card, Diesel balance, Receivables list with Ledger buttons per party.
+
+**Backend (4 files):**
+- `GstInvoiceRepository` — added `sumAllGrandTotalByVendorId(vendorId)`, `countByInvoiceDateAndStatus(date, status)`
+- `VendorPaymentRepository` — added `countByPaymentDateAndStatus(date, status)`
+- `DashboardResponse` — added `todayInvoiceTotal`, `todayInvoiceCount`, `todayCollectionsTotal`, `todayCollectionsCount`, `List<ReceivableParty> receivableParties` (inner class with vendorId, vendorName, outstandingBalance)
+- `DashboardService` — computes all new fields: today's invoice total via existing `sumGrandTotalByDateRange(today, today)`, today's collections via `sumByDateRange(today, today)`, receivable parties by looping active vendors, computing outstanding (sum invoices − sum payments), filtering >0, sorting desc, taking top 10
+
+**Frontend (`dashboard_screen.dart`):**
+- **Quick Actions row** at the very top: `+ Invoice`, `+ Trip`, `+ Diesel`, `+ Payment` buttons — each navigates to the respective route
+- **Today section header** now shows the actual date (e.g. "Today — 2 Sep 2026")
+- **Row 3 added** to Today section: "Today's Sales" card (invoice total + count) and "Today's Collections" card (payment total + count) — both in purple/green
+- **Outstanding Receivables widget** below Financial Position: card table listing top 10 parties with outstanding balance in red, each with a "Ledger" text button
+
+---
+
+### Improvement 2 — Party List with Financial Context
+
+**What OneDesk has:** "Unchecked Bills" count + "Pending Ledger Entry" count per party row + direct Ledger action button.
+
+**Backend (3 files):**
+- `VendorResponse.java` — new DTO with: `id`, `name`, `gstin`, `contact`, `address`, `status`, `outstandingAmount`, `unpaidInvoiceCount`
+- `VendorService` — added `GstInvoiceRepository` and `VendorPaymentRepository` dependencies; `listActive()` now returns `List<VendorResponse>` via `toResponse()` which computes `outstandingAmount = sumAllInvoices − sumAllPayments` per vendor
+- `VendorController` — `list()` return type changed from `List<Vendor>` to `List<VendorResponse>`
+
+**Frontend (`vendors_screen.dart`):**
+- Replaced generic `MasterListScreen` widget with a custom `ListView` of `_PartyCard` widgets
+- Each `_PartyCard` shows: party name, GSTIN/contact subtitle, and a badge:
+  - Red badge: "Outstanding: ₹X,XXX" (if outstanding > 0)
+  - Green badge: "No outstanding" (if fully paid)
+- "Ledger" text button per card → navigates to `/ledger`
+- Circle avatar icon color matches badge (red = outstanding, green = clear)
+
+---
+
+### Improvement 3 — Delivery Challan PDF from Trips
+
+**What OneDesk has:** Print Challan per trip — A5 landscape, duplicate columns, vehicle/party/item table/signatures.
+
+**Frontend only (`trips_screen.dart`):**
+- Added `pdf`, `printing` imports (both already in `pubspec.yaml` from ledger feature)
+- Added "Print Challan" option to the popup menu on every `_TripCard` (appears above Edit/Delete)
+- `_printChallan(context, trip)` static method builds `pw.Document`:
+  - Page format: A5 landscape, 12mm margins
+  - Layout: two equal columns side-by-side (Original Copy + Duplicate Copy)
+  - Each column: company name + "DELIVERY CHALLAN" header, date, vehicle, party, delivery location, DSP challan number, items table (Material | Qty in Brass), signature lines for authorised + receiver
+  - Opens browser print dialog via `Printing.layoutPdf()`
+
+---
+
+### Improvement 4 — Reports Summary Tiles
+
+**What OneDesk has:** Reports Dashboard with tile grid showing summary numbers (Sales Details, Diesel, Trips, etc.) each with View Report + Export links.
+
+**Frontend (`reports_screen.dart`):**
+- Added `_dashSummaryProvider` fetching `/api/dashboard` (no new backend endpoint)
+- `AppBar` no longer has `TabBar` in `.bottom`; `TabBar` moved into body `Column`
+- New `_SummaryTiles` widget renders horizontally scrollable row of 4 tiles above the tabs:
+  1. **Sales (All Time)** — total invoiced, collected, this month total
+  2. **Receivables** — total outstanding, party count with pending, month payments
+  3. **Diesel** — available balance, total in/out; orange if < 100L; "View Report →" jumps to Diesel tab (index 2)
+  4. **Trips (Today)** — today's trip count + brass; "View Report →" jumps to Trips tab (index 3)
+- Each tile: 180px wide, color-coded border, bold first metric line, smaller sub-lines
+
+---
+
+### Verified
+- `mvn compile` → 0 errors ✓
+- `dart analyze lib/` → 0 errors, 0 warnings ✓
+- `GET /api/dashboard` → `todayInvoiceTotal`, `receivableParties` fields present ✓
+- `GET /api/parties` → `outstandingAmount` field correct (Malganga Construction: 9450, R.D. Samant: −500000 correctly excluded from receivables) ✓
+- Receivables widget: shows Malganga Construction ₹9,450 in dashboard ✓
+
+### Commit
+`f80d843` — OneDesk parity: dashboard power-up, party outstanding, challan PDF, reports tiles
+
+---
+
 ## Final State
 
-**Git:** branch `master`, last commit `346347f` (Vendor → Party rename)
-**Backend:** Flyway V1–V9, 20+ controllers, `PageResponse<T>`, `AttendanceMonthlyResponse`, role-gated financial endpoints, input validation; API paths use `/api/parties`, `/api/party-payments`, `/api/ledger/party/`
-**Frontend:** 20 screens, `SearchablePicker`, paginated invoices + payments, role-gated sidebar, redesigned accounting ledger; all "Vendor" labels replaced with "Party"
+**Git:** branch `master`, last commit `f80d843` (OneDesk parity improvements)
+**Backend:** Flyway V1–V9, 20+ controllers, `VendorResponse` DTO with outstanding amount, dashboard enriched with today's financials + receivables list
+**Frontend:** 20+ screens; dashboard now shows quick actions + today's sales/collections + receivables widget; party list shows financial health per card; trips have Print Challan PDF; reports has summary tiles above tabs
