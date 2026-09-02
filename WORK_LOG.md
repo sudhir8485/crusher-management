@@ -453,8 +453,106 @@ Renamed only user-visible labels and API paths. Internal Java class names (`Vend
 
 ---
 
+### Multi-Site Isolation (Option A)
+
+**Context:** User asked how to separate data for 2 sites. Decision: Option A — `site_id` column on every operational table. Invoices and party payments stay company-wide (no site). SITE_STAFF sees only their assigned site; admins can switch between sites or view all combined.
+
+---
+
+### Architecture
+
+| Layer | Mechanism |
+|---|---|
+| Database | `site_id NOT NULL` on 8 operational tables; nullable on `users` |
+| JWT | New `siteId` claim in token (null for admins, site id for SITE_STAFF) |
+| Backend per-request | `SiteContext` ThreadLocal (mirrors `TenantContext`) — set in `JwtAuthFilter`, cleared after |
+| Service enforcement | `effectiveSiteId()` helper: SITE_STAFF always gets `SiteContext.get()`, ignoring any param |
+| Repository queries | `(:siteId IS NULL OR x.siteId = :siteId)` — one JPQL query handles both "all sites" and "specific site" |
+| Frontend state | `selectedSiteIdProvider` (Riverpod `StateProvider<int?>`) — null = All Sites |
+| UI switching | `_SiteSwitcher` dropdown in sidebar — visible to admin roles only |
+
+---
+
+### Migration — `V10__site_isolation.sql`
+
+Added `site_id BIGINT NOT NULL` (backfilled to site 1) to:
+- `trips`, `dabar_entries`, `diesel_receipts`, `diesel_usages`
+- `machine_work_logs`, `water_tanker_logs`, `attendance_records`, `vehicle_daily_logs`
+
+Added nullable `site_id` to `users` (SITE_STAFF assignment).
+
+---
+
+### Backend Changes (48 files total)
+
+**Core auth (5 files):**
+- `SiteContext.java` — new ThreadLocal class, same pattern as `TenantContext`
+- `JwtConfig.java` — `generate()` now takes `Long siteId` and adds it as JWT claim
+- `JwtAuthFilter.java` — extracts `siteId` from JWT, calls `SiteContext.set()`; clears in `finally`
+- `User.java` entity — added `siteId` field
+- `LoginResponse.java` — added `siteId` field; `AuthService` now passes `user.getSiteId()` to `generate()`
+
+**User management:**
+- `UserRequest.java`, `UserResponse.java` — added `siteId`
+- `UserService.java` — sets `u.setSiteId(req.getSiteId())` on create/update
+
+**8 operational entities** — each got `@Column(name = "site_id", nullable = false) private Long siteId`:
+`Trip`, `DabarEntry`, `DieselReceipt`, `DieselUsage`, `MachineWorkLog`, `WaterTankerLog`, `AttendanceRecord`, `VehicleDailyLog`
+
+**8 repositories** — added site-aware JPQL `@Query` methods (e.g. `findByDateAndSite`, `findByDateRangeAndSite`, `sumTotalReceivedBySite`) using `(:siteId IS NULL OR x.siteId = :siteId)` pattern.
+
+**8 services** — each got:
+- `effectiveSiteId(Long requested)` helper: returns `SiteContext.get()` for SITE_STAFF, else `requested`
+- `create()` calls `entity.setSiteId(SiteContext.get())`
+- `list*()` methods pass effective siteId to new repo queries
+
+**8 controllers** — all list endpoints got `@RequestParam(required = false) Long siteId`
+
+**`DashboardService`** — all aggregates (`countByDate`, `sumBrass`, `dieselBalance`, `machineHours`, `tripSummary`) now use site-aware repo methods with `SiteContext.get()`
+
+---
+
+### What stays company-wide (no site_id)
+- `gst_invoices` — invoices are raised from one legal entity regardless of site
+- `vendor_payments` — payments are company-level
+- `vendors` (parties) — shared master across sites
+- `vehicles`, `machines`, `materials` — master data
+
+---
+
+### Frontend Changes
+
+- `AuthStorage` — added `_siteKey`, `save()` accepts `siteId?`, new `getSiteId()` method
+- `login_screen.dart` — saves `siteId` from login response
+- `site_provider.dart` (new) — `selectedSiteIdProvider` (StateProvider<int?>) and `sitesProvider` (FetureProvider for `/api/sites`)
+- `master_shell.dart` — converted `_AppSidebar` to `ConsumerStatefulWidget`; on `initState` loads siteId from storage and pre-selects for SITE_STAFF; added `_SiteSwitcher` dropdown between logo and nav items (hidden for SITE_STAFF)
+- `dashboard_screen.dart` — provider watches `selectedSiteIdProvider`, re-fetches on change
+- `trips_screen.dart` — provider passes `?siteId=X` when site is selected
+- `dabar_screen.dart` — same
+- `diesel_screen.dart` — `_balanceProvider`, `_receiptsProvider`, `_usagesProvider` all pass siteId
+
+---
+
+### Verified
+- `mvn compile` → 0 errors ✓
+- `dart analyze lib/` → 0 errors ✓
+- V10 migration ran on restart ✓
+- `GET /api/trips?from=2026-09-02&to=2026-09-02` → 200, site-filtered ✓
+- `GET /api/dashboard` → diesel balance and trip counts correct ✓
+- `GET /api/parties` → outstandingAmount still present ✓
+
+### To use multi-site
+1. Go to Sites master → Add Site (e.g. "Mulshi Crusher Site")
+2. Go to Users → edit a SITE_STAFF user → set their site assignment
+3. That user now sees only their site's data automatically
+
+### Commit
+`e66b642` — Multi-site isolation: site_id on all operational tables, site switcher UI
+
+---
+
 ## Final State
 
-**Git:** branch `master`, last commit `f80d843` (OneDesk parity improvements)
-**Backend:** Flyway V1–V9, 20+ controllers, `VendorResponse` DTO with outstanding amount, dashboard enriched with today's financials + receivables list
-**Frontend:** 20+ screens; dashboard now shows quick actions + today's sales/collections + receivables widget; party list shows financial health per card; trips have Print Challan PDF; reports has summary tiles above tabs
+**Git:** branch `master`, last commit `e66b642` (multi-site isolation)
+**Backend:** Flyway V1–V10; `SiteContext` ThreadLocal; site-aware queries on all 8 operational repositories; JWT carries `siteId` claim; `SITE_STAFF` role auto-enforced at service layer
+**Frontend:** `selectedSiteIdProvider` global state; site switcher dropdown in sidebar for admin roles; trips/dabar/diesel/dashboard providers site-aware
