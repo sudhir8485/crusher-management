@@ -23,11 +23,12 @@ public class JwtConfig {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generate(Long userId, Long tenantId, String role) {
+    public String generate(Long userId, Long tenantId, String role, Long siteId) {
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("tenantId", tenantId)
                 .claim("role", role)
+                .claim("siteId", siteId)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(key())

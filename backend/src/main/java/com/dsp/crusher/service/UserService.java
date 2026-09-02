@@ -37,6 +37,7 @@ public class UserService {
         u.setEmail(req.getEmail().toLowerCase().trim());
         u.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         u.setRole(req.getRole());
+        u.setSiteId(req.getSiteId());
         return toResponse(userRepo.save(u));
     }
 
@@ -47,6 +48,7 @@ public class UserService {
         u.setFullName(req.getFullName());
         u.setEmail(req.getEmail().toLowerCase().trim());
         u.setRole(req.getRole());
+        u.setSiteId(req.getSiteId());
         if (req.getPassword() != null && !req.getPassword().isBlank()) {
             u.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         }
@@ -67,6 +69,7 @@ public class UserService {
         r.setFullName(u.getFullName());
         r.setEmail(u.getEmail());
         r.setRole(u.getRole());
+        r.setSiteId(u.getSiteId());
         r.setStatus(u.getStatus());
         r.setCreatedAt(u.getCreatedAt());
         return r;

@@ -1,5 +1,6 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.AttendanceMarkRequest;
@@ -27,8 +28,12 @@ public class AttendanceService {
     // Returns all active employees + their attendance status for the given date.
     // Employees not yet marked show attendanceStatus = null.
     public AttendanceDayResponse getDay(LocalDate date) {
+        return getDay(date, SiteContext.get());
+    }
+
+    public AttendanceDayResponse getDay(LocalDate date, Long siteId) {
         List<Employee> activeEmployees = employeeRepo.findByStatusOrderByNameAsc("ACTIVE");
-        List<AttendanceRecord> records = attendanceRepo.findByAttendanceDateOrderByEmployeeIdAsc(date);
+        List<AttendanceRecord> records = attendanceRepo.findByDateAndSite(date, siteId);
 
         Map<Long, AttendanceRecord> byEmployee = records.stream()
                 .collect(Collectors.toMap(AttendanceRecord::getEmployeeId, r -> r));
@@ -85,6 +90,7 @@ public class AttendanceService {
         AttendanceRecord rec = existing.orElseGet(() -> {
             AttendanceRecord nr = new AttendanceRecord();
             nr.setTenantId(TenantContext.get());
+            nr.setSiteId(SiteContext.get());
             nr.setAttendanceDate(req.getDate());
             nr.setEmployeeId(req.getEmployeeId());
             return nr;

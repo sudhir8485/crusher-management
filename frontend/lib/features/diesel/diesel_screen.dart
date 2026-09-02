@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
@@ -10,17 +11,25 @@ final _receiptDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 final _usageDateProvider   = StateProvider<DateTime>((ref) => DateTime.now());
 
 final _balanceProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/diesel/balance');
+  final siteId = ref.watch(selectedSiteIdProvider);
+  final params = siteId != null ? {'siteId': siteId} : <String, dynamic>{};
+  final res = await ref.read(apiClientProvider).get('/api/diesel/balance', params: params);
   return Map<String, dynamic>.from(res.data);
 });
 
 final _receiptsProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final res = await ref.read(apiClientProvider).get('/api/diesel/receipts', params: {'from': date, 'to': date});
+  final siteId = ref.watch(selectedSiteIdProvider);
+  final params = <String, dynamic>{'from': date, 'to': date};
+  if (siteId != null) params['siteId'] = siteId;
+  final res = await ref.read(apiClientProvider).get('/api/diesel/receipts', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 
 final _usagesProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final res = await ref.read(apiClientProvider).get('/api/diesel/usages', params: {'from': date, 'to': date});
+  final siteId = ref.watch(selectedSiteIdProvider);
+  final params = <String, dynamic>{'from': date, 'to': date};
+  if (siteId != null) params['siteId'] = siteId;
+  final res = await ref.read(apiClientProvider).get('/api/diesel/usages', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 

@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.WaterTankerLogRequest;
 import com.dsp.crusher.dto.WaterTankerLogResponse;
 import com.dsp.crusher.entity.Vehicle;
@@ -25,16 +27,24 @@ public class WaterTankerService {
     private final WaterTankerLogRepository repo;
     private final VehicleRepository vehicleRepo;
 
-    public List<WaterTankerLogResponse> listAll() {
-        return enrich(repo.findByStatusOrderByLogDateDescIdDesc("ACTIVE"));
+    public List<WaterTankerLogResponse> listAll(Long siteId) {
+        Long sid = effectiveSiteId(siteId);
+        if (sid == null) return enrich(repo.findByStatusOrderByLogDateDescIdDesc("ACTIVE"));
+        return enrich(repo.findByDateRangeAndSite(LocalDate.of(2000,1,1), LocalDate.now().plusYears(1), sid));
     }
 
-    public List<WaterTankerLogResponse> listByDate(LocalDate date) {
-        return enrich(repo.findByLogDateAndStatusOrderByIdAsc(date, "ACTIVE"));
+    public List<WaterTankerLogResponse> listByDate(LocalDate date, Long siteId) {
+        return enrich(repo.findByDateAndSite(date, effectiveSiteId(siteId)));
     }
 
-    public List<WaterTankerLogResponse> listByDateRange(LocalDate from, LocalDate to) {
-        return enrich(repo.findByLogDateBetweenAndStatusOrderByLogDateDescIdDesc(from, to, "ACTIVE"));
+    public List<WaterTankerLogResponse> listByDateRange(LocalDate from, LocalDate to, Long siteId) {
+        return enrich(repo.findByDateRangeAndSite(from, to, effectiveSiteId(siteId)));
+    }
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
     }
 
     public WaterTankerLogResponse getById(Long id) {
@@ -47,6 +57,7 @@ public class WaterTankerService {
     public WaterTankerLogResponse create(WaterTankerLogRequest req) {
         WaterTankerLog log = new WaterTankerLog();
         log.setTenantId(TenantContext.get());
+        log.setSiteId(SiteContext.get());
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }

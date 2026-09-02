@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.*;
 import com.dsp.crusher.entity.DieselReceipt;
 import com.dsp.crusher.entity.DieselUsage;
@@ -31,9 +33,10 @@ public class DieselService {
 
     // ── Balance ──────────────────────────────────────────────────────────────
 
-    public DieselBalanceResponse balance() {
-        BigDecimal received = receiptRepo.sumTotalReceived();
-        BigDecimal used = usageRepo.sumTotalUsed();
+    public DieselBalanceResponse balance(Long siteId) {
+        Long sid = effectiveSiteId(siteId);
+        BigDecimal received = receiptRepo.sumTotalReceivedBySite(sid);
+        BigDecimal used = usageRepo.sumTotalUsedBySite(sid);
         DieselBalanceResponse r = new DieselBalanceResponse();
         r.setTotalReceivedLiters(received);
         r.setTotalUsedLiters(used);
@@ -43,12 +46,13 @@ public class DieselService {
 
     // ── Receipts ─────────────────────────────────────────────────────────────
 
-    public List<DieselReceiptResponse> listReceipts(LocalDate from, LocalDate to) {
+    public List<DieselReceiptResponse> listReceipts(LocalDate from, LocalDate to, Long siteId) {
+        Long sid = effectiveSiteId(siteId);
         List<DieselReceipt> list;
         if (from != null && to != null)
-            list = receiptRepo.findByReceiptDateBetweenAndStatusOrderByReceiptDateDescIdDesc(from, to, "ACTIVE");
+            list = receiptRepo.findByDateRangeAndSite(from, to, sid);
         else if (from != null)
-            list = receiptRepo.findByReceiptDateAndStatusOrderByIdAsc(from, "ACTIVE");
+            list = receiptRepo.findByDateAndSite(from, sid);
         else
             list = receiptRepo.findByStatusOrderByReceiptDateDescIdDesc("ACTIVE");
         return enrichReceipts(list);
@@ -63,6 +67,7 @@ public class DieselService {
     public DieselReceiptResponse createReceipt(DieselReceiptRequest req) {
         DieselReceipt r = new DieselReceipt();
         r.setTenantId(TenantContext.get());
+        r.setSiteId(SiteContext.get());
         applyReceipt(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
     }
@@ -85,12 +90,13 @@ public class DieselService {
 
     // ── Usages ────────────────────────────────────────────────────────────────
 
-    public List<DieselUsageResponse> listUsages(LocalDate from, LocalDate to) {
+    public List<DieselUsageResponse> listUsages(LocalDate from, LocalDate to, Long siteId) {
+        Long sid = effectiveSiteId(siteId);
         List<DieselUsage> list;
         if (from != null && to != null)
-            list = usageRepo.findByUsageDateBetweenAndStatusOrderByUsageDateDescIdDesc(from, to, "ACTIVE");
+            list = usageRepo.findByDateRangeAndSite(from, to, sid);
         else if (from != null)
-            list = usageRepo.findByUsageDateAndStatusOrderByIdAsc(from, "ACTIVE");
+            list = usageRepo.findByDateAndSite(from, sid);
         else
             list = usageRepo.findByStatusOrderByUsageDateDescIdDesc("ACTIVE");
         return enrichUsages(list);
@@ -105,9 +111,11 @@ public class DieselService {
     public DieselUsageResponse createUsage(DieselUsageRequest req) {
         DieselUsage u = new DieselUsage();
         u.setTenantId(TenantContext.get());
+        u.setSiteId(SiteContext.get());
         applyUsage(u, req);
         DieselUsageResponse resp = enrichUsages(List.of(usageRepo.save(u))).get(0);
-        BigDecimal balance = receiptRepo.sumTotalReceived().subtract(usageRepo.sumTotalUsed());
+        BigDecimal balance = receiptRepo.sumTotalReceivedBySite(SiteContext.get())
+                .subtract(usageRepo.sumTotalUsedBySite(SiteContext.get()));
         resp.setStockWarning(balance.compareTo(BigDecimal.ZERO) < 0);
         return resp;
     }
@@ -129,6 +137,12 @@ public class DieselService {
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
+    }
 
     private void applyReceipt(DieselReceipt r, DieselReceiptRequest req) {
         r.setReceiptDate(req.getReceiptDate());

@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
 final _dashboardProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  ref.watch(selectedSiteIdProvider); // re-fetch when site changes
   final res = await ref.read(apiClientProvider).get('/api/dashboard');
   return Map<String, dynamic>.from(res.data as Map);
 });

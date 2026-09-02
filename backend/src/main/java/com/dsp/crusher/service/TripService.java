@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.DailyReportResponse;
 import com.dsp.crusher.dto.TripRequest;
 import com.dsp.crusher.dto.TripResponse;
@@ -33,20 +35,22 @@ public class TripService {
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
 
-    public List<TripResponse> listAll() {
-        return enrich(tripRepo.findByStatusOrderByTripDateDescIdDesc("ACTIVE"));
+    public List<TripResponse> listAll(Long siteId) {
+        Long sid = effectiveSiteId(siteId);
+        if (sid == null) return enrich(tripRepo.findByStatusOrderByTripDateDescIdDesc("ACTIVE"));
+        return enrich(tripRepo.findByDateRangeAndSite(LocalDate.of(2000,1,1), LocalDate.now().plusYears(1), sid));
     }
 
-    public List<TripResponse> listByDate(LocalDate date) {
-        return enrich(tripRepo.findByTripDateAndStatusOrderByIdAsc(date, "ACTIVE"));
+    public List<TripResponse> listByDate(LocalDate date, Long siteId) {
+        return enrich(tripRepo.findByDateAndSite(date, effectiveSiteId(siteId)));
     }
 
-    public List<TripResponse> listByDateRange(LocalDate from, LocalDate to) {
-        return enrich(tripRepo.findByTripDateBetweenAndStatusOrderByTripDateDescIdDesc(from, to, "ACTIVE"));
+    public List<TripResponse> listByDateRange(LocalDate from, LocalDate to, Long siteId) {
+        return enrich(tripRepo.findByDateRangeAndSite(from, to, effectiveSiteId(siteId)));
     }
 
-    public DailyReportResponse dailyReport(LocalDate date) {
-        List<TripResponse> trips = listByDate(date);
+    public DailyReportResponse dailyReport(LocalDate date, Long siteId) {
+        List<TripResponse> trips = listByDate(date, siteId);
 
         Map<String, BigDecimal> byMaterial = new LinkedHashMap<>();
         for (TripResponse t : trips) {
@@ -86,6 +90,7 @@ public class TripService {
     public TripResponse create(TripRequest req) {
         Trip t = new Trip();
         t.setTenantId(TenantContext.get());
+        t.setSiteId(SiteContext.get());
         applyRequest(t, req);
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
@@ -107,6 +112,13 @@ public class TripService {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
+    }
 
     private void applyRequest(Trip t, TripRequest req) {
         t.setTripDate(req.getTripDate());

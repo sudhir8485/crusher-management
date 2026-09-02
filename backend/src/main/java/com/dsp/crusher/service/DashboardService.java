@@ -1,5 +1,6 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.DashboardResponse;
 import com.dsp.crusher.entity.DabarEntry;
@@ -38,19 +39,21 @@ public class DashboardService {
         DashboardResponse r = new DashboardResponse();
         r.setAsOf(today);
 
+        Long siteId = SiteContext.get();
+
         // Today's trips
-        r.setTodayTripCount(tripRepo.countByTripDateAndStatus(today, "ACTIVE"));
-        r.setTodayTotalBrass(tripRepo.sumBrassByDate(today));
+        r.setTodayTripCount(tripRepo.countByDateAndSite(today, siteId));
+        r.setTodayTotalBrass(tripRepo.sumBrassByDateAndSite(today, siteId));
 
         // Diesel balance
-        BigDecimal received = receiptRepo.sumTotalReceived();
-        BigDecimal used = usageRepo.sumTotalUsed();
+        BigDecimal received = receiptRepo.sumTotalReceivedBySite(siteId);
+        BigDecimal used = usageRepo.sumTotalUsedBySite(siteId);
         r.setDieselTotalReceived(received);
         r.setDieselTotalUsed(used);
         r.setDieselBalanceLiters(received.subtract(used));
 
         // This month
-        r.setMonthlyMachineHours(machineRepo.sumHoursByDateRange(monthStart, today));
+        r.setMonthlyMachineHours(machineRepo.sumHoursByDateRangeAndSite(monthStart, today, siteId));
         r.setMonthlyInvoiceTotal(invoiceRepo.sumGrandTotalByDateRange(monthStart, today));
         r.setMonthlyInvoiceCount(invoiceRepo.countByInvoiceDateBetweenAndStatus(monthStart, today, "ACTIVE"));
         r.setMonthlyPaymentsTotal(paymentRepo.sumByDateRange(monthStart, today));
@@ -61,7 +64,7 @@ public class DashboardService {
         r.setTodayAttendanceTotal(att.getEmployees().size());
 
         // Today's machine hours
-        r.setTodayMachineHours(machineRepo.sumHoursByDateRange(today, today));
+        r.setTodayMachineHours(machineRepo.sumHoursByDateRangeAndSite(today, today, siteId));
 
         // Today's dabar brass
         List<DabarEntry> dabarToday = dabarRepo.findByEntryDateAndStatusOrderByIdAsc(today, "ACTIVE");
@@ -78,7 +81,7 @@ public class DashboardService {
         r.setTotalOutstanding(totalInv.subtract(totalPaid));
 
         // Monthly trip summary by material
-        List<Object[]> rows = tripRepo.summarizeByMaterial(monthStart, today);
+        List<Object[]> rows = tripRepo.summarizeByMaterialAndSite(monthStart, today, siteId);
         List<Long> matIds = rows.stream()
                 .map(row -> (Long) row[0]).collect(Collectors.toList());
         Map<Long, Material> materials = materialRepo.findAllById(matIds).stream()

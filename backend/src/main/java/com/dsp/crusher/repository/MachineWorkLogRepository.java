@@ -27,4 +27,13 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     List<MachineWorkLog> findByMachineIdAndLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
             Long machineId, LocalDate from, LocalDate to, String status);
+
+    @Query("SELECT m FROM MachineWorkLog m WHERE m.logDate = :date AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId) ORDER BY m.id DESC")
+    List<MachineWorkLog> findByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
+
+    @Query("SELECT m FROM MachineWorkLog m WHERE m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId) ORDER BY m.logDate DESC, m.id DESC")
+    List<MachineWorkLog> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT COALESCE(SUM(m.totalHours), 0) FROM MachineWorkLog m WHERE m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId)")
+    BigDecimal sumHoursByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 }

@@ -25,18 +25,19 @@ public class DieselController {
 
     @GetMapping("/balance")
     @Operation(summary = "Current diesel stock balance (total received - total used)")
-    public DieselBalanceResponse balance() {
-        return service.balance();
+    public DieselBalanceResponse balance(@RequestParam(required = false) Long siteId) {
+        return service.balance(siteId);
     }
 
     // ── Receipts ──────────────────────────────────────────────────────────────
 
     @GetMapping("/receipts")
-    @Operation(summary = "List diesel receipts (optionally filter by date range)")
+    @Operation(summary = "List diesel receipts (optionally filter by date range and site)")
     public List<DieselReceiptResponse> listReceipts(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return service.listReceipts(from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long siteId) {
+        return service.listReceipts(from, to, siteId);
     }
 
     @GetMapping("/receipts/{id}")
@@ -70,11 +71,12 @@ public class DieselController {
     // ── Usages ────────────────────────────────────────────────────────────────
 
     @GetMapping("/usages")
-    @Operation(summary = "List diesel usage entries (optionally filter by date range)")
+    @Operation(summary = "List diesel usage entries (optionally filter by date range and site)")
     public List<DieselUsageResponse> listUsages(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return service.listUsages(from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long siteId) {
+        return service.listUsages(from, to, siteId);
     }
 
     @GetMapping("/usages/{id}")

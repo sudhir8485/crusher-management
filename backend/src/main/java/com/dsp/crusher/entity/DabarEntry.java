@@ -19,6 +19,9 @@ public class DabarEntry {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "site_id", nullable = false)
+    private Long siteId;
+
     @Column(name = "entry_date", nullable = false)
     private LocalDate entryDate;
 

@@ -40,7 +40,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         token: res.data['token'],
         role: res.data['role'],
         name: res.data['fullName'],
-        tenantId: res.data['tenantId'],
+        tenantId: res.data['tenantId'] as int,
+        siteId: res.data['siteId'] as int?,
       );
 
       if (mounted) context.go('/dashboard');

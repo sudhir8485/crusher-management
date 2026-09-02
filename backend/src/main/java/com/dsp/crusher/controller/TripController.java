@@ -26,20 +26,22 @@ public class TripController {
     private final TripService service;
 
     @GetMapping
-    @Operation(summary = "List trips (optionally filter by date range)")
+    @Operation(summary = "List trips (optionally filter by date range and site)")
     public List<TripResponse> list(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        if (from != null && to != null) return service.listByDateRange(from, to);
-        if (from != null) return service.listByDate(from);
-        return service.listAll();
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long siteId) {
+        if (from != null && to != null) return service.listByDateRange(from, to, siteId);
+        if (from != null) return service.listByDate(from, siteId);
+        return service.listAll(siteId);
     }
 
     @GetMapping("/daily-report")
     @Operation(summary = "Daily material sale report for a given date")
     public DailyReportResponse dailyReport(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return service.dailyReport(date != null ? date : LocalDate.now());
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) Long siteId) {
+        return service.dailyReport(date != null ? date : LocalDate.now(), siteId);
     }
 
     @GetMapping("/{id}")

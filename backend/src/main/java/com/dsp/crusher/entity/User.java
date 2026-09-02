@@ -29,6 +29,9 @@ public class User {
     @Column(nullable = false, length = 30)
     private String role;   // OWNER_ADMIN | OFFICE_ACCOUNTANT | SITE_STAFF
 
+    @Column(name = "site_id")
+    private Long siteId;  // null for OWNER_ADMIN/OFFICE_ACCOUNTANT; set for SITE_STAFF
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
@@ -9,7 +10,10 @@ import '../../core/widgets/app_widgets.dart';
 final _dabarDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
 final _dabarProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final res = await ref.read(apiClientProvider).get('/api/dabar', params: {'from': date, 'to': date});
+  final siteId = ref.watch(selectedSiteIdProvider);
+  final params = <String, dynamic>{'from': date, 'to': date};
+  if (siteId != null) params['siteId'] = siteId;
+  final res = await ref.read(apiClientProvider).get('/api/dabar', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 

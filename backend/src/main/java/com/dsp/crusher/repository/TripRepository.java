@@ -33,4 +33,20 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     List<Trip> findByMaterialIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(Long materialId, LocalDate from, LocalDate to, String status);
 
     List<Trip> findByVendorIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(Long vendorId, LocalDate from, LocalDate to, String status);
+
+    // Site-aware queries (siteId IS NULL → all sites for admin)
+    @Query("SELECT t FROM Trip t WHERE t.tripDate = :date AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.id ASC")
+    List<Trip> findByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
+
+    @Query("SELECT t FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate DESC, t.id DESC")
+    List<Trip> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT COUNT(t) FROM Trip t WHERE t.tripDate = :date AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
+    long countByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
+
+    @Query("SELECT COALESCE(SUM(t.quantityBrass), 0) FROM Trip t WHERE t.tripDate = :date AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
+    BigDecimal sumBrassByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
+
+    @Query("SELECT t.materialId, COUNT(t), COALESCE(SUM(t.quantityBrass), 0) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) GROUP BY t.materialId")
+    List<Object[]> summarizeByMaterialAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 }

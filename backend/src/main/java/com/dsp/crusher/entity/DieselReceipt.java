@@ -19,6 +19,9 @@ public class DieselReceipt {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "site_id", nullable = false)
+    private Long siteId;
+
     @Column(name = "receipt_date", nullable = false)
     private LocalDate receiptDate;
 

@@ -25,13 +25,14 @@ public class DabarController {
     private final DabarService service;
 
     @GetMapping
-    @Operation(summary = "List dabar entries (optionally filter by date range)")
+    @Operation(summary = "List dabar entries (optionally filter by date range and site)")
     public List<DabarEntryResponse> list(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        if (from != null && to != null) return service.listByDateRange(from, to);
-        if (from != null) return service.listByDate(from);
-        return service.listAll();
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long siteId) {
+        if (from != null && to != null) return service.listByDateRange(from, to, siteId);
+        if (from != null) return service.listByDate(from, siteId);
+        return service.listAll(siteId);
     }
 
     @GetMapping("/{id}")

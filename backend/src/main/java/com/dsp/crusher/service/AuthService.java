@@ -31,7 +31,7 @@ public class AuthService {
             throw new UnauthorizedException("Account is inactive");
         }
 
-        String token = jwtConfig.generate(user.getId(), user.getTenantId(), user.getRole());
-        return new LoginResponse(token, user.getRole(), user.getFullName(), user.getTenantId());
+        String token = jwtConfig.generate(user.getId(), user.getTenantId(), user.getRole(), user.getSiteId());
+        return new LoginResponse(token, user.getRole(), user.getFullName(), user.getTenantId(), user.getSiteId());
     }
 }

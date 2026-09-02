@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
 
 class MasterShell extends StatelessWidget {
@@ -38,15 +40,15 @@ class MasterShell extends StatelessWidget {
 
 // ── sidebar ───────────────────────────────────────────────────────────────────
 
-class _AppSidebar extends StatefulWidget {
+class _AppSidebar extends ConsumerStatefulWidget {
   final int selectedIndex;
   const _AppSidebar({required this.selectedIndex});
 
   @override
-  State<_AppSidebar> createState() => _AppSidebarState();
+  ConsumerState<_AppSidebar> createState() => _AppSidebarState();
 }
 
-class _AppSidebarState extends State<_AppSidebar> {
+class _AppSidebarState extends ConsumerState<_AppSidebar> {
   String? _role;
 
   @override
@@ -54,6 +56,12 @@ class _AppSidebarState extends State<_AppSidebar> {
     super.initState();
     AuthStorage.getRole().then((r) {
       if (mounted) setState(() => _role = r);
+    });
+    // For SITE_STAFF: pre-select their assigned site on load
+    AuthStorage.getSiteId().then((sid) {
+      if (sid != null && mounted) {
+        ref.read(selectedSiteIdProvider.notifier).state = sid;
+      }
     });
   }
 
@@ -119,6 +127,10 @@ class _AppSidebarState extends State<_AppSidebar> {
               ],
             ),
           ),
+
+          // ── Site Switcher (OWNER_ADMIN / OFFICE_ACCOUNTANT only) ─────────
+          if (_role != null && _role != 'SITE_STAFF')
+            _SiteSwitcher(),
 
           // ── Scrollable nav items ──────────────────────────────────────────
           Expanded(
@@ -260,6 +272,52 @@ class _NavItem extends StatelessWidget {
         selected: isSelected,
         onTap: () => context.go(_routes[index]),
       ),
+    );
+  }
+}
+
+// ── site switcher ─────────────────────────────────────────────────────────────
+
+class _SiteSwitcher extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sites = ref.watch(sitesProvider);
+    final selectedId = ref.watch(selectedSiteIdProvider);
+
+    return sites.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (list) {
+        return Container(
+          margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int?>(
+              isExpanded: true,
+              value: selectedId,
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              icon: const Icon(Icons.location_on, size: 16),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('All Sites', style: TextStyle(fontSize: 13)),
+                ),
+                ...list.map((s) => DropdownMenuItem<int?>(
+                  value: s['id'] as int?,
+                  child: Text(s['name'] as String, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                )),
+              ],
+              onChanged: (val) {
+                ref.read(selectedSiteIdProvider.notifier).state = val;
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 }

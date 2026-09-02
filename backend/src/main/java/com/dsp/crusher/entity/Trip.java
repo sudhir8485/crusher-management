@@ -19,6 +19,9 @@ public class Trip {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "site_id", nullable = false)
+    private Long siteId;
+
     @Column(name = "trip_date", nullable = false)
     private LocalDate tripDate;
 

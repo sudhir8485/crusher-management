@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.VehicleDailyLogRequest;
 import com.dsp.crusher.dto.VehicleDailyLogResponse;
 import com.dsp.crusher.entity.Vehicle;
@@ -25,15 +27,22 @@ public class VehicleDailyLogService {
     private final VehicleDailyLogRepository repo;
     private final VehicleRepository vehicleRepo;
 
-    public List<VehicleDailyLogResponse> list(LocalDate from, LocalDate to) {
+    public List<VehicleDailyLogResponse> list(LocalDate from, LocalDate to, Long siteId) {
+        Long sid = effectiveSiteId(siteId);
         List<VehicleDailyLog> rows;
         if (from != null && to != null)
-            rows = repo.findByLogDateBetweenAndStatusOrderByLogDateDescIdDesc(from, to, "ACTIVE");
+            rows = repo.findByDateRangeAndSite(from, to, sid);
         else if (from != null)
-            rows = repo.findByLogDateAndStatusOrderByVehicleIdAscIdAsc(from, "ACTIVE");
+            rows = repo.findByDateAndSite(from, sid);
         else
             rows = repo.findByStatusOrderByLogDateDescIdDesc("ACTIVE");
         return enrich(rows);
+    }
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
     }
 
     public VehicleDailyLogResponse get(Long id) {
@@ -45,6 +54,7 @@ public class VehicleDailyLogService {
     public VehicleDailyLogResponse create(VehicleDailyLogRequest req) {
         VehicleDailyLog log = new VehicleDailyLog();
         log.setTenantId(TenantContext.get());
+        log.setSiteId(SiteContext.get());
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }

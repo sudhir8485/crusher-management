@@ -13,6 +13,9 @@ public interface AttendanceRepository extends JpaRepository<AttendanceRecord, Lo
 
     List<AttendanceRecord> findByAttendanceDateOrderByEmployeeIdAsc(LocalDate date);
 
+    @Query("SELECT a FROM AttendanceRecord a WHERE a.attendanceDate = :date AND (:siteId IS NULL OR a.siteId = :siteId) ORDER BY a.employeeId ASC")
+    List<AttendanceRecord> findByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
+
     Optional<AttendanceRecord> findByAttendanceDateAndEmployeeId(LocalDate date, Long employeeId);
 
     List<AttendanceRecord> findByAttendanceDateBetweenOrderByAttendanceDateAscEmployeeIdAsc(

@@ -1,6 +1,7 @@
 package com.dsp.crusher.filter;
 
 import com.dsp.crusher.config.JwtConfig;
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.persistence.EntityManager;
@@ -37,8 +38,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 Long userId = Long.parseLong(claims.getSubject());
                 Long tenantId = claims.get("tenantId", Long.class);
                 String role = claims.get("role", String.class);
+                Long siteId = claims.get("siteId", Long.class);
 
                 TenantContext.set(tenantId);
+                SiteContext.set(siteId);
 
                 var auth = new UsernamePasswordAuthenticationToken(
                         userId, null,
@@ -52,6 +55,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            SiteContext.clear();
             SecurityContextHolder.clearContext();
         }
     }

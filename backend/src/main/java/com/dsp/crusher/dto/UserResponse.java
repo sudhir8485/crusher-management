@@ -10,6 +10,7 @@ public class UserResponse {
     private String fullName;
     private String email;
     private String role;
+    private Long siteId;
     private String status;
     private LocalDateTime createdAt;
 }

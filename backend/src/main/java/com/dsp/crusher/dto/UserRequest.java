@@ -19,4 +19,6 @@ public class UserRequest {
 
     @NotNull
     private String role;           // OWNER_ADMIN | OFFICE_ACCOUNTANT | SITE_STAFF
+
+    private Long siteId;           // required when role = SITE_STAFF
 }

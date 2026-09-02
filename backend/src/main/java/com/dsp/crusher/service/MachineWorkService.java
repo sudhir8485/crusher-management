@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.MachineWorkLogRequest;
 import com.dsp.crusher.dto.MachineWorkLogResponse;
 import com.dsp.crusher.entity.Machine;
@@ -25,15 +27,22 @@ public class MachineWorkService {
     private final MachineWorkLogRepository repo;
     private final MachineRepository machineRepo;
 
-    public List<MachineWorkLogResponse> list(LocalDate from, LocalDate to) {
+    public List<MachineWorkLogResponse> list(LocalDate from, LocalDate to, Long siteId) {
+        Long sid = effectiveSiteId(siteId);
         List<MachineWorkLog> rows;
         if (from != null && to != null)
-            rows = repo.findByLogDateBetweenAndStatusOrderByLogDateDescIdDesc(from, to, "ACTIVE");
+            rows = repo.findByDateRangeAndSite(from, to, sid);
         else if (from != null)
-            rows = repo.findByLogDateAndStatusOrderByIdDesc(from, "ACTIVE");
+            rows = repo.findByDateAndSite(from, sid);
         else
             rows = repo.findByStatusOrderByLogDateDescIdDesc("ACTIVE");
         return enrich(rows);
+    }
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
     }
 
     public MachineWorkLogResponse get(Long id) {
@@ -46,6 +55,7 @@ public class MachineWorkService {
     public MachineWorkLogResponse create(MachineWorkLogRequest req) {
         MachineWorkLog log = new MachineWorkLog();
         log.setTenantId(TenantContext.get());
+        log.setSiteId(SiteContext.get());
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }

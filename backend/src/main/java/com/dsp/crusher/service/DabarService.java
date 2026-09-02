@@ -1,6 +1,8 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.DabarEntryRequest;
 import com.dsp.crusher.dto.DabarEntryResponse;
 import com.dsp.crusher.entity.DabarEntry;
@@ -27,16 +29,18 @@ public class DabarService {
     private final VehicleRepository vehicleRepo;
     private final VendorRepository vendorRepo;
 
-    public List<DabarEntryResponse> listAll() {
-        return enrich(repo.findByStatusOrderByEntryDateDescIdDesc("ACTIVE"));
+    public List<DabarEntryResponse> listAll(Long siteId) {
+        Long sid = effectiveSiteId(siteId);
+        if (sid == null) return enrich(repo.findByStatusOrderByEntryDateDescIdDesc("ACTIVE"));
+        return enrich(repo.findByDateRangeAndSite(java.time.LocalDate.of(2000,1,1), java.time.LocalDate.now().plusYears(1), sid));
     }
 
-    public List<DabarEntryResponse> listByDate(LocalDate date) {
-        return enrich(repo.findByEntryDateAndStatusOrderByIdAsc(date, "ACTIVE"));
+    public List<DabarEntryResponse> listByDate(LocalDate date, Long siteId) {
+        return enrich(repo.findByDateAndSite(date, effectiveSiteId(siteId)));
     }
 
-    public List<DabarEntryResponse> listByDateRange(LocalDate from, LocalDate to) {
-        return enrich(repo.findByEntryDateBetweenAndStatusOrderByEntryDateDescIdDesc(from, to, "ACTIVE"));
+    public List<DabarEntryResponse> listByDateRange(LocalDate from, LocalDate to, Long siteId) {
+        return enrich(repo.findByDateRangeAndSite(from, to, effectiveSiteId(siteId)));
     }
 
     public DabarEntryResponse getById(Long id) {
@@ -49,6 +53,7 @@ public class DabarService {
     public DabarEntryResponse create(DabarEntryRequest req) {
         DabarEntry e = new DabarEntry();
         e.setTenantId(TenantContext.get());
+        e.setSiteId(SiteContext.get());
         apply(e, req);
         return enrich(List.of(repo.save(e))).get(0);
     }
@@ -67,6 +72,12 @@ public class DabarService {
                 .orElseThrow(() -> new ResourceNotFoundException("Dabar entry not found: " + id));
         e.setStatus("INACTIVE");
         repo.save(e);
+    }
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
     }
 
     private void apply(DabarEntry e, DabarEntryRequest req) {

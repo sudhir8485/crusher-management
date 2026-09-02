@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ───────────────────────────────────────────────────────────────
@@ -13,9 +14,10 @@ final tripsDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
 final tripsProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final res = await ref
-      .read(apiClientProvider)
-      .get('/api/trips', params: {'from': date, 'to': date});
+  final siteId = ref.watch(selectedSiteIdProvider);
+  final params = <String, dynamic>{'from': date, 'to': date};
+  if (siteId != null) params['siteId'] = siteId;
+  final res = await ref.read(apiClientProvider).get('/api/trips', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 
