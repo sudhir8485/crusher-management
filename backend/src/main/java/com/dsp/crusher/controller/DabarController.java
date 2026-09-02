@@ -44,8 +44,10 @@ public class DabarController {
     @PostMapping
     @Operation(summary = "Record a new dabar (raw stone) intake entry")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
-    public ResponseEntity<DabarEntryResponse> create(@Valid @RequestBody DabarEntryRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
+    public ResponseEntity<DabarEntryResponse> create(
+            @Valid @RequestBody DabarEntryRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req, siteId));
     }
 
     @PutMapping("/{id}")

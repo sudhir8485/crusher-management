@@ -33,8 +33,10 @@ public class VehicleDailyLogController {
     }
 
     @PostMapping
-    public VehicleDailyLogResponse create(@Valid @RequestBody VehicleDailyLogRequest req) {
-        return service.create(req);
+    public VehicleDailyLogResponse create(
+            @Valid @RequestBody VehicleDailyLogRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return service.create(req, siteId);
     }
 
     @PutMapping("/{id}")

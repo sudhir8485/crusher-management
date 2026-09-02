@@ -50,10 +50,10 @@ public class DabarService {
     }
 
     @Transactional
-    public DabarEntryResponse create(DabarEntryRequest req) {
+    public DabarEntryResponse create(DabarEntryRequest req, Long targetSiteId) {
         DabarEntry e = new DabarEntry();
         e.setTenantId(TenantContext.get());
-        e.setSiteId(SiteContext.get());
+        e.setSiteId(resolveCreateSite(targetSiteId));
         apply(e, req);
         return enrich(List.of(repo.save(e))).get(0);
     }
@@ -78,6 +78,12 @@ public class DabarService {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
                 .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
         return isSiteStaff ? SiteContext.get() : requested;
+    }
+
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
     }
 
     private void apply(DabarEntry e, DabarEntryRequest req) {

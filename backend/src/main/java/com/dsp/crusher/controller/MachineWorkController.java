@@ -33,8 +33,10 @@ public class MachineWorkController {
     }
 
     @PostMapping
-    public MachineWorkLogResponse create(@Valid @RequestBody MachineWorkLogRequest req) {
-        return service.create(req);
+    public MachineWorkLogResponse create(
+            @Valid @RequestBody MachineWorkLogRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return service.create(req, siteId);
     }
 
     @PutMapping("/{id}")

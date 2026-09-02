@@ -53,8 +53,10 @@ public class TripController {
     @PostMapping
     @Operation(summary = "Create a new trip entry")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
-    public ResponseEntity<TripResponse> create(@Valid @RequestBody TripRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
+    public ResponseEntity<TripResponse> create(
+            @Valid @RequestBody TripRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req, siteId));
     }
 
     @PutMapping("/{id}")

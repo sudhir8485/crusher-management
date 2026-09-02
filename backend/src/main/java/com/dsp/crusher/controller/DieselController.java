@@ -49,8 +49,10 @@ public class DieselController {
     @PostMapping("/receipts")
     @Operation(summary = "Record a diesel receipt (pump or direct)")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
-    public ResponseEntity<DieselReceiptResponse> createReceipt(@Valid @RequestBody DieselReceiptRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.createReceipt(req));
+    public ResponseEntity<DieselReceiptResponse> createReceipt(
+            @Valid @RequestBody DieselReceiptRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createReceipt(req, siteId));
     }
 
     @PutMapping("/receipts/{id}")
@@ -88,8 +90,10 @@ public class DieselController {
     @PostMapping("/usages")
     @Operation(summary = "Record diesel used by a machine or vehicle")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
-    public ResponseEntity<DieselUsageResponse> createUsage(@Valid @RequestBody DieselUsageRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.createUsage(req));
+    public ResponseEntity<DieselUsageResponse> createUsage(
+            @Valid @RequestBody DieselUsageRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createUsage(req, siteId));
     }
 
     @PutMapping("/usages/{id}")

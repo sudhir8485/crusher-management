@@ -87,10 +87,10 @@ public class TripService {
     }
 
     @Transactional
-    public TripResponse create(TripRequest req) {
+    public TripResponse create(TripRequest req, Long targetSiteId) {
         Trip t = new Trip();
         t.setTenantId(TenantContext.get());
-        t.setSiteId(SiteContext.get());
+        t.setSiteId(resolveCreateSite(targetSiteId));
         applyRequest(t, req);
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
@@ -118,6 +118,12 @@ public class TripService {
                 .getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
         return isSiteStaff ? SiteContext.get() : requested;
+    }
+
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
     }
 
     private void applyRequest(Trip t, TripRequest req) {

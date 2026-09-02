@@ -47,6 +47,12 @@ public class WaterTankerService {
         return isSiteStaff ? SiteContext.get() : requested;
     }
 
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
+    }
+
     public WaterTankerLogResponse getById(Long id) {
         WaterTankerLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Water tanker log not found: " + id));
@@ -54,10 +60,10 @@ public class WaterTankerService {
     }
 
     @Transactional
-    public WaterTankerLogResponse create(WaterTankerLogRequest req) {
+    public WaterTankerLogResponse create(WaterTankerLogRequest req, Long targetSiteId) {
         WaterTankerLog log = new WaterTankerLog();
         log.setTenantId(TenantContext.get());
-        log.setSiteId(SiteContext.get());
+        log.setSiteId(resolveCreateSite(targetSiteId));
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }

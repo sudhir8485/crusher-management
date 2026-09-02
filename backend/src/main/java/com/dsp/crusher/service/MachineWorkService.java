@@ -45,6 +45,12 @@ public class MachineWorkService {
         return isSiteStaff ? SiteContext.get() : requested;
     }
 
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
+    }
+
     public MachineWorkLogResponse get(Long id) {
         MachineWorkLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
@@ -52,10 +58,10 @@ public class MachineWorkService {
     }
 
     @Transactional
-    public MachineWorkLogResponse create(MachineWorkLogRequest req) {
+    public MachineWorkLogResponse create(MachineWorkLogRequest req, Long targetSiteId) {
         MachineWorkLog log = new MachineWorkLog();
         log.setTenantId(TenantContext.get());
-        log.setSiteId(SiteContext.get());
+        log.setSiteId(resolveCreateSite(targetSiteId));
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }

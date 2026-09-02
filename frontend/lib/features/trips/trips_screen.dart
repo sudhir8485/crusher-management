@@ -526,9 +526,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
           : _vdrChallan.text.trim(),
     };
     final api = ref.read(apiClientProvider);
+    final siteId = ref.read(selectedSiteIdProvider);
+    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/trips', data: data);
+        await api.post('/api/trips', data: data, params: siteParams);
       } else {
         await api.put('/api/trips/${widget.existing!['id']}', data: data);
       }

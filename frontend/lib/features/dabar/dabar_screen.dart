@@ -325,9 +325,11 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
     final api = ref.read(apiClientProvider);
+    final siteId = ref.read(selectedSiteIdProvider);
+    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/dabar', data: data);
+        await api.post('/api/dabar', data: data, params: siteParams);
       } else {
         await api.put('/api/dabar/${widget.existing!['id']}', data: data);
       }

@@ -618,9 +618,11 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
     final api = ref.read(apiClientProvider);
+    final siteId = ref.read(selectedSiteIdProvider);
+    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/diesel/receipts', data: data);
+        await api.post('/api/diesel/receipts', data: data, params: siteParams);
       } else {
         await api.put('/api/diesel/receipts/${widget.existing!['id']}', data: data);
       }
@@ -804,9 +806,11 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
     final api = ref.read(apiClientProvider);
+    final siteId = ref.read(selectedSiteIdProvider);
+    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/diesel/usages', data: data);
+        await api.post('/api/diesel/usages', data: data, params: siteParams);
       } else {
         await api.put('/api/diesel/usages/${widget.existing!['id']}', data: data);
       }

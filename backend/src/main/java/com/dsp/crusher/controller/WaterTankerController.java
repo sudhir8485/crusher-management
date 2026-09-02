@@ -44,8 +44,10 @@ public class WaterTankerController {
     @PostMapping
     @Operation(summary = "Log a water tanker work day")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
-    public ResponseEntity<WaterTankerLogResponse> create(@Valid @RequestBody WaterTankerLogRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
+    public ResponseEntity<WaterTankerLogResponse> create(
+            @Valid @RequestBody WaterTankerLogRequest req,
+            @RequestParam(required = false) Long siteId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req, siteId));
     }
 
     @PutMapping("/{id}")

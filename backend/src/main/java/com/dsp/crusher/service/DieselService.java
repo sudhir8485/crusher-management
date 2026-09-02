@@ -64,10 +64,10 @@ public class DieselService {
     }
 
     @Transactional
-    public DieselReceiptResponse createReceipt(DieselReceiptRequest req) {
+    public DieselReceiptResponse createReceipt(DieselReceiptRequest req, Long targetSiteId) {
         DieselReceipt r = new DieselReceipt();
         r.setTenantId(TenantContext.get());
-        r.setSiteId(SiteContext.get());
+        r.setSiteId(resolveCreateSite(targetSiteId));
         applyReceipt(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
     }
@@ -108,13 +108,14 @@ public class DieselService {
     }
 
     @Transactional
-    public DieselUsageResponse createUsage(DieselUsageRequest req) {
+    public DieselUsageResponse createUsage(DieselUsageRequest req, Long targetSiteId) {
         DieselUsage u = new DieselUsage();
         u.setTenantId(TenantContext.get());
-        u.setSiteId(SiteContext.get());
+        Long sid = resolveCreateSite(targetSiteId);
+        u.setSiteId(sid);
         applyUsage(u, req);
         DieselUsageResponse resp = enrichUsages(List.of(usageRepo.save(u))).get(0);
-        BigDecimal balance = receiptRepo.sumTotalReceivedBySite(SiteContext.get())
+        BigDecimal balance = receiptRepo.sumTotalReceivedBySite(sid)
                 .subtract(usageRepo.sumTotalUsedBySite(SiteContext.get()));
         resp.setStockWarning(balance.compareTo(BigDecimal.ZERO) < 0);
         return resp;
@@ -142,6 +143,12 @@ public class DieselService {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
                 .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
         return isSiteStaff ? SiteContext.get() : requested;
+    }
+
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
     }
 
     private void applyReceipt(DieselReceipt r, DieselReceiptRequest req) {

@@ -45,16 +45,22 @@ public class VehicleDailyLogService {
         return isSiteStaff ? SiteContext.get() : requested;
     }
 
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
+    }
+
     public VehicleDailyLogResponse get(Long id) {
         return enrich(List.of(repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("VehicleDailyLog not found: " + id)))).get(0);
     }
 
     @Transactional
-    public VehicleDailyLogResponse create(VehicleDailyLogRequest req) {
+    public VehicleDailyLogResponse create(VehicleDailyLogRequest req, Long targetSiteId) {
         VehicleDailyLog log = new VehicleDailyLog();
         log.setTenantId(TenantContext.get());
-        log.setSiteId(SiteContext.get());
+        log.setSiteId(resolveCreateSite(targetSiteId));
         apply(log, req);
         return enrich(List.of(repo.save(log))).get(0);
     }
