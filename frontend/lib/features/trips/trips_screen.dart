@@ -86,6 +86,7 @@ class TripsScreen extends ConsumerWidget {
                       list: list,
                       onEdit: (t) => _showForm(context, ref, t, selectedDate),
                       onDelete: (t) => _confirmDelete(context, ref, t, dateKey),
+                      onConvert: (t) => _showConvertDialog(context, ref, t, dateKey),
                     ),
             ),
           ),
@@ -134,18 +135,52 @@ class TripsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  void _showConvertDialog(BuildContext context, WidgetRef ref,
+      Map<String, dynamic> trip, String dateKey) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ConvertCustomerDialog(
+        trip: trip,
+        onSaved: () {
+          ref.invalidate(tripsProvider(dateKey));
+          ref.invalidate(_vendorsProvider);
+        },
+      ),
+    );
+  }
 }
 
 // ── Trip List ─────────────────────────────────────────────────────────────────
 
-class _TripsList extends StatelessWidget {
+class _TripsList extends StatefulWidget {
   final List<Map<String, dynamic>> list;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
-  const _TripsList({required this.list, required this.onEdit, required this.onDelete});
+  final void Function(Map<String, dynamic>) onConvert;
+  const _TripsList({
+    required this.list,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onConvert,
+  });
+
+  @override
+  State<_TripsList> createState() => _TripsListState();
+}
+
+class _TripsListState extends State<_TripsList> {
+  bool _oneTimeOnly = false;
 
   @override
   Widget build(BuildContext context) {
+    final all = widget.list;
+    final list = _oneTimeOnly
+        ? all.where((t) => t['partyType'] == 'ONE_TIME').toList()
+        : all;
+    final oneTimeCount = all.where((t) => t['partyType'] == 'ONE_TIME').length;
+
     final totalBill = list.fold<double>(
         0, (s, t) => s + ((t['totalBill'] as num?)?.toDouble() ?? 0));
     final totalQty = list.fold<double>(0, (s, t) {
@@ -173,6 +208,32 @@ class _TripsList extends StatelessWidget {
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
               ],
+              // One-time filter chip — tap to show only one-time customer trips
+              if (oneTimeCount > 0) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => setState(() => _oneTimeOnly = !_oneTimeOnly),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _oneTimeOnly
+                          ? Colors.orange.shade200
+                          : Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text('$oneTimeCount one-time',
+                          style: TextStyle(fontSize: 11, color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w600)),
+                      if (_oneTimeOnly) ...[
+                        const SizedBox(width: 3),
+                        Icon(Icons.close, size: 12, color: Colors.orange.shade800),
+                      ],
+                    ]),
+                  ),
+                ),
+              ],
               if (totalBill > 0) ...[
                 const Spacer(),
                 Text(fmtCurr(totalBill),
@@ -184,16 +245,25 @@ class _TripsList extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-            itemCount: list.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) => _TripCard(
-              trip: list[i],
-              onEdit: () => onEdit(list[i]),
-              onDelete: () => onDelete(list[i]),
-            ),
-          ),
+          child: list.isEmpty
+              ? const AppEmptyState(
+                  icon: Icons.person_outline,
+                  message: 'No one-time customer trips today',
+                  hint: 'Tap the "one-time" chip again to show all trips',
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                  itemCount: list.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) => _TripCard(
+                    trip: list[i],
+                    onEdit: () => widget.onEdit(list[i]),
+                    onDelete: () => widget.onDelete(list[i]),
+                    onConvert: list[i]['partyType'] == 'ONE_TIME'
+                        ? () => widget.onConvert(list[i])
+                        : null,
+                  ),
+                ),
         ),
       ],
     );
@@ -202,11 +272,24 @@ class _TripsList extends StatelessWidget {
 
 // ── Trip Card ─────────────────────────────────────────────────────────────────
 
-class _TripCard extends StatelessWidget {
+class _TripCard extends StatefulWidget {
   final Map<String, dynamic> trip;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _TripCard({required this.trip, required this.onEdit, required this.onDelete});
+  final VoidCallback? onConvert;
+  const _TripCard({
+    required this.trip,
+    required this.onEdit,
+    required this.onDelete,
+    this.onConvert,
+  });
+
+  @override
+  State<_TripCard> createState() => _TripCardState();
+}
+
+class _TripCardState extends State<_TripCard> {
+  bool _expanded = false;
 
   static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
     // Load Noto Sans for proper ₹ Rupee symbol rendering
@@ -240,14 +323,18 @@ class _TripCard extends StatelessWidget {
     String rs(dynamic v) => v != null ? '₹${numFmt.format(v)}' : '—';
     String kg(dynamic v) => v != null ? '${numFmt.format(v)} kg' : '—';
 
+    // Explicit font= on every pw.TextStyle so ₹ (U+20B9) routes through
+    // Noto Sans rather than falling back to Helvetica (which lacks the glyph).
     pw.Widget col(String label, String val, {bool bold = false}) => pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 3),
       child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
         pw.SizedBox(width: 100,
-            child: pw.Text('$label:', style: const pw.TextStyle(fontSize: 9,
-                color: PdfColors.grey700))),
+            child: pw.Text('$label:',
+                style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey700))),
         pw.Expanded(child: pw.Text(val,
-            style: pw.TextStyle(fontSize: 9,
+            style: pw.TextStyle(
+                font: bold ? fontBold : font,
+                fontSize: 9,
                 fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal))),
       ]),
     );
@@ -272,18 +359,22 @@ class _TripCard extends StatelessWidget {
               pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 if (businessName.isNotEmpty)
                   pw.Text(businessName,
-                      style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                      style: pw.TextStyle(font: fontBold, fontSize: 13,
+                          fontWeight: pw.FontWeight.bold)),
                 pw.Text('DELIVERY CHALLAN',
-                    style: pw.TextStyle(fontSize: businessName.isNotEmpty ? 11 : 14,
+                    style: pw.TextStyle(font: fontBold,
+                        fontSize: businessName.isNotEmpty ? 11 : 14,
                         fontWeight: pw.FontWeight.bold)),
                 pw.Text(copyLabel,
-                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+                    style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey600)),
               ]),
               pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
                 if (challanNo.isNotEmpty)
                   pw.Text('Challan No: $challanNo',
-                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                pw.Text('Date: $tripDate', style: const pw.TextStyle(fontSize: 9)),
+                      style: pw.TextStyle(font: fontBold, fontSize: 9,
+                          fontWeight: pw.FontWeight.bold)),
+                pw.Text('Date: $tripDate',
+                    style: pw.TextStyle(font: font, fontSize: 9)),
               ]),
             ]),
             divider(),
@@ -293,28 +384,36 @@ class _TripCard extends StatelessWidget {
               pw.Expanded(child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Customer', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-                  pw.Text(party, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Customer',
+                      style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text(party,
+                      style: pw.TextStyle(font: fontBold, fontSize: 10,
+                          fontWeight: pw.FontWeight.bold)),
                   if (partyPhone.isNotEmpty)
-                    pw.Text(partyPhone, style: const pw.TextStyle(fontSize: 9)),
+                    pw.Text(partyPhone,
+                        style: pw.TextStyle(font: font, fontSize: 9)),
                 ],
               )),
               pw.SizedBox(width: 12),
               pw.Expanded(child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Vehicle', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-                  pw.Text(vehicle, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('Vehicle',
+                      style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text(vehicle,
+                      style: pw.TextStyle(font: fontBold, fontSize: 10,
+                          fontWeight: pw.FontWeight.bold)),
                   if (unloading.isNotEmpty)
-                    pw.Text('To: $unloading', style: const pw.TextStyle(fontSize: 9)),
+                    pw.Text('To: $unloading',
+                        style: pw.TextStyle(font: font, fontSize: 9)),
                 ],
               )),
             ]),
             divider(),
 
             // Material section
-            pw.Text('MATERIAL', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold,
-                color: PdfColors.grey600, letterSpacing: 0.5)),
+            pw.Text('MATERIAL', style: pw.TextStyle(font: fontBold, fontSize: 8,
+                fontWeight: pw.FontWeight.bold, color: PdfColors.grey600, letterSpacing: 0.5)),
             pw.SizedBox(height: 4),
             col('Material', material, bold: true),
             if (loadedKg != null) col('Loaded Weight', kg(loadedKg)),
@@ -326,24 +425,26 @@ class _TripCard extends StatelessWidget {
             divider(),
 
             // Transportation section
-            pw.Text('TRANSPORTATION', style: pw.TextStyle(fontSize: 8,
+            pw.Text('TRANSPORTATION', style: pw.TextStyle(font: fontBold, fontSize: 8,
                 fontWeight: pw.FontWeight.bold, color: PdfColors.grey600, letterSpacing: 0.5)),
             pw.SizedBox(height: 4),
             if (isOwn)
-              col('Mode', "Customer's Own Vehicle")
+              col('Mode', "Customer's Own Vehicle — ${rs(0)}")
             else
               col('Vehicle', vehicle),
-            if (!isOwn && distKm != null)  col('Distance',       '${numFmt.format(distKm)} km'),
-            if (!isOwn && transRate != null) col('Rate',          '${rs(transRate)} / km'),
+            if (!isOwn && distKm != null)    col('Distance', '${numFmt.format(distKm)} km'),
+            if (!isOwn && transRate != null) col('Rate',     '${rs(transRate)} / km'),
             col('Transport Charge', rs(transChg), bold: true),
             divider(),
 
-            // Total
+            // Total Bill
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
               pw.Text('TOTAL BILL',
-                  style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                  style: pw.TextStyle(font: fontBold, fontSize: 11,
+                      fontWeight: pw.FontWeight.bold)),
               pw.Text(rs(totalBill),
-                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                  style: pw.TextStyle(font: fontBold, fontSize: 13,
+                      fontWeight: pw.FontWeight.bold)),
             ]),
             divider(),
 
@@ -353,12 +454,14 @@ class _TripCard extends StatelessWidget {
               pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 pw.Container(width: 140, height: 0.5, color: PdfColors.grey600),
                 pw.SizedBox(height: 3),
-                pw.Text('Receiver Signature', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                pw.Text('Receiver Signature',
+                    style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600)),
               ]),
               pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
                 pw.Container(width: 140, height: 0.5, color: PdfColors.grey600),
                 pw.SizedBox(height: 3),
-                pw.Text('Authorised Signature', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                pw.Text('Authorised Signature',
+                    style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600)),
               ]),
             ]),
           ],
@@ -381,21 +484,109 @@ class _TripCard extends StatelessWidget {
     await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
 
+  Widget _buildCalculationDetail() {
+    final t = widget.trip;
+    final loadedKg  = (t['loadedWeightKg']     as num?)?.toDouble();
+    final emptyKg   = (t['emptyWeightKg']      as num?)?.toDouble();
+    final netKg     = (t['netWeightKg']        as num?)?.toDouble();
+    final qty       = (t['billableQuantity']   as num?)?.toDouble()
+                      ?? (t['quantityBrass']   as num?)?.toDouble();
+    final unit      = t['quantityUnit'] as String? ?? 'BRASS';
+    final rate      = (t['saleRate']           as num?)?.toDouble();
+    final matAmt    = (t['materialAmount']     as num?)?.toDouble();
+    final transChg  = (t['transportationCharge'] as num?)?.toDouble();
+    final total     = (t['totalBill']          as num?)?.toDouble();
+    final distKm    = (t['distanceKm']         as num?)?.toDouble();
+    final transRate = (t['transportRatePerKm'] as num?)?.toDouble();
+    final isOwn     = t['vehicleMode'] == 'OWN_VEHICLE';
+    final isDirect  = t['transportMode'] == 'DIRECT';
+
+    Widget row(String label, String value, {bool strong = false, bool totalRow = false}) =>
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
+          decoration: BoxDecoration(
+            color: totalRow
+                ? Colors.green.shade50
+                : (strong ? Colors.grey.shade100 : null),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(children: [
+            Expanded(child: Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: totalRow ? Colors.green.shade800 : Colors.grey[600],
+                    fontWeight: totalRow ? FontWeight.bold : FontWeight.normal))),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: totalRow ? Colors.green.shade800 : null,
+                    fontWeight: (strong || totalRow) ? FontWeight.w600 : FontWeight.normal)),
+          ]),
+        );
+
+    Widget sHead(String s) => Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: Text(s, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+          color: Colors.grey[500], letterSpacing: 0.5)),
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (loadedKg != null && emptyKg != null && netKg != null) ...[
+            sHead('WEIGHT'),
+            row('Loaded Weight',  '${numFmt.format(loadedKg)} kg'),
+            row('Empty Weight',   '− ${numFmt.format(emptyKg)} kg'),
+            row('Net Weight',     '= ${numFmt.format(netKg)} kg', strong: true),
+          ],
+          if (qty != null) ...[
+            sHead('MATERIAL'),
+            row('Billable Quantity', '${numFmt.format(qty)} $unit'),
+            if (rate != null) row('Sale Rate', '${fmtCurr(rate)} / $unit'),
+            if (matAmt != null) row('Material Amount', fmtCurr(matAmt), strong: true),
+          ],
+          sHead('TRANSPORT'),
+          if (isOwn)
+            row("Customer's Own Vehicle", fmtCurr(0))
+          else if (isDirect)
+            row('Direct Charge', transChg != null ? fmtCurr(transChg) : '—')
+          else ...[
+            if (distKm    != null) row('Distance',        '${numFmt.format(distKm)} km'),
+            if (transRate != null) row('Rate / km',        fmtCurr(transRate)),
+            if (transChg  != null) row('Transport Charge', fmtCurr(transChg), strong: true),
+          ],
+          if (total != null) ...[
+            const Divider(height: 16),
+            row('TOTAL BILL', fmtCurr(total), totalRow: true),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isOwn = trip['vehicleMode'] == 'OWN_VEHICLE';
+    final trip    = widget.trip;
+    final isOwn   = trip['vehicleMode'] == 'OWN_VEHICLE';
     final vehicle = isOwn
         ? 'Own Vehicle'
         : (trip['vehicleDisplayName'] ?? trip['vehiclePlateNumber'] ?? '—');
-    final material = trip['materialName'] ?? '—';
+    final material    = trip['materialName'] ?? '—';
     final billableQty = (trip['billableQuantity'] as num?)?.toDouble()
         ?? (trip['quantityBrass'] as num?)?.toDouble();
-    final unit = trip['quantityUnit'] ?? 'Brass';
+    final unit      = trip['quantityUnit'] ?? 'Brass';
     final totalBill = (trip['totalBill'] as num?)?.toDouble();
-    final party = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
+    final party     = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
     final isOneTime = trip['partyType'] == 'ONE_TIME';
 
-    // Badge label: last 4 of vehicle plate or "OWN"
     final badgeLabel = isOwn
         ? 'OWN'
         : vehicle.length > 4 ? vehicle.substring(vehicle.length - 4) : vehicle;
@@ -403,121 +594,121 @@ class _TripCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Vehicle badge
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: isOwn
-                    ? Colors.blue.shade100
-                    : Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Center(
-                child: Text(
-                  badgeLabel,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Vehicle badge — tap anywhere on card to expand/collapse detail
+                GestureDetector(
+                  onTap: () => setState(() => _expanded = !_expanded),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: isOwn
+                          ? Colors.blue.shade100
+                          : Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(badgeLabel,
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Material + qty badge
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(material,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 15)),
-                      ),
-                      if (billableQty != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.green.shade200),
-                          ),
-                          child: Text(
-                              '${numFmt.format(billableQty)} $unit',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.green.shade800,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                    ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _expanded = !_expanded),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(child: Text(material,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
+                          if (billableQty != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Text('${numFmt.format(billableQty)} $unit',
+                                  style: TextStyle(fontSize: 12, color: Colors.green.shade800,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                        ]),
+                        const SizedBox(height: 3),
+                        Row(children: [
+                          if (isOneTime)
+                            Container(
+                              margin: const EdgeInsets.only(right: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.orange.shade200),
+                              ),
+                              child: Text('ONE-TIME',
+                                  style: TextStyle(fontSize: 9, color: Colors.orange.shade800,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          Expanded(child: Text(party,
+                              style: TextStyle(fontSize: 13, color: Colors.grey[800],
+                                  fontWeight: FontWeight.w500),
+                              overflow: TextOverflow.ellipsis)),
+                        ]),
+                        const SizedBox(height: 2),
+                        Row(children: [
+                          Expanded(child: Text(vehicle,
+                              style: TextStyle(fontSize: 12, color: Colors.grey[500]))),
+                          if (totalBill != null && totalBill > 0)
+                            Text(fmtCurr(totalBill),
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+                                    color: Colors.indigo.shade700)),
+                        ]),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 3),
-                  // Party row
-                  Row(
-                    children: [
-                      if (isOneTime)
-                        Container(
-                          margin: const EdgeInsets.only(right: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.orange.shade200),
-                          ),
-                          child: Text('ONE-TIME',
-                              style: TextStyle(fontSize: 9, color: Colors.orange.shade800,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                      Expanded(
-                        child: Text(party,
-                            style: TextStyle(fontSize: 13, color: Colors.grey[800],
-                                fontWeight: FontWeight.w500),
-                            overflow: TextOverflow.ellipsis),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  // Vehicle + total bill row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(vehicle,
-                            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                      ),
-                      if (totalBill != null && totalBill > 0)
-                        Text(fmtCurr(totalBill),
-                            style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.indigo.shade700)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'edit') onEdit();
-                if (v == 'delete') onDelete();
-                if (v == 'challan') _printChallan(context, trip);
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                    value: 'challan',
-                    child: Row(children: [
-                      Icon(Icons.print_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Text('Print Challan'),
-                    ])),
-                PopupMenuItem(value: 'edit', child: Text('Edit')),
-                PopupMenuItem(
-                    value: 'delete',
-                    child: Text('Delete', style: TextStyle(color: Colors.red))),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'edit')   widget.onEdit();
+                    if (v == 'delete') widget.onDelete();
+                    if (v == 'challan') _printChallan(context, trip);
+                    if (v == 'convert' && widget.onConvert != null) widget.onConvert!();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'challan',
+                        child: Row(children: [
+                          Icon(Icons.print_outlined, size: 18),
+                          SizedBox(width: 8),
+                          Text('Print Challan'),
+                        ])),
+                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    if (isOneTime)
+                      const PopupMenuItem(
+                          value: 'convert',
+                          child: Row(children: [
+                            Icon(Icons.person_add_outlined, size: 18, color: Colors.blue),
+                            SizedBox(width: 8),
+                            Text('Convert to Regular Customer',
+                                style: TextStyle(color: Colors.blue)),
+                          ])),
+                    const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete', style: TextStyle(color: Colors.red))),
+                  ],
+                ),
               ],
             ),
+            // Tap card body to reveal full calculation chain
+            if (_expanded) _buildCalculationDetail(),
           ],
         ),
       ),
@@ -618,6 +809,148 @@ class _PartySearchDialogState extends State<_PartySearchDialog> {
           const SizedBox(height: 4),
         ],
       ),
+      ),
+    );
+  }
+}
+
+// ── Convert One-Time to Regular Customer ──────────────────────────────────────
+
+class _ConvertCustomerDialog extends ConsumerStatefulWidget {
+  final Map<String, dynamic> trip;
+  final VoidCallback onSaved;
+  const _ConvertCustomerDialog({required this.trip, required this.onSaved});
+
+  @override
+  ConsumerState<_ConvertCustomerDialog> createState() => _ConvertCustomerDialogState();
+}
+
+class _ConvertCustomerDialogState extends ConsumerState<_ConvertCustomerDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final _name  = TextEditingController(
+      text: widget.trip['oneTimeCustomerName']  as String? ?? '');
+  late final _phone = TextEditingController(
+      text: widget.trip['oneTimeCustomerPhone'] as String? ?? '');
+  late final _addr  = TextEditingController(
+      text: widget.trip['oneTimeCustomerAddr']  as String? ?? '');
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose(); _phone.dispose(); _addr.dispose();
+    super.dispose();
+  }
+
+  Future<void> _convert() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    final api = ref.read(apiClientProvider);
+    try {
+      // 1. Create a regular customer/party record
+      final partyRes = await api.post('/api/parties', data: {
+        'name':   _name.text.trim(),
+        if (_phone.text.trim().isNotEmpty) 'contact': _phone.text.trim(),
+        if (_addr.text.trim().isNotEmpty)  'address': _addr.text.trim(),
+        'status': 'ACTIVE',
+      });
+      final newVendorId = partyRes.data['id'];
+
+      // 2. Update trip: switch to REGULAR party, preserve all billing fields
+      final t = widget.trip;
+      final body = <String, dynamic>{
+        'tripDate':      t['tripDate'],
+        'partyType':     'REGULAR',
+        'vendorId':      newVendorId,
+        'materialId':    t['materialId'],
+        'quantityUnit':  t['quantityUnit'] ?? 'BRASS',
+        'vehicleMode':   t['vehicleMode']   ?? 'COMPANY',
+        'transportMode': t['transportMode'] ?? 'CALCULATE',
+      };
+      if (t['loadedWeightKg']     != null) body['loadedWeightKg']     = t['loadedWeightKg'];
+      if (t['emptyWeightKg']      != null) body['emptyWeightKg']      = t['emptyWeightKg'];
+      if (t['saleRate']           != null) body['saleRate']           = t['saleRate'];
+      if (t['vehicleId']          != null) body['vehicleId']          = t['vehicleId'];
+      if (t['distanceKm']         != null) body['distanceKm']         = t['distanceKm'];
+      if (t['transportRatePerKm'] != null) body['transportRatePerKm'] = t['transportRatePerKm'];
+      // Re-send stored charge for DIRECT mode
+      if (t['transportMode'] == 'DIRECT' && t['transportationCharge'] != null) {
+        body['transportationChargeDirect'] = t['transportationCharge'];
+      }
+      // Only send billableQuantity when weights are absent (backend recalculates from weights)
+      if (t['loadedWeightKg'] == null || t['emptyWeightKg'] == null) {
+        final qty = t['billableQuantity'] ?? t['quantityBrass'];
+        if (qty != null) body['billableQuantity'] = qty;
+      }
+      for (final k in ['dspChallanNo', 'vendorChallanNo', 'channelNo',
+                        'loadingLocation', 'unloadingLocation', 'notes']) {
+        if (t[k] != null) body[k] = t[k];
+      }
+
+      await api.put('/api/trips/${t['id']}', data: body);
+
+      widget.onSaved();
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${_name.text.trim()} added as a regular customer'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      setState(() => _saving = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppDialog(
+      title: 'Convert to Regular Customer',
+      maxWidth: 440,
+      actions: [
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _convert,
+          child: _saving
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save & Convert'),
+        ),
+      ],
+      body: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Creates a new Customer entry and links this trip to them. '
+              'Trip history and billing amounts are preserved.',
+              style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Customer Name *'),
+              validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _phone,
+              decoration: const InputDecoration(labelText: 'Phone Number'),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _addr,
+              decoration: const InputDecoration(labelText: 'Address'),
+              maxLines: 2,
+            ),
+          ],
+        ),
       ),
     );
   }
