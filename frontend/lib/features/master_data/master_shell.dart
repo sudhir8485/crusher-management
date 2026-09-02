@@ -66,12 +66,12 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
   }
 
   // SITE_STAFF cannot see Finance (8/9/10) or Admin/Users (13).
-  // Default (null role = still loading) shows everything so there's no flash.
+  // While role is still loading (null), default to restrictive — no flash of
+  // Finance items. Only OWNER_ADMIN and OFFICE_ACCOUNTANT get full access.
   bool _visible(int index) {
-    if (_role == 'SITE_STAFF') {
-      return !const {8, 9, 10, 13}.contains(index);
-    }
-    return true;
+    if (_role == 'OWNER_ADMIN' || _role == 'OFFICE_ACCOUNTANT') return true;
+    // null (loading) or SITE_STAFF: hide Finance + Users
+    return !const {8, 9, 10, 13}.contains(index);
   }
 
   Widget _item(IconData icon, IconData selIcon, String label, int index) {
@@ -128,8 +128,10 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
             ),
           ),
 
-          // ── Site Switcher (OWNER_ADMIN / OFFICE_ACCOUNTANT only) ─────────
-          if (_role != null && _role != 'SITE_STAFF')
+          // ── Site context ──────────────────────────────────────────────────
+          if (_role == 'SITE_STAFF')
+            _SiteLabel()
+          else if (_role == 'OWNER_ADMIN' || _role == 'OFFICE_ACCOUNTANT')
             _SiteSwitcher(),
 
           // ── Scrollable nav items ──────────────────────────────────────────
@@ -276,7 +278,55 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-// ── site switcher ─────────────────────────────────────────────────────────────
+// ── site label (read-only, for SITE_STAFF) ───────────────────────────────────
+
+class _SiteLabel extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sites = ref.watch(sitesProvider);
+    final siteId = ref.watch(selectedSiteIdProvider);
+
+    return sites.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (list) {
+        final site = list.firstWhere(
+          (s) => s['id'] == siteId,
+          orElse: () => <String, dynamic>{},
+        );
+        final name = site['name'] as String? ?? 'Unknown Site';
+        return Container(
+          margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.location_on, size: 14, color: Colors.green),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── site switcher (admin/accountant) ─────────────────────────────────────────
 
 class _SiteSwitcher extends ConsumerWidget {
   @override
