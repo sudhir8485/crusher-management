@@ -50,9 +50,11 @@ public class MaterialService {
 
     private void apply(Material m, MaterialRequest req) {
         m.setName(req.getName());
+        m.setCode(req.getCode());
         m.setSizeLabel(req.getSizeLabel());
         m.setUnit(req.getUnit());
         m.setDefaultSaleRate(req.getDefaultSaleRate());
+        m.setDefaultSaleRateBrass(req.getDefaultSaleRateBrass());
         m.setKgPerBrass(req.getKgPerBrass());
     }
 }

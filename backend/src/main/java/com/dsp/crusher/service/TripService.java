@@ -190,17 +190,28 @@ public class TripService {
 
         t.setSaleRate(req.getSaleRate());
 
-        // Vehicle
+        // Vehicle & transport
         String vMode = req.getVehicleMode() != null ? req.getVehicleMode() : "COMPANY";
         t.setVehicleMode(vMode);
-        if ("COMPANY".equals(vMode)) {
-            t.setVehicleId(req.getVehicleId());
-            t.setDistanceKm(req.getDistanceKm());
-            t.setTransportRatePerKm(req.getTransportRatePerKm());
-        } else {
+        if ("OWN_VEHICLE".equals(vMode)) {
             t.setVehicleId(null);
+            t.setTransportMode("CALCULATE");
             t.setDistanceKm(null);
             t.setTransportRatePerKm(null);
+            t.setTransportationCharge(BigDecimal.ZERO);
+        } else {
+            t.setVehicleId(req.getVehicleId());
+            String tMode = req.getTransportMode() != null ? req.getTransportMode() : "CALCULATE";
+            t.setTransportMode(tMode);
+            if ("DIRECT".equals(tMode)) {
+                t.setDistanceKm(null);
+                t.setTransportRatePerKm(null);
+                BigDecimal direct = req.getTransportationChargeDirect();
+                t.setTransportationCharge(direct != null ? direct.setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO);
+            } else {
+                t.setDistanceKm(req.getDistanceKm());
+                t.setTransportRatePerKm(req.getTransportRatePerKm());
+            }
         }
 
         // Documents & additional
@@ -252,12 +263,17 @@ public class TripService {
         // 4. Transportation charge
         if ("OWN_VEHICLE".equals(t.getVehicleMode())) {
             t.setTransportationCharge(BigDecimal.ZERO);
-        } else if (t.getDistanceKm() != null && t.getTransportRatePerKm() != null) {
-            t.setTransportationCharge(
-                    t.getDistanceKm().multiply(t.getTransportRatePerKm())
-                            .setScale(2, RoundingMode.HALF_UP));
-        } else {
-            t.setTransportationCharge(BigDecimal.ZERO);
+        } else if ("DIRECT".equals(t.getTransportMode())) {
+            // already set from request in applyRequest; ensure non-null
+            if (t.getTransportationCharge() == null) t.setTransportationCharge(BigDecimal.ZERO);
+        } else { // CALCULATE
+            if (t.getDistanceKm() != null && t.getTransportRatePerKm() != null) {
+                t.setTransportationCharge(
+                        t.getDistanceKm().multiply(t.getTransportRatePerKm())
+                                .setScale(2, RoundingMode.HALF_UP));
+            } else {
+                t.setTransportationCharge(BigDecimal.ZERO);
+            }
         }
 
         // 5. Total bill
@@ -325,6 +341,7 @@ public class TripService {
 
             // Vehicle
             r.setVehicleMode(t.getVehicleMode());
+            r.setTransportMode(t.getTransportMode());
             r.setVehicleId(t.getVehicleId());
             r.setDistanceKm(t.getDistanceKm());
             r.setTransportRatePerKm(t.getTransportRatePerKm());

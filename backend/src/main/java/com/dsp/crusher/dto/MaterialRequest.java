@@ -9,8 +9,12 @@ import java.math.BigDecimal;
 @Getter @Setter
 public class MaterialRequest {
     @NotBlank private String name;
+    private String code;
     private String sizeLabel;
     @NotBlank @Pattern(regexp = "BRASS|TON") private String unit;
+    /** Default rate when billing by TON */
     private BigDecimal defaultSaleRate;
+    /** Default rate when billing by BRASS */
+    private BigDecimal defaultSaleRateBrass;
     private BigDecimal kgPerBrass;
 }

@@ -208,111 +208,172 @@ class _TripCard extends StatelessWidget {
   const _TripCard({required this.trip, required this.onEdit, required this.onDelete});
 
   static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
-    final isOwn = trip['vehicleMode'] == 'OWN_VEHICLE';
+    // Load Noto Sans for proper Rs. symbol support
+    final font     = await PdfGoogleFonts.notoSansRegular();
+    final fontBold = await PdfGoogleFonts.notoSansBold();
+
+    final isOwn   = trip['vehicleMode'] == 'OWN_VEHICLE';
     final vehicle = isOwn
         ? "Customer's Own Vehicle"
-        : (trip['vehicleDisplayName'] ?? trip['vehiclePlateNumber'] ?? '-');
-    final party = trip['partyDisplayName'] ?? trip['vendorName'] ?? '-';
-    final material = trip['materialName'] ?? '-';
+        : '${trip['vehicleDisplayName'] ?? trip['vehiclePlateNumber'] ?? '—'}';
+    final party      = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
+    final partyPhone = trip['partyPhone'] ?? trip['vendorContact'] ?? '';
+    final material   = trip['materialName'] ?? '—';
+    final unit       = trip['quantityUnit'] ?? 'Brass';
     final billableQty = trip['billableQuantity'] ?? trip['quantityBrass'];
-    final unit = trip['quantityUnit'] ?? 'Brass';
-    final qty = billableQty != null ? '${numFmt.format(billableQty)} $unit' : '-';
-    final dspNo = trip['dspChallanNo'] ?? '';
-    final unloading = trip['unloadingLocation'] ?? '-';
-    final tripDate = trip['tripDate'] ?? '';
-    final now = DateFormat('d MMM yyyy, HH:mm').format(DateTime.now());
-    final totalBill = trip['totalBill'];
-    final netKg = trip['netWeightKg'];
+    final qty        = billableQty != null ? numFmt.format(billableQty) : '—';
+    final loadedKg   = trip['loadedWeightKg'];
+    final emptyKg    = trip['emptyWeightKg'];
+    final netKg      = trip['netWeightKg'];
+    final saleRate   = trip['saleRate'];
+    final matAmt     = trip['materialAmount'];
+    final transChg   = trip['transportationCharge'];
+    final totalBill  = trip['totalBill'];
+    final challanNo  = trip['dspChallanNo'] ?? '';
+    final distKm     = trip['distanceKm'];
+    final transRate  = trip['transportRatePerKm'];
+    final tripDate   = trip['tripDate'] ?? '';
+    final unloading  = trip['unloadingLocation'] ?? '';
 
-    pw.Widget buildColumn(String copyLabel) {
+    String rs(dynamic v) => v != null ? 'Rs.${numFmt.format(v)}' : '—';
+    String kg(dynamic v) => v != null ? '${numFmt.format(v)} kg' : '—';
+
+    pw.Widget col(String label, String val, {bool bold = false}) => pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 3),
+      child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.SizedBox(width: 100,
+            child: pw.Text('$label:', style: const pw.TextStyle(fontSize: 9,
+                color: PdfColors.grey700))),
+        pw.Expanded(child: pw.Text(val,
+            style: pw.TextStyle(fontSize: 9,
+                fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal))),
+      ]),
+    );
+
+    pw.Widget divider() => pw.Container(
+      margin: const pw.EdgeInsets.symmetric(vertical: 5),
+      height: 0.5,
+      color: PdfColors.grey400,
+    );
+
+    pw.Widget buildCopy(String copyLabel) {
       return pw.Container(
-        padding: const pw.EdgeInsets.all(10),
-        decoration: pw.BoxDecoration(border: pw.Border.all()),
+        padding: const pw.EdgeInsets.all(14),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+        ),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Center(
-              child: pw.Column(children: [
-                pw.Text('DSP CONSTRUCTION',
-                    style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                pw.SizedBox(height: 4),
-                pw.Text('DELIVERY CHALLAN',
-                    style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                pw.Text('($copyLabel)', style: const pw.TextStyle(fontSize: 9)),
-              ]),
-            ),
-            pw.Divider(),
-            _chRow('Date', tripDate),
-            _chRow('Printed', now),
-            _chRow('Vehicle', vehicle),
-            _chRow('Party', party),
-            _chRow('Delivery To', unloading),
-            if (dspNo.isNotEmpty) _chRow('DSP Challan No', dspNo),
-            pw.SizedBox(height: 8),
-            pw.Table(
-              border: pw.TableBorder.all(width: 0.5),
-              children: [
-                pw.TableRow(
-                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                    children: [_th('Material'), _th('Net Wt'), _th('Qty')]),
-                pw.TableRow(children: [
-                  _td(material),
-                  _td(netKg != null ? '${numFmt.format(netKg)} kg' : '-'),
-                  _td(qty),
-                ]),
-              ],
-            ),
-            if (totalBill != null) ...[
-              pw.SizedBox(height: 6),
-              pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
-                pw.Text('Total: ₹${numFmt.format(totalBill)}',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-              ]),
-            ],
-            pw.SizedBox(height: 8),
+            // Header
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-              pw.Text('Authorised Signature:', style: const pw.TextStyle(fontSize: 9)),
-              pw.Text('Receiver Signature:', style: const pw.TextStyle(fontSize: 9)),
+              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Text('DELIVERY CHALLAN',
+                    style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                pw.Text(copyLabel,
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+              ]),
+              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+                if (challanNo.isNotEmpty)
+                  pw.Text('Challan No: $challanNo',
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Date: $tripDate', style: const pw.TextStyle(fontSize: 9)),
+              ]),
             ]),
-            pw.SizedBox(height: 20),
+            divider(),
+
+            // Customer & Vehicle
+            pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Expanded(child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Customer', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text(party, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  if (partyPhone.isNotEmpty)
+                    pw.Text(partyPhone, style: const pw.TextStyle(fontSize: 9)),
+                ],
+              )),
+              pw.SizedBox(width: 12),
+              pw.Expanded(child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Vehicle', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  pw.Text(vehicle, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  if (unloading.isNotEmpty)
+                    pw.Text('To: $unloading', style: const pw.TextStyle(fontSize: 9)),
+                ],
+              )),
+            ]),
+            divider(),
+
+            // Material section
+            pw.Text('MATERIAL', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold,
+                color: PdfColors.grey600, letterSpacing: 0.5)),
+            pw.SizedBox(height: 4),
+            col('Material', material, bold: true),
+            if (loadedKg != null) col('Loaded Weight', kg(loadedKg)),
+            if (emptyKg  != null) col('Empty Weight',  kg(emptyKg)),
+            if (netKg    != null) col('Net Weight',     kg(netKg), bold: true),
+            col('Quantity', '$qty $unit', bold: true),
+            if (saleRate != null) col('Sale Rate', '${rs(saleRate)} / $unit'),
+            if (matAmt   != null) col('Material Amount', rs(matAmt), bold: true),
+            divider(),
+
+            // Transportation section
+            pw.Text('TRANSPORTATION', style: pw.TextStyle(fontSize: 8,
+                fontWeight: pw.FontWeight.bold, color: PdfColors.grey600, letterSpacing: 0.5)),
+            pw.SizedBox(height: 4),
+            if (isOwn)
+              col('Mode', "Customer's Own Vehicle")
+            else
+              col('Vehicle', vehicle),
+            if (!isOwn && distKm != null)  col('Distance',       '${numFmt.format(distKm)} km'),
+            if (!isOwn && transRate != null) col('Rate',          '${rs(transRate)} / km'),
+            col('Transport Charge', rs(transChg), bold: true),
+            divider(),
+
+            // Total
+            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+              pw.Text('TOTAL BILL',
+                  style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+              pw.Text(rs(totalBill),
+                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+            ]),
+            divider(),
+
+            pw.SizedBox(height: 16),
+            // Signatures
+            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Container(width: 140, height: 0.5, color: PdfColors.grey600),
+                pw.SizedBox(height: 3),
+                pw.Text('Receiver Signature', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+              ]),
+              pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+                pw.Container(width: 140, height: 0.5, color: PdfColors.grey600),
+                pw.SizedBox(height: 3),
+                pw.Text('Authorised Signature', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+              ]),
+            ]),
           ],
         ),
       );
     }
 
-    final doc = pw.Document();
+    final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: fontBold));
     doc.addPage(pw.Page(
-      pageFormat: PdfPageFormat.a5.landscape,
-      margin: const pw.EdgeInsets.all(12),
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.all(18),
       build: (_) => pw.Row(
         children: [
-          pw.Expanded(child: buildColumn('Original Copy')),
-          pw.SizedBox(width: 8),
-          pw.Expanded(child: buildColumn('Duplicate Copy')),
+          pw.Expanded(child: buildCopy('Original Copy')),
+          pw.SizedBox(width: 12),
+          pw.Expanded(child: buildCopy('Duplicate Copy')),
         ],
       ),
     ));
     await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
-
-  static pw.Widget _chRow(String label, String val) => pw.Padding(
-    padding: const pw.EdgeInsets.only(bottom: 3),
-    child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      pw.SizedBox(width: 80, child: pw.Text('$label:', style: const pw.TextStyle(fontSize: 9))),
-      pw.Expanded(
-          child: pw.Text(val, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-    ]),
-  );
-
-  static pw.Widget _th(String t) => pw.Padding(
-    padding: const pw.EdgeInsets.all(4),
-    child: pw.Text(t, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-  );
-
-  static pw.Widget _td(String t) => pw.Padding(
-    padding: const pw.EdgeInsets.all(4),
-    child: pw.Text(t, style: const pw.TextStyle(fontSize: 9)),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -485,7 +546,9 @@ class _PartySearchDialogState extends State<_PartySearchDialog> {
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Column(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -494,7 +557,7 @@ class _PartySearchDialogState extends State<_PartySearchDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Select Party',
+                const Text('Select Customer',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 10),
                 TextField(
@@ -549,6 +612,7 @@ class _PartySearchDialogState extends State<_PartySearchDialog> {
           const SizedBox(height: 4),
         ],
       ),
+      ),
     );
   }
 }
@@ -595,8 +659,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
   String _vehicleMode = 'COMPANY';
   int? _vehicleId;
   String? _vehicleError;
-  final _distance       = TextEditingController();
-  final _transportRate  = TextEditingController();
+  String _transportMode = 'CALCULATE'; // CALCULATE | DIRECT
+  final _distance              = TextEditingController();
+  final _transportRate         = TextEditingController();
+  final _transportChargeDirect = TextEditingController();
 
   // Additional
   bool _showAdditional = false;
@@ -632,10 +698,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
       _oneTimePhone.text = e['oneTimeCustomerPhone'] ?? '';
       _oneTimeAddr.text  = e['oneTimeCustomerAddr'] ?? '';
 
-      _materialId   = e['materialId'];
-      _quantityUnit = e['quantityUnit'] ?? 'BRASS';
-      _vehicleMode  = e['vehicleMode'] ?? 'COMPANY';
-      _vehicleId    = e['vehicleId'];
+      _materialId     = e['materialId'];
+      _quantityUnit   = e['quantityUnit'] ?? 'BRASS';
+      _vehicleMode    = e['vehicleMode'] ?? 'COMPANY';
+      _transportMode  = e['transportMode'] ?? 'CALCULATE';
+      _vehicleId      = e['vehicleId'];
 
       // Weights: prefer new kg fields, fall back to ton×1000
       final loadedKg  = (e['loadedWeightKg'] as num?)?.toDouble();
@@ -667,8 +734,12 @@ class _TripFormState extends ConsumerState<_TripForm> {
 
       final dist = (e['distanceKm'] as num?)?.toDouble();
       final tr   = (e['transportRatePerKm'] as num?)?.toDouble();
+      final tc   = (e['transportationCharge'] as num?)?.toDouble();
       if (dist != null) _distance.text = dist.toStringAsFixed(1);
       if (tr != null)   _transportRate.text = tr.toStringAsFixed(2);
+      if (_transportMode == 'DIRECT' && tc != null) {
+        _transportChargeDirect.text = tc.toStringAsFixed(2);
+      }
 
       _dspChallan.text   = e['dspChallanNo'] ?? '';
       _vdrChallan.text   = e['vendorChallanNo'] ?? '';
@@ -677,12 +748,13 @@ class _TripFormState extends ConsumerState<_TripForm> {
       _unloadingLoc.text = e['unloadingLocation'] ?? '';
       _notes.text        = e['notes'] ?? '';
 
-      // Expand additional if any field has content
-      _showAdditional = [_dspChallan, _vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes]
+      // Expand additional if any field has content (dspChallan is now in main form)
+      _showAdditional = [_vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes]
           .any((c) => c.text.isNotEmpty);
     }
 
-    for (final ctrl in [_loadedKg, _emptyKg, _manualQty, _saleRate, _distance, _transportRate]) {
+    for (final ctrl in [_loadedKg, _emptyKg, _manualQty, _saleRate,
+                        _distance, _transportRate, _transportChargeDirect]) {
       ctrl.addListener(_recalculate);
     }
 
@@ -694,7 +766,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
     for (final ctrl in [
       _oneTimeName, _oneTimePhone, _oneTimeAddr,
       _loadedKg, _emptyKg, _manualQty, _saleRate,
-      _distance, _transportRate,
+      _distance, _transportRate, _transportChargeDirect,
       _dspChallan, _vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes,
     ]) {
       ctrl.dispose();
@@ -735,7 +807,9 @@ class _TripFormState extends ConsumerState<_TripForm> {
     double? transport;
     if (_vehicleMode == 'OWN_VEHICLE') {
       transport = 0.0;
-    } else {
+    } else if (_transportMode == 'DIRECT') {
+      transport = double.tryParse(_transportChargeDirect.text.trim());
+    } else { // CALCULATE
       final dist = double.tryParse(_distance.text.trim());
       final tr   = double.tryParse(_transportRate.text.trim());
       transport = (dist != null && tr != null) ? dist * tr : null;
@@ -763,13 +837,27 @@ class _TripFormState extends ConsumerState<_TripForm> {
       if (mat != null) {
         final u = mat['unit'] as String?;
         if (u == 'TON' || u == 'BRASS') _quantityUnit = u!;
-        // Prefill sale rate from material default if field is empty
-        final defRate = mat['defaultSaleRate'];
+        // Prefill rate matching the selected unit (TON uses defaultSaleRate, BRASS uses defaultSaleRateBrass)
+        final defRate = _rateForUnit(_quantityUnit, mat);
         if (defRate != null && _saleRate.text.trim().isEmpty) {
-          _saleRate.text = defRate.toString();
+          _saleRate.text = defRate.toStringAsFixed(2);
         }
       }
     });
+    _recalculate();
+  }
+
+  double? _rateForUnit(String unit, Map<String, dynamic> mat) {
+    if (unit == 'TON') return (mat['defaultSaleRate'] as num?)?.toDouble();
+    return (mat['defaultSaleRateBrass'] as num?)?.toDouble();
+  }
+
+  void _onUnitChanged(String newUnit) {
+    setState(() => _quantityUnit = newUnit);
+    if (_material != null) {
+      final defRate = _rateForUnit(newUnit, _material!);
+      if (defRate != null) _saleRate.text = defRate.toStringAsFixed(2);
+    }
     _recalculate();
   }
 
@@ -827,13 +915,19 @@ class _TripFormState extends ConsumerState<_TripForm> {
     final sr = double.tryParse(_saleRate.text.trim());
     if (sr != null) b['saleRate'] = sr;
 
-    b['vehicleMode'] = _vehicleMode;
+    b['vehicleMode']    = _vehicleMode;
+    b['transportMode']  = _vehicleMode == 'OWN_VEHICLE' ? 'CALCULATE' : _transportMode;
     if (_vehicleMode == 'COMPANY') {
       b['vehicleId'] = _vehicleId;
-      final dist = double.tryParse(_distance.text.trim());
-      final tr   = double.tryParse(_transportRate.text.trim());
-      if (dist != null) b['distanceKm']           = dist;
-      if (tr != null)   b['transportRatePerKm']   = tr;
+      if (_transportMode == 'DIRECT') {
+        final tc = double.tryParse(_transportChargeDirect.text.trim());
+        if (tc != null) b['transportationChargeDirect'] = tc;
+      } else {
+        final dist = double.tryParse(_distance.text.trim());
+        final tr   = double.tryParse(_transportRate.text.trim());
+        if (dist != null) b['distanceKm']         = dist;
+        if (tr != null)   b['transportRatePerKm'] = tr;
+      }
     }
 
     void opt(String key, String val) {
@@ -1008,12 +1102,16 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 fmtCurr(matAmt)),
           if (_vehicleMode == 'OWN_VEHICLE')
             _bRow("Customer's Own Vehicle", '₹ 0.00')
-          else if (_transportCharge != null)
-            _bRow(
-                (_distance.text.isNotEmpty && _transportRate.text.isNotEmpty)
-                    ? '${_distance.text} km × ₹${_transportRate.text}/km'
-                    : 'Transportation',
-                fmtCurr(transAmt)),
+          else if (_transportCharge != null) ...[
+            if (_transportMode == 'DIRECT')
+              _bRow('Transportation (direct)', fmtCurr(transAmt))
+            else
+              _bRow(
+                  (_distance.text.isNotEmpty && _transportRate.text.isNotEmpty)
+                      ? '${_distance.text} km × ₹${_transportRate.text}/km'
+                      : 'Transportation',
+                  fmtCurr(transAmt)),
+          ],
           const Divider(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1154,19 +1252,13 @@ class _TripFormState extends ConsumerState<_TripForm> {
               ),
             ),
             const SizedBox(height: 14),
-            // Unit toggle
+            // Unit toggle — also auto-switches sale rate to the matching material default
             Row(children: [
               Text('Unit:', style: TextStyle(fontSize: 13, color: Colors.grey[700])),
               const SizedBox(width: 12),
-              _pill('BRASS', _quantityUnit == 'BRASS', () {
-                setState(() => _quantityUnit = 'BRASS');
-                _recalculate();
-              }),
+              _pill('BRASS', _quantityUnit == 'BRASS', () => _onUnitChanged('BRASS')),
               const SizedBox(width: 8),
-              _pill('TON', _quantityUnit == 'TON', () {
-                setState(() => _quantityUnit = 'TON');
-                _recalculate();
-              }),
+              _pill('TON',   _quantityUnit == 'TON',   () => _onUnitChanged('TON')),
             ]),
             const SizedBox(height: 12),
             // Weights
@@ -1310,14 +1402,47 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 ),
               ),
               const SizedBox(height: 12),
+              // Transport calculation mode
               Row(children: [
-                Expanded(child: _numField(_distance, 'Distance', suffix: 'km')),
-                const SizedBox(width: 12),
-                Expanded(child: _numField(
-                    _transportRate, 'Transport Rate', prefix: '₹ ', suffix: '/km')),
+                Expanded(child: _pill(
+                    'Calculate from KM & Rate',
+                    _transportMode == 'CALCULATE', () {
+                  setState(() => _transportMode = 'CALCULATE');
+                  _recalculate();
+                })),
+                const SizedBox(width: 8),
+                Expanded(child: _pill(
+                    'Enter Total Directly',
+                    _transportMode == 'DIRECT', () {
+                  setState(() => _transportMode = 'DIRECT');
+                  _recalculate();
+                })),
               ]),
-              if (_transportCharge != null)
-                _calcRow('Transportation Charge', fmtCurr(_transportCharge!)),
+              const SizedBox(height: 12),
+              if (_transportMode == 'CALCULATE') ...[
+                Row(children: [
+                  Expanded(child: _numField(_distance, 'Distance', suffix: 'km')),
+                  const SizedBox(width: 12),
+                  Expanded(child: _numField(
+                      _transportRate, 'Transport Rate', prefix: '₹ ', suffix: '/km')),
+                ]),
+                if (_transportCharge != null)
+                  _calcRow('Transportation Charge', fmtCurr(_transportCharge!)),
+              ] else ...[
+                TextFormField(
+                  controller: _transportChargeDirect,
+                  decoration: const InputDecoration(
+                    labelText: 'Transportation Charge',
+                    prefixText: '₹ ',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v != null && v.trim().isNotEmpty &&
+                        double.tryParse(v.trim()) == null) return 'Invalid number';
+                    return null;
+                  },
+                ),
+              ],
             ] else
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1339,32 +1464,31 @@ class _TripFormState extends ConsumerState<_TripForm> {
             // ── 5. Billing Summary ──────────────────────────────────────────
             _billingSummary(),
 
-            // ── 6. Additional Details (collapsible) ─────────────────────────
-            const SizedBox(height: 12),
+            // ── 6. Challan Number (main form) ───────────────────────────────
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _dspChallan,
+              decoration: const InputDecoration(labelText: 'Challan Number'),
+            ),
+
+            // ── 7. Additional Details (collapsible) ─────────────────────────
+            const SizedBox(height: 8),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 title: Text(
                     _showAdditional
                         ? 'Additional Details'
-                        : '+ Additional Details (DSP/Vendor Challan, Channel, Notes)',
+                        : '+ Additional Details (Vendor Challan, Channel, Notes)',
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: const EdgeInsets.only(top: 8),
                 initiallyExpanded: _showAdditional,
                 onExpansionChanged: (v) => setState(() => _showAdditional = v),
                 children: [
-                  Row(children: [
-                    Expanded(child: TextFormField(
-                        controller: _dspChallan,
-                        decoration:
-                            const InputDecoration(labelText: 'DSP Challan No'))),
-                    const SizedBox(width: 12),
-                    Expanded(child: TextFormField(
-                        controller: _vdrChallan,
-                        decoration:
-                            const InputDecoration(labelText: 'Vendor Challan No'))),
-                  ]),
+                  TextFormField(
+                      controller: _vdrChallan,
+                      decoration: const InputDecoration(labelText: 'Vendor Challan Number')),
                   const SizedBox(height: 10),
                   TextFormField(
                       controller: _channel,
@@ -1373,13 +1497,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
                   Row(children: [
                     Expanded(child: TextFormField(
                         controller: _loadingLoc,
-                        decoration:
-                            const InputDecoration(labelText: 'Loading Location'))),
+                        decoration: const InputDecoration(labelText: 'Loading Location'))),
                     const SizedBox(width: 12),
                     Expanded(child: TextFormField(
                         controller: _unloadingLoc,
-                        decoration:
-                            const InputDecoration(labelText: 'Unloading Location'))),
+                        decoration: const InputDecoration(labelText: 'Unloading Location'))),
                   ]),
                   const SizedBox(height: 10),
                   TextFormField(

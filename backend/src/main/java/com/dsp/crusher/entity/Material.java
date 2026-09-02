@@ -24,11 +24,19 @@ public class Material {
     @Column(name = "size_label", length = 50)
     private String sizeLabel;
 
+    @Column(length = 50)
+    private String code;
+
     @Column(nullable = false, length = 10)
     private String unit = "BRASS"; // BRASS | TON
 
+    /** Default rate when selling by TON */
     @Column(name = "default_sale_rate", precision = 10, scale = 2)
     private BigDecimal defaultSaleRate;
+
+    /** Default rate when selling by BRASS */
+    @Column(name = "default_sale_rate_brass", precision = 10, scale = 2)
+    private BigDecimal defaultSaleRateBrass;
 
     @Column(name = "kg_per_brass", precision = 10, scale = 3)
     private BigDecimal kgPerBrass;

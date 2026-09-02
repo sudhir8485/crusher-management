@@ -76,6 +76,10 @@ public class Trip {
     @Column(name = "vehicle_id")
     private Long vehicleId; // null for OWN_VEHICLE
 
+    /** CALCULATE = dist × rate, DIRECT = user-entered total */
+    @Column(name = "transport_mode", nullable = false, length = 20)
+    private String transportMode = "CALCULATE";
+
     @Column(name = "distance_km", precision = 8, scale = 2)
     private BigDecimal distanceKm;
 

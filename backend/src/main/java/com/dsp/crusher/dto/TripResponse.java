@@ -37,6 +37,7 @@ public class TripResponse {
 
     // ── Vehicle & Transportation ──────────────────────────────────────────────
     private String vehicleMode;
+    private String transportMode;
     private Long vehicleId;
     private String vehicleDisplayName;
     private String vehiclePlateNumber;

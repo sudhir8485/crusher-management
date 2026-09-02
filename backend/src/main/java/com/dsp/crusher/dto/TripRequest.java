@@ -38,8 +38,11 @@ public class TripRequest {
     // vehicleMode: "COMPANY" (default) | "OWN_VEHICLE"
     private String vehicleMode = "COMPANY";
     private Long vehicleId;              // required when vehicleMode == COMPANY
+    // transportMode: "CALCULATE" (dist×rate) | "DIRECT" (user enters total)
+    private String transportMode = "CALCULATE";
     private BigDecimal distanceKm;
     private BigDecimal transportRatePerKm;
+    private BigDecimal transportationChargeDirect; // used when transportMode == DIRECT
 
     // ── Documents & Additional ────────────────────────────────────────────────
     private String dspChallanNo;
