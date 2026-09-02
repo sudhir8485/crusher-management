@@ -30,18 +30,14 @@ public class MaterialService {
     public Material create(MaterialRequest req) {
         Material m = new Material();
         m.setTenantId(TenantContext.get());
-        m.setName(req.getName());
-        m.setSizeLabel(req.getSizeLabel());
-        m.setUnit(req.getUnit());
+        apply(m, req);
         return repo.save(m);
     }
 
     @Transactional
     public Material update(Long id, MaterialRequest req) {
         Material m = getById(id);
-        m.setName(req.getName());
-        m.setSizeLabel(req.getSizeLabel());
-        m.setUnit(req.getUnit());
+        apply(m, req);
         return repo.save(m);
     }
 
@@ -50,5 +46,13 @@ public class MaterialService {
         Material m = getById(id);
         m.setStatus("INACTIVE");
         repo.save(m);
+    }
+
+    private void apply(Material m, MaterialRequest req) {
+        m.setName(req.getName());
+        m.setSizeLabel(req.getSizeLabel());
+        m.setUnit(req.getUnit());
+        m.setDefaultSaleRate(req.getDefaultSaleRate());
+        m.setKgPerBrass(req.getKgPerBrass());
     }
 }

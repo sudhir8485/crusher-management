@@ -3,6 +3,7 @@ package com.dsp.crusher.entity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -24,7 +25,13 @@ public class Material {
     private String sizeLabel;
 
     @Column(nullable = false, length = 10)
-    private String unit = "BRASS";   // BRASS | TON
+    private String unit = "BRASS"; // BRASS | TON
+
+    @Column(name = "default_sale_rate", precision = 10, scale = 2)
+    private BigDecimal defaultSaleRate;
+
+    @Column(name = "kg_per_brass", precision = 10, scale = 3)
+    private BigDecimal kgPerBrass;
 
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";

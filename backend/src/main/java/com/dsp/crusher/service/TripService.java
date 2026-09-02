@@ -2,7 +2,6 @@ package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.DailyReportResponse;
 import com.dsp.crusher.dto.TripRequest;
 import com.dsp.crusher.dto.TripResponse;
@@ -16,10 +15,12 @@ import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VehicleRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,10 +36,13 @@ public class TripService {
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
 
+    // ── List queries ──────────────────────────────────────────────────────────
+
     public List<TripResponse> listAll(Long siteId) {
         Long sid = effectiveSiteId(siteId);
         if (sid == null) return enrich(tripRepo.findByStatusOrderByTripDateDescIdDesc("ACTIVE"));
-        return enrich(tripRepo.findByDateRangeAndSite(LocalDate.of(2000,1,1), LocalDate.now().plusYears(1), sid));
+        return enrich(tripRepo.findByDateRangeAndSite(
+                LocalDate.of(2000, 1, 1), LocalDate.now().plusYears(1), sid));
     }
 
     public List<TripResponse> listByDate(LocalDate date, Long siteId) {
@@ -86,8 +90,11 @@ public class TripService {
         return enrich(List.of(t)).get(0);
     }
 
+    // ── Mutations ─────────────────────────────────────────────────────────────
+
     @Transactional
     public TripResponse create(TripRequest req, Long targetSiteId) {
+        validate(req);
         Trip t = new Trip();
         t.setTenantId(TenantContext.get());
         t.setSiteId(resolveCreateSite(targetSiteId));
@@ -97,6 +104,7 @@ public class TripService {
 
     @Transactional
     public TripResponse update(Long id, TripRequest req) {
+        validate(req);
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
         applyRequest(t, req);
@@ -111,35 +119,161 @@ public class TripService {
         tripRepo.save(t);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
+    // ── Validation ────────────────────────────────────────────────────────────
 
-    private Long effectiveSiteId(Long requested) {
-        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
-                .getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
-        return isSiteStaff ? SiteContext.get() : requested;
+    private void validate(TripRequest req) {
+        String pType = req.getPartyType() != null ? req.getPartyType() : "REGULAR";
+        if ("REGULAR".equals(pType)) {
+            if (req.getVendorId() == null)
+                throw new IllegalArgumentException("Party is required for regular customer");
+        } else if ("ONE_TIME".equals(pType)) {
+            if (req.getOneTimeCustomerName() == null || req.getOneTimeCustomerName().isBlank())
+                throw new IllegalArgumentException("Customer name is required for one-time customer");
+        } else {
+            throw new IllegalArgumentException("Invalid party type: " + pType);
+        }
+
+        String vMode = req.getVehicleMode() != null ? req.getVehicleMode() : "COMPANY";
+        if ("COMPANY".equals(vMode) && req.getVehicleId() == null)
+            throw new IllegalArgumentException("Vehicle is required for company vehicle mode");
+
+        if (req.getLoadedWeightKg() != null) {
+            if (req.getLoadedWeightKg().compareTo(BigDecimal.ZERO) < 0)
+                throw new IllegalArgumentException("Loaded weight cannot be negative");
+        }
+        if (req.getEmptyWeightKg() != null) {
+            if (req.getEmptyWeightKg().compareTo(BigDecimal.ZERO) < 0)
+                throw new IllegalArgumentException("Empty weight cannot be negative");
+        }
+        if (req.getLoadedWeightKg() != null && req.getEmptyWeightKg() != null) {
+            if (req.getEmptyWeightKg().compareTo(req.getLoadedWeightKg()) > 0)
+                throw new IllegalArgumentException("Empty weight cannot exceed loaded weight");
+        }
+        if (req.getSaleRate() != null && req.getSaleRate().compareTo(BigDecimal.ZERO) < 0)
+            throw new IllegalArgumentException("Sale rate cannot be negative");
+        if (req.getDistanceKm() != null && req.getDistanceKm().compareTo(BigDecimal.ZERO) < 0)
+            throw new IllegalArgumentException("Distance cannot be negative");
+        if (req.getTransportRatePerKm() != null && req.getTransportRatePerKm().compareTo(BigDecimal.ZERO) < 0)
+            throw new IllegalArgumentException("Transport rate cannot be negative");
     }
 
-    private Long resolveCreateSite(Long targetSiteId) {
-        Long sid = effectiveSiteId(targetSiteId);
-        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
-        return sid;
-    }
+    // ── Apply + Calculate ─────────────────────────────────────────────────────
 
     private void applyRequest(Trip t, TripRequest req) {
         t.setTripDate(req.getTripDate());
-        t.setLoadingLocation(req.getLoadingLocation());
-        t.setUnloadingLocation(req.getUnloadingLocation());
-        t.setChannelNo(req.getChannelNo());
+
+        // Party
+        String pType = req.getPartyType() != null ? req.getPartyType() : "REGULAR";
+        t.setPartyType(pType);
+        if ("REGULAR".equals(pType)) {
+            t.setVendorId(req.getVendorId());
+            t.setOneTimeCustomerName(null);
+            t.setOneTimeCustomerPhone(null);
+            t.setOneTimeCustomerAddr(null);
+        } else {
+            t.setVendorId(null);
+            t.setOneTimeCustomerName(req.getOneTimeCustomerName());
+            t.setOneTimeCustomerPhone(req.getOneTimeCustomerPhone());
+            t.setOneTimeCustomerAddr(req.getOneTimeCustomerAddr());
+        }
+
+        // Material
         t.setMaterialId(req.getMaterialId());
-        t.setQuantityBrass(req.getQuantityBrass());
-        t.setLoadedWeightTon(req.getLoadedWeightTon());
-        t.setEmptyWeightTon(req.getEmptyWeightTon());
-        t.setVehicleId(req.getVehicleId());
-        t.setVendorId(req.getVendorId());
+        t.setQuantityUnit(req.getQuantityUnit() != null ? req.getQuantityUnit() : "BRASS");
+
+        // Weights
+        t.setLoadedWeightKg(req.getLoadedWeightKg());
+        t.setEmptyWeightKg(req.getEmptyWeightKg());
+
+        // Manual quantity (used when weights absent or BRASS without conversion)
+        if (req.getBillableQuantity() != null) t.setBillableQuantity(req.getBillableQuantity());
+
+        t.setSaleRate(req.getSaleRate());
+
+        // Vehicle
+        String vMode = req.getVehicleMode() != null ? req.getVehicleMode() : "COMPANY";
+        t.setVehicleMode(vMode);
+        if ("COMPANY".equals(vMode)) {
+            t.setVehicleId(req.getVehicleId());
+            t.setDistanceKm(req.getDistanceKm());
+            t.setTransportRatePerKm(req.getTransportRatePerKm());
+        } else {
+            t.setVehicleId(null);
+            t.setDistanceKm(null);
+            t.setTransportRatePerKm(null);
+        }
+
+        // Documents & additional
         t.setDspChallanNo(req.getDspChallanNo());
         t.setVendorChallanNo(req.getVendorChallanNo());
+        t.setChannelNo(req.getChannelNo());
+        t.setLoadingLocation(req.getLoadingLocation());
+        t.setUnloadingLocation(req.getUnloadingLocation());
+        t.setNotes(req.getNotes());
+
+        // Legacy fields backward compat
+        if (req.getLoadedWeightTon() != null) t.setLoadedWeightTon(req.getLoadedWeightTon());
+        if (req.getEmptyWeightTon() != null)  t.setEmptyWeightTon(req.getEmptyWeightTon());
+
+        // Recalculate billing (backend is authoritative)
+        Material material = req.getMaterialId() != null
+                ? materialRepo.findById(req.getMaterialId()).orElse(null)
+                : null;
+        computeBilling(t, material);
     }
+
+    private void computeBilling(Trip t, Material material) {
+        // 1. Net weight
+        if (t.getLoadedWeightKg() != null && t.getEmptyWeightKg() != null) {
+            BigDecimal net = t.getLoadedWeightKg().subtract(t.getEmptyWeightKg());
+            t.setNetWeightKg(net.max(BigDecimal.ZERO));
+
+            // 2. Quantity from weights (overrides manually-sent billableQuantity)
+            if ("TON".equals(t.getQuantityUnit())) {
+                t.setBillableQuantity(net.max(BigDecimal.ZERO)
+                        .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP));
+            } else { // BRASS
+                if (material != null && material.getKgPerBrass() != null
+                        && material.getKgPerBrass().compareTo(BigDecimal.ZERO) > 0) {
+                    t.setBillableQuantity(net.max(BigDecimal.ZERO)
+                            .divide(material.getKgPerBrass(), 3, RoundingMode.HALF_UP));
+                }
+                // else keep manually-set billableQuantity from request
+            }
+        }
+
+        // 3. Material amount
+        BigDecimal qty  = t.getBillableQuantity();
+        BigDecimal rate = t.getSaleRate();
+        t.setMaterialAmount((qty != null && rate != null)
+                ? qty.multiply(rate).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO);
+
+        // 4. Transportation charge
+        if ("OWN_VEHICLE".equals(t.getVehicleMode())) {
+            t.setTransportationCharge(BigDecimal.ZERO);
+        } else if (t.getDistanceKm() != null && t.getTransportRatePerKm() != null) {
+            t.setTransportationCharge(
+                    t.getDistanceKm().multiply(t.getTransportRatePerKm())
+                            .setScale(2, RoundingMode.HALF_UP));
+        } else {
+            t.setTransportationCharge(BigDecimal.ZERO);
+        }
+
+        // 5. Total bill
+        BigDecimal matAmt   = t.getMaterialAmount()     != null ? t.getMaterialAmount()     : BigDecimal.ZERO;
+        BigDecimal transAmt = t.getTransportationCharge() != null ? t.getTransportationCharge() : BigDecimal.ZERO;
+        t.setTotalBill(matAmt.add(transAmt));
+
+        // 6. Keep legacy quantityBrass in sync for old reports
+        if ("BRASS".equals(t.getQuantityUnit()) && t.getBillableQuantity() != null) {
+            t.setQuantityBrass(t.getBillableQuantity());
+        } else if (t.getQuantityBrass() == null && t.getBillableQuantity() != null) {
+            t.setQuantityBrass(t.getBillableQuantity());
+        }
+    }
+
+    // ── Enrich ────────────────────────────────────────────────────────────────
 
     private List<TripResponse> enrich(List<Trip> trips) {
         if (trips.isEmpty()) return List.of();
@@ -155,23 +289,47 @@ public class TripService {
             TripResponse r = new TripResponse();
             r.setId(t.getId());
             r.setTripDate(t.getTripDate());
-            r.setLoadingLocation(t.getLoadingLocation());
-            r.setUnloadingLocation(t.getUnloadingLocation());
-            r.setChannelNo(t.getChannelNo());
-            r.setMaterialId(t.getMaterialId());
-            r.setQuantityBrass(t.getQuantityBrass());
-            r.setLoadedWeightTon(t.getLoadedWeightTon());
-            r.setEmptyWeightTon(t.getEmptyWeightTon());
-            r.setVehicleId(t.getVehicleId());
-            r.setVendorId(t.getVendorId());
-            r.setDspChallanNo(t.getDspChallanNo());
-            r.setVendorChallanNo(t.getVendorChallanNo());
-            r.setCreatedAt(t.getCreatedAt());
 
+            // Party
+            r.setPartyType(t.getPartyType());
+            r.setVendorId(t.getVendorId());
+            r.setOneTimeCustomerName(t.getOneTimeCustomerName());
+            r.setOneTimeCustomerPhone(t.getOneTimeCustomerPhone());
+            r.setOneTimeCustomerAddr(t.getOneTimeCustomerAddr());
+            if ("REGULAR".equals(t.getPartyType()) && t.getVendorId() != null) {
+                Vendor v = vendors.get(t.getVendorId());
+                if (v != null) {
+                    r.setVendorName(v.getName());
+                    r.setVendorContact(v.getContact());
+                    r.setPartyDisplayName(v.getName());
+                    r.setPartyPhone(v.getContact());
+                }
+            } else if ("ONE_TIME".equals(t.getPartyType())) {
+                r.setPartyDisplayName(t.getOneTimeCustomerName());
+                r.setPartyPhone(t.getOneTimeCustomerPhone());
+            }
+
+            // Material
+            r.setMaterialId(t.getMaterialId());
+            r.setQuantityUnit(t.getQuantityUnit());
+            r.setLoadedWeightKg(t.getLoadedWeightKg());
+            r.setEmptyWeightKg(t.getEmptyWeightKg());
+            r.setNetWeightKg(t.getNetWeightKg());
+            r.setBillableQuantity(t.getBillableQuantity());
+            r.setSaleRate(t.getSaleRate());
+            r.setMaterialAmount(t.getMaterialAmount());
             if (t.getMaterialId() != null) {
                 Material m = materials.get(t.getMaterialId());
                 if (m != null) r.setMaterialName(m.getName());
             }
+
+            // Vehicle
+            r.setVehicleMode(t.getVehicleMode());
+            r.setVehicleId(t.getVehicleId());
+            r.setDistanceKm(t.getDistanceKm());
+            r.setTransportRatePerKm(t.getTransportRatePerKm());
+            r.setTransportationCharge(t.getTransportationCharge());
+            r.setTotalBill(t.getTotalBill());
             if (t.getVehicleId() != null) {
                 Vehicle v = vehicles.get(t.getVehicleId());
                 if (v != null) {
@@ -179,11 +337,37 @@ public class TripService {
                     r.setVehiclePlateNumber(v.getPlateNumber());
                 }
             }
-            if (t.getVendorId() != null) {
-                Vendor v = vendors.get(t.getVendorId());
-                if (v != null) r.setVendorName(v.getName());
-            }
+
+            // Documents & additional
+            r.setDspChallanNo(t.getDspChallanNo());
+            r.setVendorChallanNo(t.getVendorChallanNo());
+            r.setChannelNo(t.getChannelNo());
+            r.setLoadingLocation(t.getLoadingLocation());
+            r.setUnloadingLocation(t.getUnloadingLocation());
+            r.setNotes(t.getNotes());
+
+            // Legacy
+            r.setQuantityBrass(t.getQuantityBrass());
+            r.setLoadedWeightTon(t.getLoadedWeightTon());
+            r.setEmptyWeightTon(t.getEmptyWeightTon());
+
+            r.setCreatedAt(t.getCreatedAt());
             return r;
         }).collect(Collectors.toList());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private Long effectiveSiteId(Long requested) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : requested;
+    }
+
+    private Long resolveCreateSite(Long targetSiteId) {
+        Long sid = effectiveSiteId(targetSiteId);
+        if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
+        return sid;
     }
 }

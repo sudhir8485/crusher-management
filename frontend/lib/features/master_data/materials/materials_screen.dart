@@ -20,19 +20,30 @@ class MaterialsScreen extends ConsumerWidget {
       items: materials,
       onRefresh: () => ref.invalidate(materialsProvider),
       onAdd: () => _showForm(context, ref, null),
-      itemBuilder: (m) => ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.category)),
-        title: Text(m['name']),
-        subtitle: Text('Unit: ${m['unit']}'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showForm(context, ref, m)),
-            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () => _confirmDelete(context, ref, m['id'] as int, m['name'] as String)),
-          ],
-        ),
-      ),
+      itemBuilder: (m) {
+        final rate = m['defaultSaleRate'];
+        final kpb = m['kgPerBrass'];
+        final subtitleParts = <String>['Unit: ${m['unit']}'];
+        if (rate != null) subtitleParts.add('₹$rate/${m['unit']}');
+        if (kpb != null) subtitleParts.add('$kpb kg/brass');
+        return ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.category)),
+          title: Text(m['name']),
+          subtitle: Text(subtitleParts.join('  ·  ')),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _showForm(context, ref, m)),
+              IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () =>
+                      _confirmDelete(context, ref, m['id'] as int, m['name'] as String)),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -76,8 +87,12 @@ class _MaterialForm extends ConsumerStatefulWidget {
 
 class _MaterialFormState extends ConsumerState<_MaterialForm> {
   final _formKey = GlobalKey<FormState>();
-  late final _name  = TextEditingController(text: widget.existing?['name']);
-  late final _label = TextEditingController(text: widget.existing?['sizeLabel']);
+  late final _name        = TextEditingController(text: widget.existing?['name']);
+  late final _label       = TextEditingController(text: widget.existing?['sizeLabel']);
+  late final _saleRate    = TextEditingController(
+      text: widget.existing?['defaultSaleRate']?.toString() ?? '');
+  late final _kgPerBrass  = TextEditingController(
+      text: widget.existing?['kgPerBrass']?.toString() ?? '');
   String _unit = 'BRASS';
   bool _saving = false;
 
@@ -88,19 +103,34 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
   }
 
   @override
-  void dispose() { _name.dispose(); _label.dispose(); super.dispose(); }
+  void dispose() {
+    _name.dispose(); _label.dispose(); _saleRate.dispose(); _kgPerBrass.dispose();
+    super.dispose();
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    final data = {'name': _name.text, 'sizeLabel': _label.text, 'unit': _unit};
+    final data = {
+      'name': _name.text.trim(),
+      'sizeLabel': _label.text.trim().isEmpty ? null : _label.text.trim(),
+      'unit': _unit,
+      if (_saleRate.text.trim().isNotEmpty) 'defaultSaleRate': double.tryParse(_saleRate.text.trim()),
+      if (_kgPerBrass.text.trim().isNotEmpty) 'kgPerBrass': double.tryParse(_kgPerBrass.text.trim()),
+    };
     final api = ref.read(apiClientProvider);
-    if (widget.existing == null) {
-      await api.post('/api/materials', data: data);
-    } else {
-      await api.put('/api/materials/${widget.existing!['id']}', data: data);
+    try {
+      if (widget.existing == null) {
+        await api.post('/api/materials', data: data);
+      } else {
+        await api.put('/api/materials/${widget.existing!['id']}', data: data);
+      }
+      if (mounted) { Navigator.pop(context); widget.onSaved(); }
+    } catch (e) {
+      setState(() => _saving = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
-    if (mounted) { Navigator.pop(context); widget.onSaved(); }
   }
 
   @override
@@ -108,25 +138,65 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
     return AlertDialog(
       title: Text(widget.existing == null ? 'Add Material' : 'Edit Material'),
       content: SizedBox(
-        width: 360,
+        width: 400,
         child: Form(
           key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Name *'),
-                  validator: (v) => v!.isEmpty ? 'Required' : null),
+              TextFormField(
+                controller: _name,
+                decoration: const InputDecoration(labelText: 'Name *'),
+                validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+              ),
               const SizedBox(height: 12),
-              TextFormField(controller: _label, decoration: const InputDecoration(labelText: 'Size Label (e.g. 20 MM)')),
+              TextFormField(
+                controller: _label,
+                decoration: const InputDecoration(labelText: 'Size Label (e.g. 20 MM)'),
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _unit,
-                decoration: const InputDecoration(labelText: 'Unit'),
+                value: _unit,
+                decoration: const InputDecoration(labelText: 'Default Unit'),
                 items: const [
                   DropdownMenuItem(value: 'BRASS', child: Text('Brass')),
                   DropdownMenuItem(value: 'TON',   child: Text('Ton')),
                 ],
                 onChanged: (v) => setState(() => _unit = v!),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _saleRate,
+                decoration: InputDecoration(
+                  labelText: 'Default Sale Rate',
+                  prefixText: '₹ ',
+                  suffixText: '/ $_unit',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) {
+                  if (v != null && v.trim().isNotEmpty && double.tryParse(v.trim()) == null) {
+                    return 'Invalid number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _kgPerBrass,
+                decoration: const InputDecoration(
+                  labelText: 'Kg per Brass (conversion)',
+                  suffixText: 'kg/brass',
+                  helperText: 'Used to auto-calculate quantity from net weight',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) {
+                  if (v != null && v.trim().isNotEmpty) {
+                    final n = double.tryParse(v.trim());
+                    if (n == null) return 'Invalid number';
+                    if (n <= 0) return 'Must be greater than 0';
+                  }
+                  return null;
+                },
               ),
             ],
           ),
