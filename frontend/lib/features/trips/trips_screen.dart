@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 
@@ -205,6 +208,95 @@ class _TripCard extends StatelessWidget {
   const _TripCard(
       {required this.trip, required this.onEdit, required this.onDelete});
 
+  static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
+    final vehicle = trip['vehicleDisplayName'] ?? trip['vehiclePlateNumber'] ?? '-';
+    final party = trip['vendorName'] ?? '-';
+    final material = trip['materialName'] ?? '-';
+    final qty = trip['quantityBrass']?.toString() ?? '-';
+    final dspNo = trip['dspChallanNo'] ?? '';
+    final unloading = trip['unloadingLocation'] ?? '-';
+    final tripDate = trip['tripDate'] ?? '';
+    final now = DateFormat('d MMM yyyy, HH:mm').format(DateTime.now());
+
+    // Build one challan column
+    pw.Widget buildColumn(String copyLabel) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(border: pw.Border.all()),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Center(
+              child: pw.Column(children: [
+                pw.Text('DSP CONSTRUCTION', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 4),
+                pw.Text('DELIVERY CHALLAN', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                pw.Text('($copyLabel)', style: const pw.TextStyle(fontSize: 9)),
+              ]),
+            ),
+            pw.Divider(),
+            _chRow('Date', tripDate),
+            _chRow('Printed', now),
+            _chRow('Vehicle', vehicle),
+            _chRow('Party', party),
+            _chRow('Delivery To', unloading),
+            if (dspNo.isNotEmpty) _chRow('DSP Challan No', dspNo),
+            pw.SizedBox(height: 8),
+            pw.Table(
+              border: pw.TableBorder.all(width: 0.5),
+              children: [
+                pw.TableRow(decoration: const pw.BoxDecoration(color: PdfColors.grey200), children: [
+                  _th('Particulars'), _th('Qty (Brass)'),
+                ]),
+                pw.TableRow(children: [
+                  _td(material), _td(qty),
+                ]),
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+              pw.Text('Authorised Signature:', style: const pw.TextStyle(fontSize: 9)),
+              pw.Text('Receiver Signature:', style: const pw.TextStyle(fontSize: 9)),
+            ]),
+            pw.SizedBox(height: 20),
+          ],
+        ),
+      );
+    }
+
+    final doc = pw.Document();
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a5.landscape,
+      margin: const pw.EdgeInsets.all(12),
+      build: (_) => pw.Row(
+        children: [
+          pw.Expanded(child: buildColumn('Original Copy')),
+          pw.SizedBox(width: 8),
+          pw.Expanded(child: buildColumn('Duplicate Copy')),
+        ],
+      ),
+    ));
+    await Printing.layoutPdf(onLayout: (_) => doc.save());
+  }
+
+  static pw.Widget _chRow(String label, String val) => pw.Padding(
+    padding: const pw.EdgeInsets.only(bottom: 3),
+    child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+      pw.SizedBox(width: 80, child: pw.Text('$label:', style: const pw.TextStyle(fontSize: 9))),
+      pw.Expanded(child: pw.Text(val, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
+    ]),
+  );
+
+  static pw.Widget _th(String t) => pw.Padding(
+    padding: const pw.EdgeInsets.all(4),
+    child: pw.Text(t, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+  );
+
+  static pw.Widget _td(String t) => pw.Padding(
+    padding: const pw.EdgeInsets.all(4),
+    child: pw.Text(t, style: const pw.TextStyle(fontSize: 9)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final vehicle =
@@ -304,8 +396,16 @@ class _TripCard extends StatelessWidget {
               onSelected: (v) {
                 if (v == 'edit') onEdit();
                 if (v == 'delete') onDelete();
+                if (v == 'challan') _printChallan(context, trip);
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'challan', child: Row(
+                  children: [
+                    Icon(Icons.print_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Print Challan'),
+                  ],
+                )),
                 PopupMenuItem(value: 'edit', child: Text('Edit')),
                 PopupMenuItem(
                     value: 'delete',

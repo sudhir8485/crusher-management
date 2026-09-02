@@ -31,6 +31,14 @@ _DR _range(_Preset p) {
   };
 }
 
+// ── Dashboard summary provider (for tiles) ────────────────────────────────────
+
+final _dashSummaryProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/dashboard');
+  return Map<String, dynamic>.from(res.data as Map);
+});
+
 // ── Master data providers ─────────────────────────────────────────────────────
 
 final _vehiclesProvider =
@@ -127,23 +135,195 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final dashAsync = ref.watch(_dashSummaryProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reports'),
-        bottom: TabBar(
-          controller: _tabs,
-          tabs: _tabLabels
-              .map((t) => Tab(icon: Icon(t.$2, size: 18), text: t.$1))
-              .toList(),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.invalidate(_dashSummaryProvider),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // ── Summary Tiles ────────────────────────────────────────────────
+          dashAsync.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (_, __) => const SizedBox.shrink(),
+            data: (d) => _SummaryTiles(data: d, onTabSelect: _tabs.animateTo),
+          ),
+          // ── Tab Bar ──────────────────────────────────────────────────────
+          TabBar(
+            controller: _tabs,
+            tabs: _tabLabels
+                .map((t) => Tab(icon: Icon(t.$2, size: 18), text: t.$1))
+                .toList(),
+          ),
+          // ── Tab Content ──────────────────────────────────────────────────
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              children: const [
+                _VehicleReportTab(),
+                _MachineReportTab(),
+                _DieselReportTab(),
+                _TripsReportTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Summary Tiles ─────────────────────────────────────────────────────────────
+
+class _SummaryTiles extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final void Function(int) onTabSelect;
+  const _SummaryTiles({required this.data, required this.onTabSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final totalInv     = (data['totalInvoiced'] as num?)?.toDouble() ?? 0;
+    final totalPaid    = (data['totalPaymentsLinked'] as num?)?.toDouble() ?? 0;
+    final outstanding  = (data['totalOutstanding'] as num?)?.toDouble() ?? 0;
+    final dieselBal    = (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
+    final dieselIn     = (data['dieselTotalReceived'] as num?)?.toDouble() ?? 0;
+    final dieselOut    = (data['dieselTotalUsed'] as num?)?.toDouble() ?? 0;
+    final todayTrips   = data['todayTripCount'] as int? ?? 0;
+    final todayBrass   = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
+    final monthInv     = (data['monthlyInvoiceTotal'] as num?)?.toDouble() ?? 0;
+    final monthInvCnt  = data['monthlyInvoiceCount'] as int? ?? 0;
+    final monthPay     = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
+    final receivables  = List<Map<String, dynamic>>.from(data['receivableParties'] as List? ?? []);
+
+    final currFmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+    final numFmt2 = NumberFormat('#,##0.##');
+
+    return Container(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _Tile(
+              icon: Icons.receipt_long,
+              color: Colors.purple,
+              title: 'Sales (All Time)',
+              lines: [
+                currFmt.format(totalInv),
+                'Collected: ${currFmt.format(totalPaid)}',
+                'This month: ${currFmt.format(monthInv)} ($monthInvCnt inv)',
+              ],
+              onView: null,
+            ),
+            const SizedBox(width: 8),
+            _Tile(
+              icon: Icons.account_balance_wallet,
+              color: outstanding > 0 ? Colors.red : Colors.green,
+              title: 'Receivables',
+              lines: [
+                currFmt.format(outstanding),
+                '${receivables.length} parties pending',
+                'Month payments: ${currFmt.format(monthPay)}',
+              ],
+              onView: null,
+            ),
+            const SizedBox(width: 8),
+            _Tile(
+              icon: Icons.local_gas_station,
+              color: dieselBal < 100 ? Colors.orange : Colors.teal,
+              title: 'Diesel',
+              lines: [
+                '${numFmt2.format(dieselBal)} L available',
+                'In: ${numFmt2.format(dieselIn)} L',
+                'Out: ${numFmt2.format(dieselOut)} L',
+              ],
+              onView: () => onTabSelect(2),
+            ),
+            const SizedBox(width: 8),
+            _Tile(
+              icon: Icons.swap_horiz,
+              color: Colors.blue,
+              title: 'Trips (Today)',
+              lines: [
+                '$todayTrips trip${todayTrips == 1 ? '' : 's'}',
+                todayBrass > 0 ? '${numFmt2.format(todayBrass)} Brass' : 'No brass today',
+              ],
+              onView: () => onTabSelect(3),
+            ),
+          ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabs,
-        children: const [
-          _VehicleReportTab(),
-          _MachineReportTab(),
-          _DieselReportTab(),
-          _TripsReportTab(),
+    );
+  }
+}
+
+class _Tile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final List<String> lines;
+  final VoidCallback? onView;
+  const _Tile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.lines,
+    required this.onView,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(title,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[600])),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          ...lines.asMap().entries.map((e) => Text(
+                e.value,
+                style: TextStyle(
+                  fontSize: e.key == 0 ? 14 : 11,
+                  fontWeight: e.key == 0 ? FontWeight.bold : FontWeight.normal,
+                  color: e.key == 0 ? color : Colors.grey[600],
+                ),
+              )),
+          if (onView != null) ...[
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: onView,
+              child: Text('View Report →',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: color,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
         ],
       ),
     );

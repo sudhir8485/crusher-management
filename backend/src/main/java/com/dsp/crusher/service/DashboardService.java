@@ -4,12 +4,14 @@ import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.DashboardResponse;
 import com.dsp.crusher.entity.DabarEntry;
 import com.dsp.crusher.entity.Material;
+import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -27,6 +29,7 @@ public class DashboardService {
     private final MaterialRepository materialRepo;
     private final AttendanceService attendanceService;
     private final DabarEntryRepository dabarRepo;
+    private final VendorRepository vendorRepo;
 
     public DashboardResponse get() {
         LocalDate today = LocalDate.now();
@@ -95,6 +98,32 @@ public class DashboardService {
         }).collect(Collectors.toList());
 
         r.setMonthlyTripSummary(summary);
+
+        // Today's financial
+        r.setTodayInvoiceTotal(invoiceRepo.sumGrandTotalByDateRange(today, today));
+        r.setTodayInvoiceCount(invoiceRepo.countByInvoiceDateAndStatus(today, "ACTIVE"));
+        r.setTodayCollectionsTotal(paymentRepo.sumByDateRange(today, today));
+        r.setTodayCollectionsCount(paymentRepo.countByPaymentDateAndStatus(today, "ACTIVE"));
+
+        // Top outstanding parties (top 10)
+        List<Vendor> vendors = vendorRepo.findByStatus("ACTIVE");
+        List<DashboardResponse.ReceivableParty> receivables = vendors.stream()
+                .map(v -> {
+                    BigDecimal invTotal = invoiceRepo.sumAllGrandTotalByVendorId(v.getId());
+                    BigDecimal paidTotal = paymentRepo.sumByVendorId(v.getId());
+                    BigDecimal outstanding = invTotal.subtract(paidTotal);
+                    DashboardResponse.ReceivableParty rp = new DashboardResponse.ReceivableParty();
+                    rp.setVendorId(v.getId());
+                    rp.setVendorName(v.getName());
+                    rp.setOutstandingBalance(outstanding);
+                    return rp;
+                })
+                .filter(rp -> rp.getOutstandingBalance().compareTo(BigDecimal.ZERO) > 0)
+                .sorted(Comparator.comparing(DashboardResponse.ReceivableParty::getOutstandingBalance).reversed())
+                .limit(10)
+                .collect(Collectors.toList());
+        r.setReceivableParties(receivables);
+
         return r;
     }
 }

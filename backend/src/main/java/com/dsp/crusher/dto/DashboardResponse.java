@@ -37,6 +37,15 @@ public class DashboardResponse {
     private BigDecimal totalPaymentsLinked;
     private BigDecimal totalOutstanding;
 
+    // Today's financial
+    private BigDecimal todayInvoiceTotal;
+    private long todayInvoiceCount;
+    private BigDecimal todayCollectionsTotal;
+    private long todayCollectionsCount;
+
+    // Top outstanding parties
+    private List<ReceivableParty> receivableParties;
+
     // Month trip summary by material
     private List<MaterialSummary> monthlyTripSummary;
 
@@ -47,5 +56,12 @@ public class DashboardResponse {
         private String sizeLabel;
         private long tripCount;
         private BigDecimal totalBrass;
+    }
+
+    @Getter @Setter
+    public static class ReceivableParty {
+        private Long vendorId;
+        private String vendorName;
+        private BigDecimal outstandingBalance;
     }
 }

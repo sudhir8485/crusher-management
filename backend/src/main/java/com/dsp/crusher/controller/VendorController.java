@@ -1,6 +1,7 @@
 package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.VendorRequest;
+import com.dsp.crusher.dto.VendorResponse;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.service.VendorService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,7 +25,7 @@ public class VendorController {
 
     @GetMapping
     @Operation(summary = "List all active parties")
-    public List<Vendor> list() {
+    public List<VendorResponse> list() {
         return service.listActive();
     }
 

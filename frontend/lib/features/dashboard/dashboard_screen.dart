@@ -25,6 +25,7 @@ class DashboardScreen extends ConsumerWidget {
     final data = ref.watch(_dashboardProvider);
     final now = DateTime.now();
     final monthName = DateFormat('MMMM yyyy').format(now);
+    final today = DateFormat('d MMM yyyy').format(now);
 
     return Scaffold(
       appBar: AppBar(
@@ -39,7 +40,7 @@ class DashboardScreen extends ConsumerWidget {
       body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (d) => _DashboardBody(data: d, monthName: monthName),
+        data: (d) => _DashboardBody(data: d, monthName: monthName, today: today),
       ),
     );
   }
@@ -50,7 +51,8 @@ class DashboardScreen extends ConsumerWidget {
 class _DashboardBody extends StatelessWidget {
   final Map<String, dynamic> data;
   final String monthName;
-  const _DashboardBody({required this.data, required this.monthName});
+  final String today;
+  const _DashboardBody({required this.data, required this.monthName, required this.today});
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +63,12 @@ class _DashboardBody extends StatelessWidget {
     final attTotal       = data['todayAttendanceTotal'] as int? ?? 0;
     final todayMachine   = (data['todayMachineHours'] as num?)?.toDouble() ?? 0;
     final todayDabar     = (data['todayDabarBrass'] as num?)?.toDouble() ?? 0;
+
+    // Today's financial
+    final todayInvTotal  = (data['todayInvoiceTotal'] as num?)?.toDouble() ?? 0;
+    final todayInvCount  = data['todayInvoiceCount'] as int? ?? 0;
+    final todayColTotal  = (data['todayCollectionsTotal'] as num?)?.toDouble() ?? 0;
+    final todayColCount  = data['todayCollectionsCount'] as int? ?? 0;
 
     // Diesel
     final dieselBalance  = (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
@@ -78,6 +86,10 @@ class _DashboardBody extends StatelessWidget {
     final monthInvCount  = data['monthlyInvoiceCount'] as int? ?? 0;
     final monthPayTotal  = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
 
+    // Receivable parties
+    final receivables = List<Map<String, dynamic>>.from(
+        data['receivableParties'] as List? ?? []);
+
     // Material summary
     final tripSummary = List<Map<String, dynamic>>.from(
         data['monthlyTripSummary'] as List? ?? []);
@@ -87,8 +99,12 @@ class _DashboardBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Quick Actions ───────────────────────────────────────────────────
+          _QuickActions(),
+          const SizedBox(height: 16),
+
           // ── Today ──────────────────────────────────────────────────────────
-          _SectionLabel('Today'),
+          _SectionLabel('Today — $today'),
           const SizedBox(height: 8),
           // Row 1: Trips + Attendance
           Row(
@@ -158,6 +174,34 @@ class _DashboardBody extends StatelessWidget {
             ],
           ),
 
+          const SizedBox(height: 10),
+          // Row 3: Today's Invoices + Today's Collections
+          Row(
+            children: [
+              Expanded(
+                child: _ClickCard(
+                  icon: Icons.receipt_long,
+                  label: "Today's Sales",
+                  value: fmtCurr(todayInvTotal),
+                  sub: '$todayInvCount invoice${todayInvCount == 1 ? '' : 's'} today',
+                  color: Colors.purple,
+                  route: '/invoices',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _ClickCard(
+                  icon: Icons.payments,
+                  label: "Today's Collections",
+                  value: fmtCurr(todayColTotal),
+                  sub: '$todayColCount payment${todayColCount == 1 ? '' : 's'} today',
+                  color: Colors.green,
+                  route: '/party-payments',
+                ),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 20),
 
           // ── Financial Position ──────────────────────────────────────────────
@@ -170,6 +214,14 @@ class _DashboardBody extends StatelessWidget {
             onInvoices: () => context.go('/invoices'),
             onPayments: () => context.go('/party-payments'),
           ),
+
+          // ── Receivables ─────────────────────────────────────────────────────
+          if (receivables.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _SectionLabel('Outstanding Receivables'),
+            const SizedBox(height: 8),
+            _ReceivablesWidget(rows: receivables),
+          ],
 
           const SizedBox(height: 20),
 
@@ -220,6 +272,131 @@ class _DashboardBody extends StatelessWidget {
             const SizedBox(height: 8),
             _TripSummaryTable(rows: tripSummary),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── quick actions ─────────────────────────────────────────────────────────────
+
+class _QuickActions extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Quick Actions',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600])),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _QBtn(icon: Icons.receipt_long, label: '+ Invoice', route: '/invoices'),
+                _QBtn(icon: Icons.swap_horiz, label: '+ Trip', route: '/trips'),
+                _QBtn(icon: Icons.local_gas_station, label: '+ Diesel', route: '/diesel'),
+                _QBtn(icon: Icons.payments, label: '+ Payment', route: '/party-payments'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String route;
+  const _QBtn({required this.icon, required this.label, required this.route});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () => context.go(route),
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+    );
+  }
+}
+
+// ── receivables widget ────────────────────────────────────────────────────────
+
+class _ReceivablesWidget extends StatelessWidget {
+  final List<Map<String, dynamic>> rows;
+  const _ReceivablesWidget({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 3, child: _TH('Party Name')),
+                Expanded(flex: 2, child: _TH('Outstanding', right: true)),
+                SizedBox(width: 80, child: _TH('', right: true)),
+              ],
+            ),
+          ),
+          ...rows.map((r) {
+            final name = r['vendorName'] as String? ?? '—';
+            final amt = (r['outstandingBalance'] as num?)?.toDouble() ?? 0;
+            return Container(
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Text(name, style: const TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Text(
+                        fmtCurr(amt),
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: TextButton(
+                        onPressed: () => context.go('/ledger'),
+                        child: const Text('Ledger', style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
