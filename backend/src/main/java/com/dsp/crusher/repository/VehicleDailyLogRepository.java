@@ -28,4 +28,10 @@ public interface VehicleDailyLogRepository extends JpaRepository<VehicleDailyLog
 
     @Query("SELECT v FROM VehicleDailyLog v WHERE v.logDate BETWEEN :from AND :to AND v.status = 'ACTIVE' AND (:siteId IS NULL OR v.siteId = :siteId) ORDER BY v.logDate DESC, v.id DESC")
     List<VehicleDailyLog> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT v FROM VehicleDailyLog v WHERE v.logDate BETWEEN :from AND :to AND v.status = 'ACTIVE' AND (:siteId IS NULL OR v.siteId = :siteId) ORDER BY v.logDate ASC, v.id ASC")
+    List<VehicleDailyLog> findByDateRangeAndSiteAsc(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT v FROM VehicleDailyLog v WHERE v.vehicleId = :vehicleId AND v.logDate BETWEEN :from AND :to AND v.status = 'ACTIVE' AND (:siteId IS NULL OR v.siteId = :siteId) ORDER BY v.logDate ASC, v.id ASC")
+    List<VehicleDailyLog> findByVehicleIdAndDateRangeAndSite(@Param("vehicleId") Long vehicleId, @Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 }

@@ -1,11 +1,14 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.dto.ReportResponse;
 import com.dsp.crusher.dto.ReportResponse.Row;
 import com.dsp.crusher.dto.ReportResponse.Summary;
 import com.dsp.crusher.entity.*;
 import com.dsp.crusher.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -27,25 +30,31 @@ public class ReportService {
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
 
+    private Long effectiveSiteId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isSiteStaff = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        return isSiteStaff ? SiteContext.get() : null;
+    }
+
     // ── Vehicle Daily Log Report ──────────────────────────────────────────────
 
     public ReportResponse vehicleLogReport(Long vehicleId, LocalDate from, LocalDate to) {
+        Long siteId = effectiveSiteId();
 
         List<VehicleDailyLog> logs;
         String filterLabel;
 
         if (vehicleId != null) {
-            logs = vehicleLogRepo.findByVehicleIdAndLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
-                    vehicleId, from, to, "ACTIVE");
+            logs = vehicleLogRepo.findByVehicleIdAndDateRangeAndSite(vehicleId, from, to, siteId);
             filterLabel = vehicleRepo.findById(vehicleId)
                     .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber())
                     .orElse("Vehicle " + vehicleId);
         } else {
-            logs = vehicleLogRepo.findByLogDateBetweenAndStatusOrderByLogDateAscIdAsc(from, to, "ACTIVE");
+            logs = vehicleLogRepo.findByDateRangeAndSiteAsc(from, to, siteId);
             filterLabel = "All Vehicles";
         }
 
-        // Enrich: load vehicles
         Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
                 .collect(Collectors.toMap(Vehicle::getId, v -> v));
 
@@ -93,18 +102,18 @@ public class ReportService {
     // ── Machine Work Report ───────────────────────────────────────────────────
 
     public ReportResponse machineWorkReport(Long machineId, LocalDate from, LocalDate to) {
+        Long siteId = effectiveSiteId();
 
         List<MachineWorkLog> logs;
         String filterLabel;
 
         if (machineId != null) {
-            logs = machineWorkRepo.findByMachineIdAndLogDateBetweenAndStatusOrderByLogDateAscIdAsc(
-                    machineId, from, to, "ACTIVE");
+            logs = machineWorkRepo.findByMachineIdAndDateRangeAndSite(machineId, from, to, siteId);
             filterLabel = machineRepo.findById(machineId)
                     .map(Machine::getName)
                     .orElse("Machine " + machineId);
         } else {
-            logs = machineWorkRepo.findByLogDateBetweenAndStatusOrderByLogDateAscIdAsc(from, to, "ACTIVE");
+            logs = machineWorkRepo.findByDateRangeAndSiteAsc(from, to, siteId);
             filterLabel = "All Machines";
         }
 
@@ -158,16 +167,14 @@ public class ReportService {
     // ── Diesel Report ─────────────────────────────────────────────────────────
 
     public ReportResponse dieselReport(LocalDate from, LocalDate to) {
+        Long siteId = effectiveSiteId();
 
-        // Opening stock = received before from - used before from
-        BigDecimal openingReceived = receiptRepo.sumReceivedBefore(from);
-        BigDecimal openingUsed     = usageRepo.sumUsedBefore(from);
+        BigDecimal openingReceived = receiptRepo.sumReceivedBeforeAndSite(from, siteId);
+        BigDecimal openingUsed     = usageRepo.sumUsedBeforeAndSite(from, siteId);
         BigDecimal openingStock    = openingReceived.subtract(openingUsed);
 
-        List<DieselReceipt> receipts = receiptRepo
-                .findByReceiptDateBetweenAndStatusOrderByReceiptDateAscIdAsc(from, to, "ACTIVE");
-        List<DieselUsage> usages = usageRepo
-                .findByUsageDateBetweenAndStatusOrderByUsageDateAscIdAsc(from, to, "ACTIVE");
+        List<DieselReceipt> receipts = receiptRepo.findByDateRangeAndSite(from, to, siteId);
+        List<DieselUsage> usages = usageRepo.findByDateRangeAndSite(from, to, siteId);
 
         Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
@@ -176,13 +183,11 @@ public class ReportService {
         Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
                 .collect(Collectors.toMap(Vehicle::getId, v -> v));
 
-        // Merge all entries sorted by date
         List<Row> rows = new ArrayList<>();
         BigDecimal running = openingStock;
         BigDecimal totalReceived = BigDecimal.ZERO;
         BigDecimal totalUsed = BigDecimal.ZERO;
 
-        // Build combined list of (date, isReceipt, object)
         record DieselEntry(LocalDate date, boolean isReceipt, Object obj) {}
         List<DieselEntry> all = new ArrayList<>();
         receipts.forEach(r -> all.add(new DieselEntry(r.getReceiptDate(), true, r)));
@@ -253,30 +258,28 @@ public class ReportService {
 
     public ReportResponse tripsReport(Long vehicleId, Long materialId, Long vendorId,
                                        LocalDate from, LocalDate to) {
+        Long siteId = effectiveSiteId();
 
         List<Trip> trips;
         String filterLabel;
 
         if (vehicleId != null) {
-            trips = tripRepo.findByVehicleIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(
-                    vehicleId, from, to, "ACTIVE");
+            trips = tripRepo.findByVehicleIdAndDateRangeAndSite(vehicleId, from, to, siteId);
             filterLabel = vehicleRepo.findById(vehicleId)
                     .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber())
                     .orElse("Vehicle " + vehicleId);
         } else if (materialId != null) {
-            trips = tripRepo.findByMaterialIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(
-                    materialId, from, to, "ACTIVE");
+            trips = tripRepo.findByMaterialIdAndDateRangeAndSite(materialId, from, to, siteId);
             filterLabel = materialRepo.findById(materialId)
                     .map(Material::getName)
                     .orElse("Material " + materialId);
         } else if (vendorId != null) {
-            trips = tripRepo.findByVendorIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(
-                    vendorId, from, to, "ACTIVE");
+            trips = tripRepo.findByVendorIdAndDateRangeAndSite(vendorId, from, to, siteId);
             filterLabel = vendorRepo.findById(vendorId)
                     .map(Vendor::getName)
                     .orElse("Vendor " + vendorId);
         } else {
-            trips = tripRepo.findByTripDateBetweenAndStatusOrderByTripDateAscIdAsc(from, to, "ACTIVE");
+            trips = tripRepo.findByDateRangeAndSiteAsc(from, to, siteId);
             filterLabel = "All Trips";
         }
 

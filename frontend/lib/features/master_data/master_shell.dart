@@ -65,13 +65,22 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
     });
   }
 
-  // SITE_STAFF cannot see Finance (8/9/10) or Admin/Users (13).
-  // While role is still loading (null), default to restrictive — no flash of
-  // Finance items. Only OWNER_ADMIN and OFFICE_ACCOUNTANT get full access.
+  // Role-based sidebar visibility.
+  // Default (null = still loading) behaves like SITE_STAFF — most restrictive,
+  // prevents any sensitive item from flashing before the role is loaded.
   bool _visible(int index) {
-    if (_role == 'OWNER_ADMIN' || _role == 'OFFICE_ACCOUNTANT') return true;
-    // null (loading) or SITE_STAFF: hide Finance + Users
-    return !const {8, 9, 10, 13}.contains(index);
+    switch (_role) {
+      case 'OWNER_ADMIN':
+        return true; // sees everything
+      case 'OFFICE_ACCOUNTANT':
+        // Hides: Users (13) — OWNER_ADMIN only
+        return index != 13;
+      default:
+        // SITE_STAFF or null (loading): operations only
+        // Hides: Finance (8,9,10), Users (13), Employees (14),
+        //        Parties (15), Vehicles (16), Machines (17), Materials (18), Sites (19)
+        return !const {8, 9, 10, 13, 14, 15, 16, 17, 18, 19}.contains(index);
+    }
   }
 
   Widget _item(IconData icon, IconData selIcon, String label, int index) {

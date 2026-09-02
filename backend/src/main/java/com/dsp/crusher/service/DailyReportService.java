@@ -1,5 +1,6 @@
 package com.dsp.crusher.service;
 
+import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.dto.ConsolidatedDailyReport;
 import com.dsp.crusher.dto.ConsolidatedDailyReport.*;
 import com.dsp.crusher.entity.*;
@@ -31,22 +32,23 @@ public class DailyReportService {
     private final VendorPaymentRepository paymentRepo;
 
     public ConsolidatedDailyReport build(LocalDate date) {
+        Long siteId = SiteContext.get();
         ConsolidatedDailyReport report = new ConsolidatedDailyReport();
         report.setDate(date);
-        report.setTrips(buildTrips(date));
-        report.setDabar(buildDabar(date));
-        report.setWaterTanker(buildWaterTanker(date));
-        report.setDiesel(buildDiesel(date));
-        report.setMachine(buildMachine(date));
-        report.setAttendance(buildAttendance(date));
-        report.setFinancial(buildFinancial(date));
+        report.setTrips(buildTrips(date, siteId));
+        report.setDabar(buildDabar(date, siteId));
+        report.setWaterTanker(buildWaterTanker(date, siteId));
+        report.setDiesel(buildDiesel(date, siteId));
+        report.setMachine(buildMachine(date, siteId));
+        report.setAttendance(buildAttendance(date, siteId));
+        report.setFinancial(siteId != null ? emptyFinancial() : buildFinancial(date));
         return report;
     }
 
     // ── Trips ─────────────────────────────────────────────────────────────────
 
-    private TripsSection buildTrips(LocalDate date) {
-        List<Trip> trips = tripRepo.findByTripDateAndStatusOrderByIdAsc(date, "ACTIVE");
+    private TripsSection buildTrips(LocalDate date, Long siteId) {
+        List<Trip> trips = tripRepo.findByDateAndSite(date, siteId);
 
         Map<Long, Vehicle>  vehicleMap  = vehicleRepo.findAll().stream()
                 .collect(Collectors.toMap(Vehicle::getId, v -> v));
@@ -100,8 +102,8 @@ public class DailyReportService {
 
     // ── Dabar ─────────────────────────────────────────────────────────────────
 
-    private DabarSection buildDabar(LocalDate date) {
-        List<DabarEntry> entries = dabarRepo.findByEntryDateAndStatusOrderByIdAsc(date, "ACTIVE");
+    private DabarSection buildDabar(LocalDate date, Long siteId) {
+        List<DabarEntry> entries = dabarRepo.findByDateAndSite(date, siteId);
         int trips = entries.stream().mapToInt(e -> e.getTripsCount() != null ? e.getTripsCount() : 0).sum();
         BigDecimal brass = entries.stream()
                 .map(e -> e.getQuantityBrass() != null ? e.getQuantityBrass() : BigDecimal.ZERO)
@@ -115,8 +117,8 @@ public class DailyReportService {
 
     // ── Water Tanker ──────────────────────────────────────────────────────────
 
-    private WaterTankerSection buildWaterTanker(LocalDate date) {
-        List<WaterTankerLog> logs = tankerRepo.findByLogDateAndStatusOrderByIdAsc(date, "ACTIVE");
+    private WaterTankerSection buildWaterTanker(LocalDate date, Long siteId) {
+        List<WaterTankerLog> logs = tankerRepo.findByDateAndSite(date, siteId);
         BigDecimal hours  = BigDecimal.ZERO;
         BigDecimal km     = BigDecimal.ZERO;
         BigDecimal amount = BigDecimal.ZERO;
@@ -125,7 +127,6 @@ public class DailyReportService {
             if (l.getHoursWorked() != null) hours  = hours.add(l.getHoursWorked());
             if (l.getKmRun()       != null) km     = km.add(l.getKmRun());
             if (l.getTripsCount()  != null) trips += l.getTripsCount();
-            // Amount = hoursWorked × rate (or tripsCount × rate)
             if (l.getRate() != null) {
                 BigDecimal rate = l.getRate();
                 if (l.getHoursWorked() != null) {
@@ -146,9 +147,9 @@ public class DailyReportService {
 
     // ── Diesel ────────────────────────────────────────────────────────────────
 
-    private DieselSection buildDiesel(LocalDate date) {
-        List<DieselReceipt> receipts = receiptRepo.findByReceiptDateAndStatusOrderByIdAsc(date, "ACTIVE");
-        List<DieselUsage>   usages   = usageRepo.findByUsageDateAndStatusOrderByIdAsc(date, "ACTIVE");
+    private DieselSection buildDiesel(LocalDate date, Long siteId) {
+        List<DieselReceipt> receipts = receiptRepo.findByDateAndSite(date, siteId);
+        List<DieselUsage>   usages   = usageRepo.findByDateAndSite(date, siteId);
 
         BigDecimal received = receipts.stream()
                 .map(r -> r.getQuantityLiters() != null ? r.getQuantityLiters() : BigDecimal.ZERO)
@@ -157,9 +158,8 @@ public class DailyReportService {
                 .map(u -> u.getQuantityLiters() != null ? u.getQuantityLiters() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Closing stock = all time received - all time used
-        BigDecimal totalReceived = receiptRepo.sumTotalReceived();
-        BigDecimal totalUsed     = usageRepo.sumTotalUsed();
+        BigDecimal totalReceived = receiptRepo.sumTotalReceivedBySite(siteId);
+        BigDecimal totalUsed     = usageRepo.sumTotalUsedBySite(siteId);
         BigDecimal closingStock  = totalReceived.subtract(totalUsed);
 
         DieselSection s = new DieselSection();
@@ -173,8 +173,8 @@ public class DailyReportService {
 
     // ── Machine Work ──────────────────────────────────────────────────────────
 
-    private MachineSection buildMachine(LocalDate date) {
-        List<MachineWorkLog> logs = machineRepo.findByLogDateAndStatusOrderByIdDesc(date, "ACTIVE");
+    private MachineSection buildMachine(LocalDate date, Long siteId) {
+        List<MachineWorkLog> logs = machineRepo.findByDateAndSite(date, siteId);
         BigDecimal total   = BigDecimal.ZERO;
         BigDecimal bucket  = BigDecimal.ZERO;
         BigDecimal breaker = BigDecimal.ZERO;
@@ -194,8 +194,8 @@ public class DailyReportService {
 
     // ── Attendance ────────────────────────────────────────────────────────────
 
-    private AttendanceSection buildAttendance(LocalDate date) {
-        List<AttendanceRecord> records = attendanceRepo.findByAttendanceDateOrderByEmployeeIdAsc(date);
+    private AttendanceSection buildAttendance(LocalDate date, Long siteId) {
+        List<AttendanceRecord> records = attendanceRepo.findByDateAndSite(date, siteId);
         long totalActive = employeeRepo.findAll().stream()
                 .filter(e -> "ACTIVE".equals(e.getStatus())).count();
 
@@ -239,6 +239,15 @@ public class DailyReportService {
         s.setInvoiceTotal(invTotal);
         s.setPaymentCount(payments.size());
         s.setPaymentTotal(payTotal);
+        return s;
+    }
+
+    private FinancialSection emptyFinancial() {
+        FinancialSection s = new FinancialSection();
+        s.setInvoiceCount(0);
+        s.setInvoiceTotal(BigDecimal.ZERO);
+        s.setPaymentCount(0);
+        s.setPaymentTotal(BigDecimal.ZERO);
         return s;
     }
 }

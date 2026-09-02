@@ -41,7 +41,9 @@ public class SecurityConfig {
                     "/api-docs/**",
                     "/v3/api-docs/**"
                 ).permitAll()
-                // Financial endpoints: SITE_STAFF cannot access these
+                // User management: OWNER_ADMIN only
+                .requestMatchers("/api/users/**").hasRole("OWNER_ADMIN")
+                // Financial endpoints: SITE_STAFF cannot access
                 .requestMatchers("/api/invoices/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
                 .requestMatchers("/api/party-payments/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
                 .requestMatchers("/api/ledger/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")

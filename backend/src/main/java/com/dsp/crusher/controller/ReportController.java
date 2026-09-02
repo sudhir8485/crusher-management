@@ -6,6 +6,7 @@ import com.dsp.crusher.service.DailyReportService;
 import com.dsp.crusher.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -13,6 +14,7 @@ import java.time.LocalDate;
 @RestController
 @RequestMapping("/api/reports")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('OWNER_ADMIN','OFFICE_ACCOUNTANT','SITE_STAFF')")
 public class ReportController {
 
     private final ReportService service;

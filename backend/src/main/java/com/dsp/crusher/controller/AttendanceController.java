@@ -7,6 +7,7 @@ import com.dsp.crusher.service.AttendanceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -32,6 +33,7 @@ public class AttendanceController {
     }
 
     @PostMapping("/mark")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
     public AttendanceDayResponse mark(@Valid @RequestBody AttendanceMarkRequest req) {
         return service.mark(req);
     }

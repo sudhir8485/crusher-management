@@ -21,6 +21,9 @@ public interface DieselReceiptRepository extends JpaRepository<DieselReceipt, Lo
     @Query("SELECT COALESCE(SUM(r.quantityLiters), 0) FROM DieselReceipt r WHERE r.receiptDate < :before AND r.status = 'ACTIVE'")
     BigDecimal sumReceivedBefore(@Param("before") LocalDate before);
 
+    @Query("SELECT COALESCE(SUM(r.quantityLiters), 0) FROM DieselReceipt r WHERE r.receiptDate < :before AND r.status = 'ACTIVE' AND (:siteId IS NULL OR r.siteId = :siteId)")
+    BigDecimal sumReceivedBeforeAndSite(@Param("before") LocalDate before, @Param("siteId") Long siteId);
+
     @Query("SELECT r FROM DieselReceipt r WHERE r.receiptDate = :date AND r.status = 'ACTIVE' AND (:siteId IS NULL OR r.siteId = :siteId) ORDER BY r.id ASC")
     List<DieselReceipt> findByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
 

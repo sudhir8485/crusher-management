@@ -41,6 +41,18 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     @Query("SELECT t FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate DESC, t.id DESC")
     List<Trip> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 
+    @Query("SELECT t FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findByDateRangeAndSiteAsc(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT t FROM Trip t WHERE t.vehicleId = :vehicleId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findByVehicleIdAndDateRangeAndSite(@Param("vehicleId") Long vehicleId, @Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT t FROM Trip t WHERE t.materialId = :materialId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findByMaterialIdAndDateRangeAndSite(@Param("materialId") Long materialId, @Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT t FROM Trip t WHERE t.vendorId = :vendorId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findByVendorIdAndDateRangeAndSite(@Param("vendorId") Long vendorId, @Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
     @Query("SELECT COUNT(t) FROM Trip t WHERE t.tripDate = :date AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
     long countByDateAndSite(@Param("date") LocalDate date, @Param("siteId") Long siteId);
 

@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -33,6 +34,7 @@ public class VehicleDailyLogController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
     public VehicleDailyLogResponse create(
             @Valid @RequestBody VehicleDailyLogRequest req,
             @RequestParam(required = false) Long siteId) {
@@ -40,11 +42,13 @@ public class VehicleDailyLogController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public VehicleDailyLogResponse update(@PathVariable Long id, @Valid @RequestBody VehicleDailyLogRequest req) {
         return service.update(id, req);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
