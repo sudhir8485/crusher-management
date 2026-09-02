@@ -26,7 +26,13 @@ class ApiClient {
         }
         handler.next(options);
       },
-      onError: (error, handler) {
+      onError: (error, handler) async {
+        if (error.response?.statusCode == 401) {
+          // Stale or invalid token — clear stored credentials so the
+          // router's redirect guard sends the user to /login on next navigation
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.clear();
+        }
         handler.next(error);
       },
     ));
