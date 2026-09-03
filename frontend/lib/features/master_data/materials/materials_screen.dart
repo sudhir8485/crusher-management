@@ -21,13 +21,15 @@ class MaterialsScreen extends ConsumerWidget {
       onRefresh: () => ref.invalidate(materialsProvider),
       onAdd: () => _showForm(context, ref, null),
       itemBuilder: (m) {
-        final rateTon   = m['defaultSaleRate'];
-        final rateBrass = m['defaultSaleRateBrass'];
-        final kpb       = m['kgPerBrass'];
-        final code      = m['code'] as String?;
+        final rateTon    = m['defaultSaleRate'];
+        final rateBrass  = m['defaultSaleRateBrass'];
+        final rateTrans  = m['defaultTransportRate'];
+        final kpb        = m['kgPerBrass'];
+        final code       = m['code'] as String?;
         final subtitleParts = <String>['Unit: ${m['unit']}'];
         if (rateTon   != null) subtitleParts.add('TON: ₹$rateTon');
         if (rateBrass != null) subtitleParts.add('BRASS: ₹$rateBrass');
+        if (rateTrans != null) subtitleParts.add('Transport: ₹$rateTrans/km');
         if (kpb       != null) subtitleParts.add('$kpb kg/brass');
         return ListTile(
           leading: const CircleAvatar(child: Icon(Icons.category)),
@@ -93,11 +95,13 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
   late final _name          = TextEditingController(text: widget.existing?['name']);
   late final _code          = TextEditingController(text: widget.existing?['code'] ?? '');
   late final _label         = TextEditingController(text: widget.existing?['sizeLabel']);
-  late final _saleRateTon   = TextEditingController(
+  late final _saleRateTon     = TextEditingController(
       text: widget.existing?['defaultSaleRate']?.toString() ?? '');
-  late final _saleRateBrass = TextEditingController(
+  late final _saleRateBrass   = TextEditingController(
       text: widget.existing?['defaultSaleRateBrass']?.toString() ?? '');
-  late final _kgPerBrass    = TextEditingController(
+  late final _transportRate   = TextEditingController(
+      text: widget.existing?['defaultTransportRate']?.toString() ?? '');
+  late final _kgPerBrass      = TextEditingController(
       text: widget.existing?['kgPerBrass']?.toString() ?? '');
   String _unit = 'BRASS';
   bool _saving = false;
@@ -111,7 +115,8 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
   @override
   void dispose() {
     _name.dispose(); _code.dispose(); _label.dispose();
-    _saleRateTon.dispose(); _saleRateBrass.dispose(); _kgPerBrass.dispose();
+    _saleRateTon.dispose(); _saleRateBrass.dispose();
+    _transportRate.dispose(); _kgPerBrass.dispose();
     super.dispose();
   }
 
@@ -127,6 +132,8 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
         'defaultSaleRate': double.tryParse(_saleRateTon.text.trim()),
       if (_saleRateBrass.text.trim().isNotEmpty)
         'defaultSaleRateBrass': double.tryParse(_saleRateBrass.text.trim()),
+      if (_transportRate.text.trim().isNotEmpty)
+        'defaultTransportRate': double.tryParse(_transportRate.text.trim()),
       if (_kgPerBrass.text.trim().isNotEmpty)
         'kgPerBrass': double.tryParse(_kgPerBrass.text.trim()),
     };
@@ -215,6 +222,22 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
                   },
                 )),
               ]),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _transportRate,
+                decoration: const InputDecoration(
+                  labelText: 'Default Transport Rate',
+                  prefixText: '₹ ',
+                  suffixText: '/ km / unit',
+                  helperText: 'Auto-fills transport rate on trip form',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) {
+                  if (v != null && v.trim().isNotEmpty &&
+                      double.tryParse(v.trim()) == null) return 'Invalid number';
+                  return null;
+                },
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _kgPerBrass,

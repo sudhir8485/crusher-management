@@ -16,5 +16,7 @@ public class MaterialRequest {
     private BigDecimal defaultSaleRate;
     /** Default rate when billing by BRASS */
     private BigDecimal defaultSaleRateBrass;
+    /** Default transport rate (₹/km/unit) for auto-filling trip form */
+    private BigDecimal defaultTransportRate;
     private BigDecimal kgPerBrass;
 }

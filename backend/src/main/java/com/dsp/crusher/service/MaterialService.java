@@ -55,6 +55,7 @@ public class MaterialService {
         m.setUnit(req.getUnit());
         m.setDefaultSaleRate(req.getDefaultSaleRate());
         m.setDefaultSaleRateBrass(req.getDefaultSaleRateBrass());
+        m.setDefaultTransportRate(req.getDefaultTransportRate());
         m.setKgPerBrass(req.getKgPerBrass());
     }
 }

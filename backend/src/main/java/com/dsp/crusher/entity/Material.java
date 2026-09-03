@@ -38,6 +38,10 @@ public class Material {
     @Column(name = "default_sale_rate_brass", precision = 10, scale = 2)
     private BigDecimal defaultSaleRateBrass;
 
+    /** Default transport rate (₹/km/unit) — auto-fills trip transport rate on material selection */
+    @Column(name = "default_transport_rate", precision = 10, scale = 2)
+    private BigDecimal defaultTransportRate;
+
     @Column(name = "kg_per_brass", precision = 10, scale = 3)
     private BigDecimal kgPerBrass;
 

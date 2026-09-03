@@ -912,6 +912,112 @@ class _VehiclePickerDialogState extends State<_VehiclePickerDialog> {
   }
 }
 
+// ── Material Picker Dialog ────────────────────────────────────────────────────
+
+class _MaterialPickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> materials;
+  final int? currentId;
+  const _MaterialPickerDialog({required this.materials, this.currentId});
+
+  @override
+  State<_MaterialPickerDialog> createState() => _MaterialPickerDialogState();
+}
+
+class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _query.isEmpty
+        ? widget.materials
+        : widget.materials.where((m) {
+            final name = (m['name'] as String? ?? '').toLowerCase();
+            final code = (m['code'] as String? ?? '').toLowerCase();
+            return name.contains(_query) || code.contains(_query);
+          }).toList();
+    final cs = Theme.of(context).colorScheme;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Material',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 10),
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search by name or code…',
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (q) => setState(() => _query = q.toLowerCase().trim()),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: filtered.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('No materials found',
+                          style: TextStyle(color: Colors.grey))))
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final m = filtered[i];
+                        final id = m['id'] as int?;
+                        final isSelected = id == widget.currentId;
+                        final name = m['name'] as String? ?? '—';
+                        final code = m['code'] as String? ?? '';
+                        final unit = m['unit'] as String? ?? '';
+                        final rateT = m['defaultSaleRate'];
+                        final rateB = m['defaultSaleRateBrass'];
+                        final rateLine = [
+                          if (rateT != null) 'TON ₹$rateT',
+                          if (rateB != null) 'BRASS ₹$rateB',
+                        ].join('  ·  ');
+                        return ListTile(
+                          dense: true,
+                          title: Text(
+                              code.isNotEmpty ? '$name  ($code)' : name,
+                              style: const TextStyle(fontWeight: FontWeight.w500)),
+                          subtitle: Text(
+                              rateLine.isNotEmpty ? '$unit  ·  $rateLine' : unit),
+                          trailing: isSelected
+                              ? Icon(Icons.check, color: cs.primary, size: 20)
+                              : null,
+                          tileColor: isSelected
+                              ? cs.primary.withValues(alpha: 0.06)
+                              : null,
+                          onTap: () => Navigator.pop(context, m),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Convert One-Time to Regular Customer ──────────────────────────────────────
 
 class _ConvertCustomerDialog extends ConsumerStatefulWidget {
@@ -1284,16 +1390,18 @@ class _TripFormState extends ConsumerState<_TripForm> {
         ? allMaterials.where((m) => m['id'] == id).cast<Map<String, dynamic>?>().firstOrNull
         : null;
     setState(() {
-      _materialId = id;
-      _material = mat;
+      _materialId    = id;
+      _material      = mat;
+      _materialError = null;
       if (mat != null) {
         final u = mat['unit'] as String?;
         if (u == 'TON' || u == 'BRASS') _quantityUnit = u!;
-        // Prefill rate matching the selected unit (TON uses defaultSaleRate, BRASS uses defaultSaleRateBrass)
+        // Always prefill sale rate from material default (user can edit afterward)
         final defRate = _rateForUnit(_quantityUnit, mat);
-        if (defRate != null && _saleRate.text.trim().isEmpty) {
-          _saleRate.text = defRate.toStringAsFixed(2);
-        }
+        if (defRate != null) _saleRate.text = defRate.toStringAsFixed(2);
+        // Always prefill transport rate from material default
+        final defTrans = (mat['defaultTransportRate'] as num?)?.toDouble();
+        if (defTrans != null) _transportRate.text = defTrans.toStringAsFixed(2);
       }
     });
     _recalculate();
@@ -1323,14 +1431,17 @@ class _TripFormState extends ConsumerState<_TripForm> {
     if (picked != null) setState(() => _tripDate = picked);
   }
 
+  String? _materialError;
+
   Future<void> _save() async {
-    // Manual validation for pickers
+    // Manual validation for dialog pickers (not in Form tree)
     setState(() {
-      _vendorError = (_partyType == 'REGULAR' && _vendorId == null) ? 'Select a customer' : null;
-      _vehicleError = (_vehicleMode == 'COMPANY' && _vehicleId == null) ? 'Select a vehicle' : null;
+      _vendorError   = (_partyType == 'REGULAR' && _vendorId == null) ? 'Select a customer' : null;
+      _vehicleError  = (_vehicleMode == 'COMPANY' && _vehicleId == null) ? 'Select a vehicle' : null;
+      _materialError = _materialId == null ? 'Select a material' : null;
     });
 
-    if (_vendorError != null || _vehicleError != null) return;
+    if (_vendorError != null || _vehicleError != null || _materialError != null) return;
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _saving = true);
@@ -1567,6 +1678,39 @@ class _TripFormState extends ConsumerState<_TripForm> {
     );
   }
 
+  Widget _materialPickerField(List<Map<String, dynamic>> materials) {
+    final selected = _materialId != null
+        ? materials.where((m) => m['id'] == _materialId).cast<Map<String, dynamic>?>().firstOrNull
+        : null;
+    final label = selected != null
+        ? (selected['code'] as String? ?? '').isNotEmpty
+            ? '${selected['name']}  (${selected['code']})'
+            : selected['name'] as String? ?? ''
+        : '';
+    return GestureDetector(
+      onTap: () async {
+        final result = await showDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (_) => _MaterialPickerDialog(materials: materials, currentId: _materialId),
+        );
+        if (result != null) _onMaterialChanged(result['id'] as int?, materials);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Material *',
+          errorText: _materialError,
+          suffixIcon: const Icon(Icons.search),
+          border: const OutlineInputBorder(),
+        ),
+        isEmpty: label.isEmpty,
+        child: label.isNotEmpty
+            ? Text(label,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500))
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+
   Widget _vehiclePickerField(List<Map<String, dynamic>> vehicles) {
     return GestureDetector(
       onTap: () async {
@@ -1767,14 +1911,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
             mats.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error loading materials: $e'),
-              data: (list) => SearchablePicker(
-                items: list,
-                itemLabel: (m) => m['name'] as String,
-                fieldLabel: 'Material *',
-                value: _materialId,
-                onChanged: (v) => _onMaterialChanged(v, list),
-                validator: (v) => v == null ? 'Select material' : null,
-              ),
+              data: _materialPickerField,
             ),
             const SizedBox(height: 14),
             // Unit toggle — also auto-switches sale rate to the matching material default
