@@ -115,144 +115,276 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     final font     = await PdfGoogleFonts.notoSansRegular();
     final fontBold = await PdfGoogleFonts.notoSansBold();
 
-    final vendorName = data['vendorName'] as String? ?? widget.vendorName;
-    final contact    = data['vendorContact'] as String? ?? '';
-    final from       = data['from'] as String? ?? _dateFmtKey.format(_from);
-    final to         = data['to']   as String? ?? _dateFmtKey.format(_to);
-    final opening    = (data['openingBalance']  as num?)?.toDouble() ?? 0;
-    final closing    = (data['closingBalance']  as num?)?.toDouble() ?? 0;
-    final billed     = (data['totalBilled']     as num?)?.toDouble() ?? 0;
-    final received   = (data['totalReceived']   as num?)?.toDouble() ?? 0;
-    final entries    = List<Map<String, dynamic>>.from(
+    final vendorName   = data['vendorName']    as String? ?? widget.vendorName;
+    final contact      = data['vendorContact'] as String? ?? '';
+    final gstRegistered = data['gstRegistered'] as bool? ?? false;
+    final from         = data['from'] as String? ?? _dateFmtKey.format(_from);
+    final to           = data['to']   as String? ?? _dateFmtKey.format(_to);
+    final opening      = (data['openingBalance'] as num?)?.toDouble() ?? 0;
+    final closing      = (data['closingBalance'] as num?)?.toDouble() ?? 0;
+    final billed       = (data['totalBilled']    as num?)?.toDouble() ?? 0;
+    final received     = (data['totalReceived']  as num?)?.toDouble() ?? 0;
+    final entries      = List<Map<String, dynamic>>.from(
         (data['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
 
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
-    final balLabel  = isOwed ? 'Outstanding: ₹${_numFmt.format(closing)}'
+    final balLabel  = isOwed    ? 'Outstanding: ₹${_numFmt.format(closing)}'
         : isAdvance ? 'Advance: ₹${_numFmt.format(closing.abs())}'
         : 'Settled Up';
     final balColor  = isOwed ? PdfColors.orange900 : isAdvance ? PdfColors.blue700 : PdfColors.green800;
 
     String rs(double v) => '₹${_numFmt.format(v)}';
+    String n(double v)  => _numFmt.format(v);  // number without ₹ (for sub-rows)
     String balStr(double v) => v > 0.5 ? rs(v) : v < -0.5 ? 'Adv ${rs(v.abs())}' : '₹0';
 
     pw.TextStyle bold({double size = 8.5}) => pw.TextStyle(font: fontBold, fontSize: size);
     pw.TextStyle reg({double size = 8.5, PdfColor? color}) =>
         pw.TextStyle(font: font, fontSize: size, color: color);
+    pw.TextStyle small({PdfColor? color}) =>
+        pw.TextStyle(font: font, fontSize: 7.5, color: color ?? PdfColors.grey700);
 
-    pw.Widget cell(String t, {bool isBold = false, pw.TextAlign align = pw.TextAlign.left, PdfColor? color}) =>
+    pw.Widget c(String t, {bool b = false, pw.TextAlign a = pw.TextAlign.left, PdfColor? color}) =>
         pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-          child: pw.Text(t, style: isBold ? bold() : reg(color: color), textAlign: align));
+          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+          child: pw.Text(t, style: b ? bold() : reg(color: color), textAlign: a));
+    pw.Widget cs(String t, {PdfColor? color}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: pw.Text(t, style: small(color: color)));
 
     final pdf = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: fontBold));
-    pdf.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
-      header: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Text('ACCOUNT STATEMENT', style: bold(size: 14)),
+
+    // ── Shared header ──────────────────────────────────────────────────────────
+    pw.Widget pdfHeader(pw.Context ctx) => pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Text('ACCOUNT STATEMENT', style: bold(size: 13)),
         pw.SizedBox(height: 4),
         pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
             pw.Text(vendorName, style: bold(size: 11)),
             if (contact.isNotEmpty) pw.Text(contact, style: reg(size: 9, color: PdfColors.grey600)),
+            if (gstRegistered) pw.Text('GST Registered', style: small(color: PdfColors.indigo)),
           ]),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-            pw.Text('Period: ${_dateFmtLong.format(DateTime.parse(from))} — ${_dateFmtLong.format(DateTime.parse(to))}',
-                style: reg(size: 8.5, color: PdfColors.grey700)),
+            pw.Text(
+              'Period: ${_dateFmtLong.format(DateTime.parse(from))} — ${_dateFmtLong.format(DateTime.parse(to))}',
+              style: reg(size: 8.5, color: PdfColors.grey700)),
             pw.SizedBox(height: 3),
-            pw.Text(balLabel, style: bold(size: 10).copyWith(color: balColor)),
+            pw.Text(balLabel, style: bold(size: 9).copyWith(color: balColor)),
           ]),
         ]),
         pw.Divider(thickness: 0.8),
+      ]);
+
+    // ── Summary block ──────────────────────────────────────────────────────────
+    pw.Widget summaryRow() => pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+      child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+        pw.Text('Opening: ${balStr(opening)}', style: reg(size: 8)),
+        pw.Text('Billed: ${rs(billed)}', style: reg(size: 8, color: PdfColors.orange900)),
+        pw.Text('Received: ${rs(received)}', style: reg(size: 8, color: PdfColors.green800)),
+        pw.Text('Closing: ${balStr(closing)}', style: bold(size: 8).copyWith(color: balColor)),
       ]),
-      build: (_) => [
-        // Summary row
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
-          child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-            pw.Text('Opening Balance: ${balStr(opening)}', style: reg(size: 8)),
-            pw.Text('Total Billed: ${rs(billed)}', style: reg(size: 8, color: PdfColors.orange900)),
-            pw.Text('Total Received: ${rs(received)}', style: reg(size: 8, color: PdfColors.green800)),
-            pw.Text('Closing: ${balStr(closing)}', style: bold(size: 8).copyWith(color: balColor)),
-          ]),
-        ),
-        pw.SizedBox(height: 8),
+    );
 
-        // Transactions table (ASC order for print — chronological)
-        pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-          columnWidths: const {
-            0: pw.FixedColumnWidth(72),
-            1: pw.FlexColumnWidth(3),
-            2: pw.FixedColumnWidth(72),
-            3: pw.FixedColumnWidth(72),
-            4: pw.FixedColumnWidth(78),
-          },
-          children: [
-            // Header
-            pw.TableRow(
-              decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+    if (gstRegistered) {
+      // ── Tally-style format (SGST+CGST assumed same-state; IGST not implemented) ─
+      // Structure matches Malganga Ledger.xlsx:
+      //   Date | Particulars | Sub-amount | Voucher Type | Debit | Credit
+      //   date | To (as per details) |  | Sales | total |
+      //        | Sales       | base |   |       |
+      //        | SGST X%     | amt  |   |       |
+      //        | CGST X%     | amt  |   |       |
+      //        | Round Off   | 0    |   |       |
+      //   date | By [mode]   |  | Receipt |  | amount |
+      const widths = {
+        0: pw.FixedColumnWidth(58),   // Date
+        1: pw.FlexColumnWidth(3),     // Particulars
+        2: pw.FixedColumnWidth(66),   // Sub-amount (col G in xlsx)
+        3: pw.FixedColumnWidth(52),   // Voucher Type
+        4: pw.FixedColumnWidth(68),   // Debit
+        5: pw.FixedColumnWidth(68),   // Credit
+      };
+
+      // Build all table rows from entries (ASC = chronological)
+      final rows = <pw.TableRow>[];
+
+      // Header
+      rows.add(pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+        children: [
+          for (final h in ['Date', 'Particulars', '', 'Voucher Type', 'Debit ₹', 'Credit ₹'])
+            c(h, b: true),
+        ],
+      ));
+
+      // Opening balance if non-zero
+      if (opening.abs() > 0.5)
+        rows.add(pw.TableRow(children: [
+          c(''), c('Opening Balance', b: true), c(''), c(''), c(balStr(opening), b: true), c(''),
+        ]));
+
+      for (final e in entries) {
+        final type    = e['type'] as String;
+        final isBill  = type == 'BILLED';
+        final amt     = (e['amount']         as num?)?.toDouble() ?? 0;
+        final matAmt  = (e['materialAmount'] as num?)?.toDouble() ?? amt;  // fallback to total if null
+        final transAmt = (e['transportationCharge'] as num?)?.toDouble() ?? 0;
+        final gstRate = (e['gstRate']         as num?)?.toDouble() ?? 0;
+        final dateStr = _dateFmtLong.format(DateTime.parse(e['date'] as String));
+        final desc    = e['description'] as String? ?? '—';
+
+        if (isBill) {
+          final hasGst = gstRate > 0.01 && matAmt > 0;
+          final halfRate = gstRate / 2;
+          final sgst = hasGst ? matAmt * halfRate / 100 : 0.0;
+          final cgst = hasGst ? matAmt * halfRate / 100 : 0.0;
+          // Debit = material (taxable base) + SGST + CGST + transport (non-taxable)
+          final debit = matAmt + sgst + cgst + transAmt;
+          final roundOff = (debit.round() - debit).abs() < 1 ? debit.round() - debit : 0.0;
+
+          // Main row: To (as per details)
+          rows.add(pw.TableRow(
+            decoration: const pw.BoxDecoration(color: PdfColors.orange50),
+            children: [
+              c(dateStr),
+              c('To (as per details)', b: true),
+              c(''),
+              c('Sales', b: true),
+              c(n(debit + roundOff), b: true, a: pw.TextAlign.right),
+              c(''),
+            ],
+          ));
+
+          if (hasGst) {
+            // Sub-rows matching Tally format: Sales base, SGST, CGST, Round Off
+            for (final (label, val, color) in [
+              ('Sales', matAmt, PdfColors.grey800),
+              ('SGST ${halfRate.toStringAsFixed(halfRate == halfRate.truncate() ? 0 : 1)}%', sgst, PdfColors.grey700),
+              ('CGST ${halfRate.toStringAsFixed(halfRate == halfRate.truncate() ? 0 : 1)}%', cgst, PdfColors.grey700),
+              if (transAmt > 0.5) ('Transportation', transAmt, PdfColors.grey700),
+              ('Round Off', roundOff, PdfColors.grey500),
+            ])
+              rows.add(pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey50),
+                children: [
+                  c(''),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
+                    child: pw.Text(label, style: small(color: color))),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    child: pw.Text(n(val), style: small(color: color), textAlign: pw.TextAlign.right)),
+                  c(''), c(''), c(''),
+                ],
+              ));
+          } else {
+            // Old trip (gstRate=0) — flat sub-row showing just the amount
+            rows.add(pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColors.grey50),
               children: [
-                for (final h in ['Date', 'Description', 'Billed ₹', 'Received ₹', 'Balance ₹'])
-                  cell(h, isBold: true),
+                c(''),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
+                  child: pw.Text(desc, style: small())),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  child: pw.Text(n(amt), style: small(), textAlign: pw.TextAlign.right)),
+                c(''), c(''), c(''),
               ],
-            ),
-            // Opening balance row if non-zero
-            if (opening.abs() > 0.5)
-              pw.TableRow(children: [
-                cell('', isBold: false),
-                cell('Opening Balance', isBold: true),
-                cell('', isBold: false),
-                cell('', isBold: false),
-                cell(balStr(opening), isBold: true),
-              ]),
-            // Entries
-            ...entries.map((e) {
-              final type    = e['type'] as String;
-              final isBill  = type == 'BILLED';
-              final desc    = e['description'] as String? ?? '—';
-              final amt     = (e['amount'] as num?)?.toDouble() ?? 0;
-              final bal     = (e['runningBalance'] as num?)?.toDouble() ?? 0;
-              final dateStr = _dateFmtLong.format(DateTime.parse(e['date'] as String));
-              final gstRate = (e['gstRate'] as num?)?.toDouble() ?? 0;
+            ));
+          }
+        } else {
+          // Receipt row: By [payment mode / reference]
+          final modeDesc = desc.replaceFirst('Payment — ', 'By ');
+          rows.add(pw.TableRow(
+            decoration: const pw.BoxDecoration(color: PdfColors.green50),
+            children: [
+              c(dateStr),
+              c(modeDesc, b: true),
+              c(''),
+              c('Receipt'),
+              c(''),
+              c(n(amt), b: true, a: pw.TextAlign.right),
+            ],
+          ));
+        }
+      }
 
-              final rows = <pw.TableRow>[];
-              rows.add(pw.TableRow(children: [
-                cell(dateStr),
-                cell(desc),
-                cell(isBill ? rs(amt) : '', align: pw.TextAlign.right,
-                    color: isBill ? PdfColors.orange900 : null),
-                cell(!isBill ? rs(amt) : '', align: pw.TextAlign.right,
-                    color: !isBill ? PdfColors.green800 : null),
-                cell(balStr(bal), isBold: true),
-              ]));
+      pdf.addPage(pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(24, 24, 24, 24),
+        header: pdfHeader,
+        build: (_) => [
+          summaryRow(),
+          pw.SizedBox(height: 8),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
+            columnWidths: widths,
+            children: rows,
+          ),
+        ],
+      ));
+    } else {
+      // ── Flat format for non-GST parties (unchanged) ────────────────────────
+      pw.Widget cell2(String t, {bool isBold = false, pw.TextAlign align = pw.TextAlign.left, PdfColor? color}) =>
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+            child: pw.Text(t, style: isBold ? bold() : reg(color: color), textAlign: align));
 
-              // GST sub-rows for taxable trip entries
-              if (isBill && gstRate > 0.01) {
-                // For GST trips, the taxable base is the trip amount (transport excluded per prior decision)
-                final halfRate = gstRate / 2;
-                final sgst = amt * halfRate / 100;
-                final cgst = amt * halfRate / 100;
-                rows.add(pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey50),
-                  children: [
-                    cell(''),
-                    pw.Padding(
-                        padding: const pw.EdgeInsets.fromLTRB(12, 1, 5, 1),
-                        child: pw.Text('SGST @$halfRate% = ₹${_numFmt.format(sgst)}  |  CGST @$halfRate% = ₹${_numFmt.format(cgst)}',
-                            style: reg(size: 7.5, color: PdfColors.grey600))),
-                    cell(''), cell(''), cell(''),
-                  ],
-                ));
-              }
-              return rows;
-            }).expand((r) => r),
-          ],
-        ),
-      ],
-    ));
+      pdf.addPage(pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
+        header: pdfHeader,
+        build: (_) => [
+          summaryRow(),
+          pw.SizedBox(height: 8),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(72),
+              1: pw.FlexColumnWidth(3),
+              2: pw.FixedColumnWidth(72),
+              3: pw.FixedColumnWidth(72),
+              4: pw.FixedColumnWidth(78),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+                children: [
+                  for (final h in ['Date', 'Description', 'Billed ₹', 'Received ₹', 'Balance ₹'])
+                    cell2(h, isBold: true),
+                ],
+              ),
+              if (opening.abs() > 0.5)
+                pw.TableRow(children: [
+                  cell2(''), cell2('Opening Balance', isBold: true),
+                  cell2(''), cell2(''), cell2(balStr(opening), isBold: true),
+                ]),
+              ...entries.map((e) {
+                final type   = e['type'] as String;
+                final isBill = type == 'BILLED';
+                final amt    = (e['amount']         as num?)?.toDouble() ?? 0;
+                final bal    = (e['runningBalance'] as num?)?.toDouble() ?? 0;
+                final dateStr = _dateFmtLong.format(DateTime.parse(e['date'] as String));
+                final desc   = e['description'] as String? ?? '—';
+                return [pw.TableRow(children: [
+                  cell2(dateStr),
+                  cell2(desc),
+                  cell2(isBill ? rs(amt) : '', align: pw.TextAlign.right,
+                      color: isBill ? PdfColors.orange900 : null),
+                  cell2(!isBill ? rs(amt) : '', align: pw.TextAlign.right,
+                      color: !isBill ? PdfColors.green800 : null),
+                  cell2(balStr(bal), isBold: true),
+                ])];
+              }).expand((r) => r),
+            ],
+          ),
+        ],
+      ));
+    }
     return pdf.save();
   }
 

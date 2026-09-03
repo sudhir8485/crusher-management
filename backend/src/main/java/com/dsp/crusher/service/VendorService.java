@@ -157,6 +157,8 @@ public class VendorService {
                 e.setDescription("Trip — " + mat);
                 e.setAmount(t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO);
                 e.setGstRate(t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO);
+                e.setMaterialAmount(t.getMaterialAmount());
+                e.setTransportationCharge(t.getTransportationCharge());
             } else {
                 VendorPayment p = payments.get(pi++);
                 String mode = p.getPaymentMode() != null ? p.getPaymentMode() : "Cash";
@@ -187,6 +189,7 @@ public class VendorService {
         resp.setVendorId(vendorId);
         resp.setVendorName(v.getName());
         resp.setVendorContact(v.getContact());
+        resp.setGstRegistered(Boolean.TRUE.equals(v.getGstRegistered()));
         resp.setFrom(from);
         resp.setTo(to);
         resp.setOpeningBalance(opening);
