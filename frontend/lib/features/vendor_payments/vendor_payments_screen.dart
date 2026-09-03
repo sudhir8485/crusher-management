@@ -132,16 +132,21 @@ class VendorPaymentsScreen extends ConsumerWidget {
   void _confirmDelete(BuildContext ctx, WidgetRef ref, Map<String, dynamic> p, String rangeKey) {
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
+      // Use the dialog's own context (dialogCtx) for Navigator.pop — avoids
+      // using the outer ctx after the overlay hierarchy has changed.
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete Payment'),
         content: Text('Delete ${fmtCurr(p['amount'] as num? ?? 0)} payment to ${p['vendorName']}?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(ctx);
+              Navigator.pop(dialogCtx);
               await ref.read(apiClientProvider).delete('/api/party-payments/${p['id']}');
+              // Small settle wait so any exit animations complete before the
+              // list rebuilds and deactivates the old card widgets.
+              await Future.delayed(const Duration(milliseconds: 150));
               ref.invalidate(_paymentsProvider(rangeKey));
             },
             child: const Text('Delete'),
@@ -409,7 +414,13 @@ class _PaymentCard extends StatelessWidget {
             Text(fmtCurr(amount),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
             PopupMenuButton<String>(
-              onSelected: (v) { if (v == 'edit') onEdit(); if (v == 'delete') onDelete(); },
+              onSelected: (v) async {
+                // Delay so the popup's exit animation completes before we show
+                // another overlay — prevents lifecycle assertion crashes.
+                await Future.delayed(Duration.zero);
+                if (v == 'edit') onEdit();
+                if (v == 'delete') onDelete();
+              },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'edit', child: Text('Edit')),
                 PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Colors.red))),
@@ -505,12 +516,42 @@ class _PartyPickerDialogState extends State<_PartyPickerDialog> {
   }
 }
 
+// ── Public helper — open Record Payment dialog from any screen ────────────────
+
+/// Opens the Record Payment form as a dialog, optionally pre-filling a party.
+/// Call this from the Trips screen (or any other screen) to reuse the same form.
+void showRecordPaymentDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  int? initialVendorId,
+  String? initialVendorName,
+  VoidCallback? onSaved,
+}) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _PaymentForm(
+      existing: null,
+      initialVendorId: initialVendorId,
+      initialVendorName: initialVendorName,
+      onSaved: onSaved ?? () {},
+    ),
+  );
+}
+
 // ── Payment form ──────────────────────────────────────────────────────────────
 
 class _PaymentForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final VoidCallback onSaved;
-  const _PaymentForm({required this.existing, required this.onSaved});
+  final int? initialVendorId;
+  final String? initialVendorName;
+  const _PaymentForm({
+    required this.existing,
+    required this.onSaved,
+    this.initialVendorId,
+    this.initialVendorName,
+  });
 
   @override
   ConsumerState<_PaymentForm> createState() => _PaymentFormState();
@@ -541,6 +582,9 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
       _amtCtrl.text  = (e['amount']      as num? ?? 0).toString();
       _refCtrl.text  = e['referenceNo']  as String? ?? '';
       _notesCtrl.text = e['notes']       as String? ?? '';
+    } else if (widget.initialVendorId != null) {
+      _vendorId   = widget.initialVendorId;
+      _vendorName = widget.initialVendorName ?? '';
     }
   }
 

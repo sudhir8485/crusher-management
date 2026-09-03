@@ -9,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 
 // ── Providers ────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ class TripsScreen extends ConsumerWidget {
                         onEdit: (t) => _showForm(context, ref, t, selectedDate, rangeKey),
                         onDelete: (t) => _confirmDelete(context, ref, t, rangeKey),
                         onConvert: (t) => _showConvertDialog(context, ref, t, rangeKey),
+                        onPayment: (t) => _showPaymentForm(context, ref, t, rangeKey),
                       );
               },
             ),
@@ -187,6 +189,17 @@ class TripsScreen extends ConsumerWidget {
           ref.invalidate(_vendorsProvider);
         },
       ),
+    );
+  }
+
+  void _showPaymentForm(BuildContext context, WidgetRef ref,
+      Map<String, dynamic> trip, String rangeKey) {
+    showRecordPaymentDialog(
+      context,
+      ref,
+      initialVendorId:   trip['vendorId'] as int?,
+      initialVendorName: trip['partyDisplayName'] as String? ?? trip['vendorName'] as String?,
+      onSaved: () => ref.invalidate(tripsProvider(rangeKey)),
     );
   }
 }
@@ -349,12 +362,14 @@ class _TripsList extends StatefulWidget {
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
   final void Function(Map<String, dynamic>) onConvert;
+  final void Function(Map<String, dynamic>) onPayment;
   const _TripsList({
     required this.list,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
     required this.onConvert,
+    required this.onPayment,
   });
 
   @override
@@ -547,6 +562,9 @@ class _TripsListState extends State<_TripsList> {
                     onConvert: filtered[i]['partyType'] == 'ONE_TIME'
                         ? () => widget.onConvert(filtered[i])
                         : null,
+                    onPayment: filtered[i]['partyType'] == 'REGULAR'
+                        ? () => widget.onPayment(filtered[i])
+                        : null,
                   ),
                 ),
         ),
@@ -563,12 +581,14 @@ class _TripCard extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onConvert;
+  final VoidCallback? onPayment;
   const _TripCard({
     required this.trip,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
     this.onConvert,
+    this.onPayment,
   });
 
   @override
@@ -1011,11 +1031,16 @@ class _TripCardState extends State<_TripCard> {
                   ),
                 ),
                 PopupMenuButton<String>(
-                  onSelected: (v) {
-                    if (v == 'edit')   widget.onEdit();
-                    if (v == 'delete') widget.onDelete();
+                  onSelected: (v) async {
+                    // Delay so popup exit animation completes before
+                    // showing another overlay — prevents lifecycle crashes.
+                    await Future.delayed(Duration.zero);
+                    if (!context.mounted) return;
+                    if (v == 'edit')    widget.onEdit();
+                    if (v == 'delete')  widget.onDelete();
                     if (v == 'challan') _printChallan(context, trip);
                     if (v == 'convert' && widget.onConvert != null) widget.onConvert!();
+                    if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(
@@ -1026,6 +1051,15 @@ class _TripCardState extends State<_TripCard> {
                           Text('Print Challan'),
                         ])),
                     const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    if (!isOneTime && widget.onPayment != null && (outstanding == null || outstanding > 0.5))
+                      const PopupMenuItem(
+                          value: 'payment',
+                          child: Row(children: [
+                            Icon(Icons.payments_outlined, size: 18, color: Colors.green),
+                            SizedBox(width: 8),
+                            Text('Record Payment',
+                                style: TextStyle(color: Colors.green)),
+                          ])),
                     if (isOneTime)
                       const PopupMenuItem(
                           value: 'convert',
