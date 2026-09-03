@@ -2104,10 +2104,9 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 ),
                 slot3: TextFormField(
                   controller: _transportRate,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Rate',
                     prefixText: '₹ ',
-                    suffixText: '/km/$_quantityUnit',
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   validator: (v) {
