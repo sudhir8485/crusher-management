@@ -266,10 +266,14 @@ public class TripService {
         } else if ("DIRECT".equals(t.getTransportMode())) {
             // already set from request in applyRequest; ensure non-null
             if (t.getTransportationCharge() == null) t.setTransportationCharge(BigDecimal.ZERO);
-        } else { // CALCULATE
-            if (t.getDistanceKm() != null && t.getTransportRatePerKm() != null) {
+        } else { // CALCULATE — qty × km × rate
+            BigDecimal tQty = t.getBillableQuantity();
+            if (t.getDistanceKm() != null && t.getTransportRatePerKm() != null
+                    && tQty != null && tQty.compareTo(BigDecimal.ZERO) > 0) {
                 t.setTransportationCharge(
-                        t.getDistanceKm().multiply(t.getTransportRatePerKm())
+                        t.getDistanceKm()
+                                .multiply(tQty)
+                                .multiply(t.getTransportRatePerKm())
                                 .setScale(2, RoundingMode.HALF_UP));
             } else {
                 t.setTransportationCharge(BigDecimal.ZERO);

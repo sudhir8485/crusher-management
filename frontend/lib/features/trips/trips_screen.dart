@@ -432,8 +432,9 @@ class _TripCardState extends State<_TripCard> {
               col('Mode', "Customer's Own Vehicle — ${rs(0)}")
             else
               col('Vehicle', vehicle),
-            if (!isOwn && distKm != null)    col('Distance', '${numFmt.format(distKm)} km'),
-            if (!isOwn && transRate != null) col('Rate',     '${rs(transRate)} / km'),
+            if (!isOwn && billableQty != null) col('Quantity', '$qty $unit'),
+            if (!isOwn && distKm != null)      col('Distance', '${numFmt.format(distKm)} km'),
+            if (!isOwn && transRate != null)   col('Rate',     '${rs(transRate)} / km / $unit'),
             col('Transport Charge', rs(transChg), bold: true),
             divider(),
 
@@ -1148,10 +1149,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
       transport = 0.0;
     } else if (_transportMode == 'DIRECT') {
       transport = double.tryParse(_transportChargeDirect.text.trim());
-    } else { // CALCULATE
+    } else { // CALCULATE — qty × km × rate
       final dist = double.tryParse(_distance.text.trim());
       final tr   = double.tryParse(_transportRate.text.trim());
-      transport = (dist != null && tr != null) ? dist * tr : null;
+      transport = (dist != null && tr != null && qty != null) ? dist * qty * tr : null;
     }
 
     setState(() {
@@ -1355,21 +1356,54 @@ class _TripFormState extends ConsumerState<_TripForm> {
     ),
   );
 
-  Widget _numField(TextEditingController ctrl, String label,
-      {String? suffix, String? prefix, bool required = false}) =>
-      TextFormField(
-        controller: ctrl,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(
-          labelText: required ? '$label *' : label,
-          suffixText: suffix,
-          prefixText: prefix,
-          isDense: true,
+  // Inline formula row: [slot1] × [slot2?] × [slot3] = [result]
+  Widget _formulaRow({
+    required Widget slot1,
+    Widget? slot2,
+    required Widget slot3,
+    required String result,
+  }) {
+    const op = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 6),
+      child: Text('×', style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.w300)),
+    );
+    const eq = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 6),
+      child: Text('=', style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.w300)),
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: slot1),
+        op,
+        if (slot2 != null) ...[Expanded(child: slot2), op],
+        Expanded(child: slot3),
+        eq,
+        Container(
+          constraints: const BoxConstraints(minWidth: 72),
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Text(result,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: result == '—' ? Colors.grey[400] : Colors.green.shade800)),
         ),
-        validator: required
-            ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null
-            : null,
-      );
+      ],
+    );
+  }
+
+  // Read-only display box that matches the visual weight of a TextFormField
+  Widget _readonlyBox(String value, String label) => InputDecorator(
+    decoration: InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.grey.shade100,
+      border: const OutlineInputBorder(),
+    ),
+    child: Text(value,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+  );
 
   Widget _partyPickerField(List<Map<String, dynamic>> vendors) {
     return GestureDetector(
@@ -1446,8 +1480,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
               _bRow('Transportation (direct)', fmtCurr(transAmt))
             else
               _bRow(
-                  (_distance.text.isNotEmpty && _transportRate.text.isNotEmpty)
-                      ? '${_distance.text} km × ₹${_transportRate.text}/km'
+                  (_billableQty != null && _distance.text.isNotEmpty && _transportRate.text.isNotEmpty)
+                      ? '${numFmt.format(_billableQty!)} $_quantityUnit'
+                        ' × ${_distance.text} km'
+                        ' × ₹${_transportRate.text}/km/$_quantityUnit'
                       : 'Transportation',
                   fmtCurr(transAmt)),
           ],
@@ -1663,66 +1699,72 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 ]),
               ),
 
-            const SizedBox(height: 10),
-            // Billable quantity: read-only computed display or manual entry
-            if (_qtyFromWeights && _billableQty != null)
-              _calcRow(
-                  'Billable Quantity',
-                  '${_billableQty!.toStringAsFixed(3)} $_quantityUnit',
-                  emphasis: true)
-            else
-              TextFormField(
-                controller: _manualQty,
+            const SizedBox(height: 12),
+            // Quantity × Sale Rate = Material Amount (inline formula row)
+            _formulaRow(
+              slot1: _qtyFromWeights && _billableQty != null
+                  ? _readonlyBox(
+                      '${numFmt.format(_billableQty!)} $_quantityUnit',
+                      'Quantity ($_quantityUnit)')
+                  : TextFormField(
+                      controller: _manualQty,
+                      decoration: InputDecoration(
+                        labelText: 'Quantity *',
+                        suffixText: _quantityUnit,
+                        helperText: _netWeightKg == null
+                            ? 'Or fill weights above'
+                            : null,
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Enter quantity';
+                        if (double.tryParse(v.trim()) == null) return 'Invalid';
+                        if (double.parse(v.trim()) < 0) return 'Must be ≥ 0';
+                        return null;
+                      },
+                    ),
+              slot3: TextFormField(
+                controller: _saleRate,
                 decoration: InputDecoration(
-                  labelText: 'Quantity *',
-                  suffixText: _quantityUnit,
-                  helperText: _netWeightKg == null
-                      ? 'Enter quantity directly, or fill weights above to auto-calculate'
-                      : null,
+                  labelText: 'Sale Rate',
+                  prefixText: '₹ ',
+                  suffixText: '/$_quantityUnit',
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Enter quantity';
-                  if (double.tryParse(v.trim()) == null) return 'Invalid number';
-                  if (double.parse(v.trim()) < 0) return 'Cannot be negative';
+                  if (v != null && v.trim().isNotEmpty &&
+                      double.tryParse(v.trim()) == null) return 'Invalid';
                   return null;
                 },
               ),
-
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _saleRate,
-              decoration: InputDecoration(
-                labelText: 'Sale Rate',
-                prefixText: '₹ ',
-                suffixText: '/ $_quantityUnit',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) {
-                if (v != null && v.trim().isNotEmpty) {
-                  if (double.tryParse(v.trim()) == null) return 'Invalid number';
-                }
-                return null;
-              },
+              result: _materialAmount != null ? fmtCurr(_materialAmount!) : '—',
             ),
-            if (_materialAmount != null)
-              _calcRow('Material Amount', fmtCurr(_materialAmount!), emphasis: true),
 
             // ── 4. Vehicle & Transportation ─────────────────────────────────
             _sectionHead('VEHICLE & TRANSPORTATION'),
-            Row(children: [
-              Expanded(child: _pill('Company Vehicle', _vehicleMode == 'COMPANY', () {
-                setState(() { _vehicleMode = 'COMPANY'; _vehicleError = null; });
-                _recalculate();
-              })),
-              const SizedBox(width: 8),
-              Expanded(child: _pill("Customer's Own Vehicle", _vehicleMode == 'OWN_VEHICLE', () {
-                setState(() { _vehicleMode = 'OWN_VEHICLE'; _vehicleError = null; });
-                _recalculate();
-              })),
-            ]),
-            const SizedBox(height: 12),
+            // Toggle: Customer's Own Vehicle (default OFF = company vehicle)
+            Row(
+              children: [
+                Switch(
+                  value: _vehicleMode == 'OWN_VEHICLE',
+                  onChanged: (on) {
+                    setState(() {
+                      _vehicleMode = on ? 'OWN_VEHICLE' : 'COMPANY';
+                      _vehicleError = null;
+                    });
+                    _recalculate();
+                  },
+                ),
+                const SizedBox(width: 4),
+                Text("Customer's Own Vehicle",
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: _vehicleMode == 'OWN_VEHICLE'
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey[700])),
+              ],
+            ),
+            const SizedBox(height: 8),
             if (_vehicleMode == 'COMPANY') ...[
               vehs.when(
                 loading: () => const LinearProgressIndicator(),
@@ -1741,10 +1783,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 ),
               ),
               const SizedBox(height: 12),
-              // Transport calculation mode
+              // Transport mode toggle
               Row(children: [
                 Expanded(child: _pill(
-                    'Calculate from KM & Rate',
+                    'Calculate Automatically',
                     _transportMode == 'CALCULATE', () {
                   setState(() => _transportMode = 'CALCULATE');
                   _recalculate();
@@ -1759,14 +1801,43 @@ class _TripFormState extends ConsumerState<_TripForm> {
               ]),
               const SizedBox(height: 12),
               if (_transportMode == 'CALCULATE') ...[
-                Row(children: [
-                  Expanded(child: _numField(_distance, 'Distance', suffix: 'km')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _numField(
-                      _transportRate, 'Transport Rate', prefix: '₹ ', suffix: '/km')),
-                ]),
-                if (_transportCharge != null)
-                  _calcRow('Transportation Charge', fmtCurr(_transportCharge!)),
+                // Quantity × KM × Rate = Transport Total (inline formula row)
+                _formulaRow(
+                  slot1: _readonlyBox(
+                    _billableQty != null
+                        ? '${numFmt.format(_billableQty!)} $_quantityUnit'
+                        : '— $_quantityUnit',
+                    'Qty',
+                  ),
+                  slot2: TextFormField(
+                    controller: _distance,
+                    decoration: const InputDecoration(
+                      labelText: 'Distance',
+                      suffixText: 'km',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty &&
+                          double.tryParse(v.trim()) == null) return 'Invalid';
+                      return null;
+                    },
+                  ),
+                  slot3: TextFormField(
+                    controller: _transportRate,
+                    decoration: InputDecoration(
+                      labelText: 'Rate',
+                      prefixText: '₹ ',
+                      suffixText: '/km/$_quantityUnit',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty &&
+                          double.tryParse(v.trim()) == null) return 'Invalid';
+                      return null;
+                    },
+                  ),
+                  result: _transportCharge != null ? fmtCurr(_transportCharge!) : '—',
+                ),
               ] else ...[
                 TextFormField(
                   controller: _transportChargeDirect,
@@ -1782,23 +1853,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
                   },
                 ),
               ],
-            ] else
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade100),
-                ),
-                child: Row(children: [
-                  Icon(Icons.check_circle, color: Colors.blue.shade600, size: 18),
-                  const SizedBox(width: 10),
-                  Text(
-                    "Customer's own vehicle — no transportation charge",
-                    style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
-                  ),
-                ]),
-              ),
+            ],
 
             // ── 5. Billing Summary ──────────────────────────────────────────
             _billingSummary(),
