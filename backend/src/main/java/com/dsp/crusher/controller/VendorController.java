@@ -2,6 +2,7 @@ package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
+import com.dsp.crusher.dto.VendorTripBalanceResponse;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.service.VendorService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +34,12 @@ public class VendorController {
     @Operation(summary = "Get party by ID")
     public Vendor get(@PathVariable Long id) {
         return service.getById(id);
+    }
+
+    @GetMapping("/{id}/trip-balance")
+    @Operation(summary = "Get trip-based outstanding balance and trip list for FIFO preview")
+    public VendorTripBalanceResponse tripBalance(@PathVariable Long id) {
+        return service.getTripBalance(id);
     }
 
     @PostMapping

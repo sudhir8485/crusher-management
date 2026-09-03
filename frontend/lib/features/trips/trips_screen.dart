@@ -889,13 +889,17 @@ class _TripCardState extends State<_TripCard> {
     // Payment status derived from vendor's total outstanding balance
     Widget? paymentBadge;
     if (!isOneTime && outstanding != null && totalBill != null && totalBill > 0) {
-      if (outstanding <= 0.5) {
+      if (outstanding.abs() <= 0.5) {
         paymentBadge = Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.check_circle, size: 12, color: Colors.green.shade600),
           const SizedBox(width: 3),
           Text('Paid', style: TextStyle(fontSize: 11, color: Colors.green.shade700,
               fontWeight: FontWeight.w500)),
         ]);
+      } else if (outstanding < 0) {
+        paymentBadge = Text('Advance ${fmtCurr(outstanding.abs())}',
+            style: TextStyle(fontSize: 11, color: Colors.blue.shade700,
+                fontWeight: FontWeight.w500));
       } else {
         paymentBadge = Text('Balance ${fmtCurr(outstanding)}',
             style: TextStyle(fontSize: 11, color: Colors.orange.shade800,

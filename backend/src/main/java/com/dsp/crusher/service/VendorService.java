@@ -3,9 +3,13 @@ package com.dsp.crusher.service;
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
+import com.dsp.crusher.dto.VendorTripBalanceResponse;
+import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.MaterialRepository;
+import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,6 +28,8 @@ public class VendorService {
     private final VendorRepository repo;
     private final GstInvoiceRepository invoiceRepo;
     private final VendorPaymentRepository paymentRepo;
+    private final TripRepository tripRepo;
+    private final MaterialRepository materialRepo;
 
     public List<VendorResponse> listActive() {
         return repo.findByStatus("ACTIVE").stream()
@@ -48,6 +55,34 @@ public class VendorService {
     public Vendor getById(Long id) {
         return repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Vendor not found: " + id));
+    }
+
+    public VendorTripBalanceResponse getTripBalance(Long vendorId) {
+        List<Trip> trips = tripRepo.findByVendorIdAndStatusOrderByTripDateAscIdAsc(vendorId, "ACTIVE");
+        BigDecimal totalBilled = trips.stream()
+                .map(t -> t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPaid = paymentRepo.sumByVendorId(vendorId);
+
+        // Resolve material names in bulk
+        Map<Long, String> matNames = materialRepo.findAll().stream()
+                .collect(Collectors.toMap(m -> m.getId(), m -> m.getName()));
+
+        List<VendorTripBalanceResponse.TripItem> items = trips.stream().map(t -> {
+            VendorTripBalanceResponse.TripItem item = new VendorTripBalanceResponse.TripItem();
+            item.setId(t.getId());
+            item.setTripDate(t.getTripDate());
+            item.setMaterialName(t.getMaterialId() != null ? matNames.getOrDefault(t.getMaterialId(), "—") : "—");
+            item.setTotalBill(t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO);
+            return item;
+        }).collect(Collectors.toList());
+
+        VendorTripBalanceResponse resp = new VendorTripBalanceResponse();
+        resp.setTotalBilled(totalBilled);
+        resp.setTotalPaid(totalPaid);
+        resp.setOutstanding(totalBilled.subtract(totalPaid));
+        resp.setTrips(items);
+        return resp;
     }
 
     @Transactional

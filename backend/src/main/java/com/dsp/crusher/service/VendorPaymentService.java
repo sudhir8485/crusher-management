@@ -5,10 +5,13 @@ import com.dsp.crusher.dto.PageResponse;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.entity.GstInvoice;
+import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.MaterialRepository;
+import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +21,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -30,6 +36,8 @@ public class VendorPaymentService {
     private final VendorPaymentRepository repo;
     private final VendorRepository vendorRepo;
     private final GstInvoiceRepository invoiceRepo;
+    private final TripRepository tripRepo;
+    private final MaterialRepository materialRepo;
 
     public PageResponse<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -54,6 +62,7 @@ public class VendorPaymentService {
         VendorPayment p = new VendorPayment();
         p.setTenantId(TenantContext.get());
         apply(p, req);
+        p.setAllocationSummary(computeAllocationSummary(req.getVendorId(), req.getAmount()));
         return enrich(List.of(repo.save(p))).get(0);
     }
 
@@ -129,7 +138,64 @@ public class VendorPaymentService {
                 GstInvoice inv = invoices.get(p.getInvoiceId());
                 if (inv != null) r.setInvoiceNo(inv.getInvoiceNo());
             }
+            r.setAllocationSummary(p.getAllocationSummary());
             return r;
         }).collect(Collectors.toList());
+    }
+
+    // ── FIFO allocation summary ───────────────────────────────────────────────
+
+    private String computeAllocationSummary(Long vendorId, BigDecimal paymentAmount) {
+        if (vendorId == null || paymentAmount == null) return null;
+
+        List<Trip> trips = tripRepo.findByVendorIdAndStatusOrderByTripDateAscIdAsc(vendorId, "ACTIVE");
+        if (trips.isEmpty()) return "Unallocated — Advance";
+
+        // Total paid BEFORE this payment (existing payments)
+        BigDecimal alreadyPaid = repo.sumByVendorId(vendorId);
+
+        Map<Long, String> matNames = materialRepo.findAll().stream()
+                .collect(Collectors.toMap(m -> m.getId(), m -> m.getName()));
+
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("d MMM");
+        List<String> lines = new ArrayList<>();
+        BigDecimal remaining = paymentAmount;
+        BigDecimal cumulativeBilled = BigDecimal.ZERO;
+        BigDecimal cumulativeCovered = alreadyPaid; // how much already covered by prior payments
+
+        for (Trip t : trips) {
+            BigDecimal bill = t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO;
+            if (bill.compareTo(BigDecimal.ZERO) == 0) continue;
+            cumulativeBilled = cumulativeBilled.add(bill);
+
+            // How much of this trip was already paid before this payment
+            BigDecimal prevCovered = cumulativeCovered.min(cumulativeBilled);
+            BigDecimal alreadySettled = prevCovered.subtract(cumulativeBilled.subtract(bill)).max(BigDecimal.ZERO);
+            BigDecimal tripDue = bill.subtract(alreadySettled);
+            if (tripDue.compareTo(BigDecimal.ZERO) <= 0) continue; // fully covered by earlier payments
+
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+
+            String matName = t.getMaterialId() != null ? matNames.getOrDefault(t.getMaterialId(), "—") : "—";
+            String dateStr = t.getTripDate().format(fmt);
+
+            if (remaining.compareTo(tripDue) >= 0) {
+                lines.add(dateStr + " — " + matName + " ₹" + tripDue.stripTrailingZeros().toPlainString() + " → Paid in full");
+                remaining = remaining.subtract(tripDue);
+            } else {
+                BigDecimal stillDue = tripDue.subtract(remaining);
+                lines.add(dateStr + " — " + matName + " ₹" + tripDue.stripTrailingZeros().toPlainString() + " → Partial (₹" + stillDue.stripTrailingZeros().toPlainString() + " still due)");
+                remaining = BigDecimal.ZERO;
+            }
+        }
+
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            if (lines.isEmpty()) {
+                return "Unallocated — Advance ₹" + remaining.stripTrailingZeros().toPlainString();
+            }
+            lines.add("Remaining ₹" + remaining.stripTrailingZeros().toPlainString() + " held as Advance");
+        }
+
+        return lines.isEmpty() ? "Unallocated — Advance" : String.join("\n", lines);
     }
 }

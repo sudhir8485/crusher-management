@@ -43,6 +43,9 @@ public class VendorPayment {
     @Column(name = "invoice_id")
     private Long invoiceId;
 
+    @Column(name = "allocation_summary", columnDefinition = "TEXT")
+    private String allocationSummary;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

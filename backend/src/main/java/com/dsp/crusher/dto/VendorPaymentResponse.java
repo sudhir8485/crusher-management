@@ -18,4 +18,5 @@ public class VendorPaymentResponse {
     private String referenceNo;
     private String notes;
     private String status;
+    private String allocationSummary;
 }

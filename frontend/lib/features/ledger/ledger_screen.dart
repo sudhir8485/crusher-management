@@ -336,8 +336,12 @@ class _LedgerView extends StatelessWidget {
               _vDiv(),
               _BalTile('Total Paid', _totalCredit, Colors.green.shade700),
               _vDiv(),
-              _BalTile('Outstanding', _closingBal,
-                  _closingBal > 0.005 ? Colors.orange.shade800 : Colors.green.shade700,
+              _BalTile(
+                  _closingBal < -0.005 ? 'Advance' : 'Outstanding',
+                  _closingBal.abs(),
+                  _closingBal < -0.005 ? Colors.blue.shade700
+                      : _closingBal > 0.005 ? Colors.orange.shade800
+                      : Colors.green.shade700,
                   bold: true),
             ],
           ),
@@ -414,8 +418,12 @@ class _LedgerView extends StatelessWidget {
           const _TD('Opening', italic: true),
           const _TD('', right: true),
           const _TD('', right: true),
-          _TD(_fmtAmt(_openingBal), right: true, italic: true,
-              color: _openingBal >= 0 ? Colors.orange.shade800 : Colors.green.shade700),
+          _TD(
+              _openingBal < -0.005 ? 'Adv ${_fmtAmt(_openingBal.abs())}' : _fmtAmt(_openingBal),
+              right: true, italic: true,
+              color: _openingBal < -0.005 ? Colors.blue.shade700
+                  : _openingBal >= 0 ? Colors.orange.shade800
+                  : Colors.green.shade700),
         ],
       ));
     }
@@ -444,8 +452,12 @@ class _LedgerView extends StatelessWidget {
               right: true, color: Colors.red.shade700),
           _TD(credit != null ? _fmtAmt(credit) : '—',
               right: true, color: Colors.green.shade700),
-          _TD(_fmtAmt(balance), right: true, bold: true,
-              color: balance > 0.005 ? Colors.orange.shade800 : Colors.green.shade700),
+          _TD(
+              balance < -0.005 ? 'Adv ${_fmtAmt(balance.abs())}' : _fmtAmt(balance),
+              right: true, bold: true,
+              color: balance < -0.005 ? Colors.blue.shade700
+                  : balance > 0.005 ? Colors.orange.shade800
+                  : Colors.green.shade700),
         ],
       ));
 
@@ -486,8 +498,12 @@ class _LedgerView extends StatelessWidget {
         const _TD('', bold: true),
         _TD(_fmtAmt(_totalDebit), right: true, bold: true, color: Colors.red.shade700),
         _TD(_fmtAmt(_totalCredit), right: true, bold: true, color: Colors.green.shade700),
-        _TD(_fmtAmt(_closingBal), right: true, bold: true,
-            color: _closingBal > 0.005 ? Colors.orange.shade800 : Colors.green.shade700),
+        _TD(
+            _closingBal < -0.005 ? 'Adv ${_fmtAmt(_closingBal.abs())}' : _fmtAmt(_closingBal),
+            right: true, bold: true,
+            color: _closingBal < -0.005 ? Colors.blue.shade700
+                : _closingBal > 0.005 ? Colors.orange.shade800
+                : Colors.green.shade700),
       ],
     ));
 
