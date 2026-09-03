@@ -154,6 +154,7 @@ public class VendorService {
                 e.setDate(t.getTripDate());
                 e.setDescription("Trip — " + mat);
                 e.setAmount(t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO);
+                e.setGstRate(t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO);
             } else {
                 VendorPayment p = payments.get(pi++);
                 String mode = p.getPaymentMode() != null ? p.getPaymentMode() : "Cash";

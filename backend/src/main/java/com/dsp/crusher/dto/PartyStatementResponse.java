@@ -31,5 +31,7 @@ public class PartyStatementResponse {
         private BigDecimal amount;
         /** Running balance AFTER this entry (positive = owed, negative = advance). */
         private BigDecimal runningBalance;
+        /** GST rate snapshot (only set for BILLED trip entries; 0 = non-taxable). */
+        private BigDecimal gstRate;
     }
 }
