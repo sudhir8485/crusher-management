@@ -430,10 +430,11 @@ public class TripService {
 
     private String getCurrentUserName() {
         try {
-            String email = SecurityContextHolder.getContext().getAuthentication().getName();
-            return userRepo.findByEmailNative(email)
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            Long userId = Long.parseLong(principal);
+            return userRepo.findById(userId)
                     .map(u -> u.getFullName())
-                    .orElse(email);
+                    .orElse(principal);
         } catch (Exception e) {
             return null;
         }

@@ -572,7 +572,7 @@ class _LedgerView extends StatelessWidget {
         e['voucherType'] as String? ?? '—',
         debit  != null ? _fmtAmt(debit)  : '—',
         credit != null ? _fmtAmt(credit) : '—',
-        _fmtAmt(balance),
+        balance < -0.005 ? 'Adv ${_fmtAmt(balance.abs())}' : _fmtAmt(balance),
       ]);
 
       for (final d in details) {
@@ -583,7 +583,8 @@ class _LedgerView extends StatelessWidget {
     }
 
     // Totals
-    tableData.add(['', 'TOTALS', '', _fmtAmt(_totalDebit), _fmtAmt(_totalCredit), _fmtAmt(_closingBal)]);
+    tableData.add(['', 'TOTALS', '', _fmtAmt(_totalDebit), _fmtAmt(_totalCredit),
+        _closingBal < -0.005 ? 'Adv ${_fmtAmt(_closingBal.abs())}' : _fmtAmt(_closingBal)]);
 
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -654,7 +655,10 @@ class _LedgerView extends StatelessWidget {
                 _pdfSumRow('Total Invoiced :', _fmtAmt(_totalDebit)),
                 _pdfSumRow('Total Paid :', _fmtAmt(_totalCredit)),
                 pw.Divider(thickness: 0.5),
-                _pdfSumRow('Outstanding :', _fmtAmt(_closingBal), bold: true),
+                _pdfSumRow(
+                    _closingBal < -0.005 ? 'Advance :' : 'Outstanding :',
+                    _fmtAmt(_closingBal.abs()),
+                    bold: true),
               ],
             ),
           ),
@@ -762,8 +766,8 @@ class _LedgerView extends StatelessWidget {
     setTxt(row,     0, 'Opening Balance:'); setTxt(row,     1, _fmtAmt(_openingBal));
     setTxt(row + 1, 0, 'Total Invoiced:');  setTxt(row + 1, 1, _fmtAmt(_totalDebit));
     setTxt(row + 2, 0, 'Total Paid:');      setTxt(row + 2, 1, _fmtAmt(_totalCredit));
-    setTxt(row + 3, 0, 'Outstanding:',  bold: true);
-    setTxt(row + 3, 1, _fmtAmt(_closingBal), bold: true);
+    setTxt(row + 3, 0, _closingBal < -0.005 ? 'Advance:' : 'Outstanding:', bold: true);
+    setTxt(row + 3, 1, _fmtAmt(_closingBal.abs()), bold: true);
 
     // ── Column widths ──────────────────────────────────────────────────────
     sheet.setColumnWidth(0, 14);
