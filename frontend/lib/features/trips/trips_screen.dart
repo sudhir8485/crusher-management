@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -1521,10 +1522,22 @@ class _TripFormState extends ConsumerState<_TripForm> {
 
     final api    = ref.read(apiClientProvider);
     final siteId = ref.read(selectedSiteIdProvider);
+
+    // Creating a trip requires a specific site to be selected
+    if (widget.existing == null && siteId == null) {
+      setState(() => _saving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Please select a specific site before creating a trip.'),
+          backgroundColor: Colors.orange,
+        ));
+      }
+      return;
+    }
+
     try {
       if (widget.existing == null) {
-        final params = siteId != null ? {'siteId': siteId} : null;
-        await api.post('/api/trips', data: b, params: params);
+        await api.post('/api/trips', data: b, params: {'siteId': siteId});
       } else {
         await api.put('/api/trips/${widget.existing!['id']}', data: b);
       }
@@ -1533,8 +1546,13 @@ class _TripFormState extends ConsumerState<_TripForm> {
     } catch (e) {
       setState(() => _saving = false);
       if (mounted) {
+        final msg = e is DioException
+            ? (e.response?.data is Map
+                ? (e.response!.data['error'] ?? e.response!.data.toString())
+                : e.response?.data?.toString() ?? e.message ?? 'Request failed')
+            : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+          SnackBar(content: Text(msg), backgroundColor: Colors.red));
       }
     }
   }
