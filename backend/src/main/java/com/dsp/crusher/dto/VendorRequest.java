@@ -8,6 +8,7 @@ import lombok.Setter;
 public class VendorRequest {
     @NotBlank private String name;
     private String gstin;
+    private Boolean gstRegistered;
     private String contact;
     private String address;
 }

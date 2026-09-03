@@ -65,5 +65,8 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     @Query("SELECT t.vendorId, COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId IN :vendorIds AND t.status = 'ACTIVE' GROUP BY t.vendorId")
     List<Object[]> sumTotalBillByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
+    @Query("SELECT t.vendorId, MAX(t.tripDate) FROM Trip t WHERE t.vendorId IN :vendorIds AND t.status = 'ACTIVE' GROUP BY t.vendorId")
+    List<Object[]> lastTripDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
+
     List<Trip> findByVendorIdAndStatusOrderByTripDateAscIdAsc(Long vendorId, String status);
 }

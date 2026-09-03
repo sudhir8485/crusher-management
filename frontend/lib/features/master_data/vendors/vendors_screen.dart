@@ -222,10 +222,17 @@ class _VendorForm extends ConsumerStatefulWidget {
 class _VendorFormState extends ConsumerState<_VendorForm> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name   = TextEditingController(text: widget.existing?['name']);
-  late final TextEditingController _gstin  = TextEditingController(text: widget.existing?['gstin']);
-  late final TextEditingController _contact= TextEditingController(text: widget.existing?['contact']);
-  late final TextEditingController _address= TextEditingController(text: widget.existing?['address']);
+  late final TextEditingController _gstin  = TextEditingController(text: widget.existing?['gstin'] ?? '');
+  late final TextEditingController _contact= TextEditingController(text: widget.existing?['contact'] ?? '');
+  late final TextEditingController _address= TextEditingController(text: widget.existing?['address'] ?? '');
+  bool _gstRegistered = false;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _gstRegistered = widget.existing?['gstRegistered'] as bool? ?? false;
+  }
 
   @override
   void dispose() {
@@ -237,13 +244,25 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     final api = ref.read(apiClientProvider);
-    final data = {'name': _name.text, 'gstin': _gstin.text, 'contact': _contact.text, 'address': _address.text};
-    if (widget.existing == null) {
-      await api.post('/api/parties', data: data);
-    } else {
-      await api.put('/api/parties/${widget.existing!['id']}', data: data);
+    final data = {
+      'name': _name.text,
+      'gstRegistered': _gstRegistered,
+      if (_gstin.text.trim().isNotEmpty) 'gstin': _gstin.text.trim(),
+      if (_contact.text.trim().isNotEmpty) 'contact': _contact.text.trim(),
+      if (_address.text.trim().isNotEmpty) 'address': _address.text.trim(),
+    };
+    try {
+      if (widget.existing == null) {
+        await api.post('/api/parties', data: data);
+      } else {
+        await api.put('/api/parties/${widget.existing!['id']}', data: data);
+      }
+      if (mounted) { Navigator.pop(context); widget.onSaved(); }
+    } catch (e) {
+      setState(() => _saving = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
-    if (mounted) { Navigator.pop(context); widget.onSaved(); }
   }
 
   @override
@@ -260,7 +279,24 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
               TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Name *'),
                   validator: (v) => v!.isEmpty ? 'Required' : null),
               const SizedBox(height: 12),
-              TextFormField(controller: _gstin, decoration: const InputDecoration(labelText: 'GSTIN')),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('GST Registered', style: TextStyle(fontSize: 14)),
+                subtitle: const Text('Generates Tax Invoice instead of Delivery Challan',
+                    style: TextStyle(fontSize: 11)),
+                value: _gstRegistered,
+                onChanged: (v) => setState(() => _gstRegistered = v),
+              ),
+              if (_gstRegistered) ...[
+                const SizedBox(height: 4),
+                TextFormField(
+                  controller: _gstin,
+                  decoration: const InputDecoration(labelText: 'GSTIN *'),
+                  validator: (v) => _gstRegistered && (v == null || v.trim().isEmpty)
+                      ? 'GSTIN required for GST-registered party' : null,
+                ),
+              ] else
+                TextFormField(controller: _gstin, decoration: const InputDecoration(labelText: 'GSTIN (optional)')),
               const SizedBox(height: 12),
               TextFormField(controller: _contact, decoration: const InputDecoration(labelText: 'Contact')),
               const SizedBox(height: 12),

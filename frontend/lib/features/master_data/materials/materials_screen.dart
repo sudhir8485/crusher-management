@@ -103,6 +103,10 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
       text: widget.existing?['defaultTransportRate']?.toString() ?? '');
   late final _kgPerBrass      = TextEditingController(
       text: widget.existing?['kgPerBrass']?.toString() ?? '');
+  late final _gstRate         = TextEditingController(
+      text: widget.existing?['gstRate']?.toString() ?? '0');
+  late final _hsnCode         = TextEditingController(
+      text: widget.existing?['hsnCode'] ?? '');
   String _unit = 'BRASS';
   bool _saving = false;
 
@@ -117,6 +121,7 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
     _name.dispose(); _code.dispose(); _label.dispose();
     _saleRateTon.dispose(); _saleRateBrass.dispose();
     _transportRate.dispose(); _kgPerBrass.dispose();
+    _gstRate.dispose(); _hsnCode.dispose();
     super.dispose();
   }
 
@@ -136,6 +141,8 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
         'defaultTransportRate': double.tryParse(_transportRate.text.trim()),
       if (_kgPerBrass.text.trim().isNotEmpty)
         'kgPerBrass': double.tryParse(_kgPerBrass.text.trim()),
+      'gstRate': double.tryParse(_gstRate.text.trim()) ?? 0,
+      if (_hsnCode.text.trim().isNotEmpty) 'hsnCode': _hsnCode.text.trim(),
     };
     final api = ref.read(apiClientProvider);
     try {
@@ -256,6 +263,36 @@ class _MaterialFormState extends ConsumerState<_MaterialForm> {
                   return null;
                 },
               ),
+              const Divider(height: 24),
+              // GST: SGST+CGST only (same-state). IGST not implemented.
+              // NOTE: assumes DSP and all GST customers are in the same state.
+              // If a future customer is in a different state, IGST logic will
+              // need to be added — not currently implemented.
+              Row(children: [
+                Expanded(child: TextFormField(
+                  controller: _gstRate,
+                  decoration: const InputDecoration(
+                    labelText: 'GST Rate (%)',
+                    suffixText: '%',
+                    helperText: '0 = non-taxable  |  e.g. 18, 5',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return null;
+                    final n = double.tryParse(v.trim());
+                    if (n == null || n < 0 || n > 100) return 'Enter 0–100';
+                    return null;
+                  },
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: TextFormField(
+                  controller: _hsnCode,
+                  decoration: const InputDecoration(
+                    labelText: 'HSN Code',
+                    helperText: 'Required for GST invoices',
+                  ),
+                )),
+              ]),
             ],
           ),
         ),

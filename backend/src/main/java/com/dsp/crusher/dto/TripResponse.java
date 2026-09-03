@@ -66,4 +66,10 @@ public class TripResponse {
 
     // ── Finance: vendor's total outstanding (null for ONE_TIME) ──────────────
     private BigDecimal vendorOutstanding;
+
+    // ── GST ──────────────────────────────────────────────────────────────────
+    /** GST rate snapshotted from Material at creation time (0 = non-taxable). */
+    private BigDecimal gstRate;
+    /** True when this trip's party (vendor) is GST-registered — drives document routing. */
+    private Boolean gstRegistered;
 }

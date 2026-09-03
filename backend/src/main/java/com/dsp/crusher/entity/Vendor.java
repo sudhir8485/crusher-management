@@ -23,6 +23,10 @@ public class Vendor {
     @Column(length = 20)
     private String gstin;
 
+    /** True when this party is GST-registered. Determines invoice type (Tax Invoice vs Delivery Challan). */
+    @Column(name = "gst_registered", nullable = false)
+    private Boolean gstRegistered = false;
+
     @Column(length = 100)
     private String contact;
 

@@ -27,7 +27,7 @@ class MasterShell extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
-    '/invoices', '/party-payments', '/ledger',
+    '/invoices', '/accounts', '/ledger',
     '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
   ];
@@ -162,8 +162,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                   const SizedBox(height: 4),
                   _NavSection('Finance'),
                   _item(Icons.receipt_long_outlined, Icons.receipt_long, 'Invoices', 8),
-                  _item(Icons.payments_outlined, Icons.payments, 'Payments', 9),
-                  _item(Icons.account_balance_outlined, Icons.account_balance, 'Ledger', 10),
+                  _item(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Accounts', 9),
                 ],
 
                 const SizedBox(height: 4),
@@ -249,7 +248,7 @@ class _NavItem extends StatelessWidget {
   static const _routes = [
     '/dashboard',
     '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
-    '/invoices', '/party-payments', '/ledger',
+    '/invoices', '/accounts', '/ledger',
     '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
   ];

@@ -1,5 +1,6 @@
 package com.dsp.crusher.controller;
 
+import com.dsp.crusher.dto.VendorBalanceResponse;
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
 import com.dsp.crusher.dto.VendorTripBalanceResponse;
@@ -28,6 +29,12 @@ public class VendorController {
     @Operation(summary = "List all active parties")
     public List<VendorResponse> list() {
         return service.listActive();
+    }
+
+    @GetMapping("/balances")
+    @Operation(summary = "All parties with trip-based outstanding balance + last activity date")
+    public List<VendorBalanceResponse> balances() {
+        return service.getBalances();
     }
 
     @GetMapping("/{id}")

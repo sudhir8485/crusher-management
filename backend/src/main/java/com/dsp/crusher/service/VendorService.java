@@ -1,6 +1,7 @@
 package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.TenantContext;
+import com.dsp.crusher.dto.VendorBalanceResponse;
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
 import com.dsp.crusher.dto.VendorTripBalanceResponse;
@@ -17,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -42,14 +45,68 @@ public class VendorService {
         r.setId(v.getId());
         r.setName(v.getName());
         r.setGstin(v.getGstin());
+        r.setGstRegistered(v.getGstRegistered());
         r.setContact(v.getContact());
         r.setAddress(v.getAddress());
         r.setStatus(v.getStatus());
         BigDecimal invTotal = invoiceRepo.sumAllGrandTotalByVendorId(v.getId());
         BigDecimal paidTotal = paymentRepo.sumByVendorId(v.getId());
         r.setOutstandingAmount(invTotal.subtract(paidTotal));
-        r.setUnpaidInvoiceCount(0); // computed from outstanding; kept for future
+        r.setUnpaidInvoiceCount(0);
         return r;
+    }
+
+    /** Returns all active vendors with their trip-based outstanding balance and last activity date.
+     *  Used by the Accounts > Parties tab to show color-coded balances in one batch (no N+1). */
+    public List<VendorBalanceResponse> getBalances() {
+        List<Vendor> vendors = repo.findByStatus("ACTIVE");
+        if (vendors.isEmpty()) return List.of();
+
+        List<Long> vendorIds = vendors.stream().map(Vendor::getId).collect(Collectors.toList());
+
+        // Batch: total billed per vendor (from trips)
+        Map<Long, BigDecimal> billedMap = new java.util.HashMap<>();
+        tripRepo.sumTotalBillByVendorIds(vendorIds)
+                .forEach(row -> billedMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: total paid per vendor (from payments)
+        Map<Long, BigDecimal> paidMap = new java.util.HashMap<>();
+        paymentRepo.sumByVendorIds(vendorIds)
+                .forEach(row -> paidMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: last trip date per vendor
+        Map<Long, LocalDate> lastTripMap = new java.util.HashMap<>();
+        tripRepo.lastTripDateByVendorIds(vendorIds)
+                .forEach(row -> lastTripMap.put((Long) row[0], (LocalDate) row[1]));
+
+        // Batch: last payment date per vendor
+        Map<Long, LocalDate> lastPaymentMap = new java.util.HashMap<>();
+        paymentRepo.lastPaymentDateByVendorIds(vendorIds)
+                .forEach(row -> lastPaymentMap.put((Long) row[0], (LocalDate) row[1]));
+
+        List<VendorBalanceResponse> result = new ArrayList<>();
+        for (Vendor v : vendors) {
+            BigDecimal billed = billedMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal paid   = paidMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            LocalDate lastTrip = lastTripMap.get(v.getId());
+            LocalDate lastPay  = lastPaymentMap.get(v.getId());
+            LocalDate lastActivity = null;
+            if (lastTrip != null && lastPay != null)
+                lastActivity = lastTrip.isAfter(lastPay) ? lastTrip : lastPay;
+            else if (lastTrip != null) lastActivity = lastTrip;
+            else if (lastPay  != null) lastActivity = lastPay;
+
+            VendorBalanceResponse r = new VendorBalanceResponse();
+            r.setVendorId(v.getId());
+            r.setName(v.getName());
+            r.setContact(v.getContact());
+            r.setGstin(v.getGstin());
+            r.setGstRegistered(v.getGstRegistered());
+            r.setOutstanding(billed.subtract(paid));
+            r.setLastActivityDate(lastActivity);
+            result.add(r);
+        }
+        return result;
     }
 
     public Vendor getById(Long id) {
@@ -64,7 +121,6 @@ public class VendorService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalPaid = paymentRepo.sumByVendorId(vendorId);
 
-        // Resolve material names in bulk
         Map<Long, String> matNames = materialRepo.findAll().stream()
                 .collect(Collectors.toMap(m -> m.getId(), m -> m.getName()));
 
@@ -91,6 +147,7 @@ public class VendorService {
         v.setTenantId(TenantContext.get());
         v.setName(req.getName());
         v.setGstin(req.getGstin());
+        if (req.getGstRegistered() != null) v.setGstRegistered(req.getGstRegistered());
         v.setContact(req.getContact());
         v.setAddress(req.getAddress());
         return repo.save(v);
@@ -101,6 +158,7 @@ public class VendorService {
         Vendor v = getById(id);
         v.setName(req.getName());
         v.setGstin(req.getGstin());
+        if (req.getGstRegistered() != null) v.setGstRegistered(req.getGstRegistered());
         v.setContact(req.getContact());
         v.setAddress(req.getAddress());
         return repo.save(v);

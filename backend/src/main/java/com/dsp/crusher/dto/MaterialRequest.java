@@ -19,4 +19,8 @@ public class MaterialRequest {
     /** Default transport rate (₹/km/unit) for auto-filling trip form */
     private BigDecimal defaultTransportRate;
     private BigDecimal kgPerBrass;
+    /** GST rate as a percentage (e.g. 18, 5, 0). 0 = non-taxable. */
+    private BigDecimal gstRate;
+    /** HSN code for GST invoices. */
+    private String hsnCode;
 }

@@ -9,6 +9,7 @@ public class VendorResponse {
     private Long id;
     private String name;
     private String gstin;
+    private Boolean gstRegistered;
     private String contact;
     private String address;
     private String status;

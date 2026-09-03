@@ -792,6 +792,170 @@ class _TripCardState extends State<_TripCard> {
     await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
 
+  // GST Tax Invoice — SGST+CGST only (same-state transactions).
+  // ASSUMPTION: DSP and all GST-registered customers are in the same state.
+  // If a future customer is in a different state, IGST logic will need to be
+  // added — not currently implemented. This is a documented limitation, not
+  // a bug to paper over.
+  //
+  // DEFAULT: Tax Invoice is generated per individual trip (not batched).
+  // Batched invoicing (multiple trips grouped into one invoice) is a likely
+  // follow-up requirement once confirmed with DSP — not yet implemented.
+  static Future<void> _printTaxInvoice(BuildContext context, Map<String, dynamic> trip) async {
+    final font     = await PdfGoogleFonts.notoSansRegular();
+    final fontBold = await PdfGoogleFonts.notoSansBold();
+    final businessName = await AuthStorage.getTenantName() ?? '';
+
+    final party    = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
+    final gstin    = trip['vendorGstin'] as String? ?? '';
+    final material = trip['materialName'] ?? '—';
+    final unit     = trip['quantityUnit'] ?? 'BRASS';
+    final billableQty = (trip['billableQuantity'] ?? trip['quantityBrass'] as num?)?.toDouble();
+    final qty      = billableQty != null ? numFmt.format(billableQty) : '—';
+    final saleRate = (trip['saleRate']            as num?)?.toDouble();
+    final matAmt   = (trip['materialAmount']       as num?)?.toDouble() ?? 0;
+    final transChg = (trip['transportationCharge'] as num?)?.toDouble() ?? 0;
+    final gstRate  = (trip['gstRate']              as num?)?.toDouble() ?? 0;
+    final isOwn    = trip['vehicleMode'] == 'OWN_VEHICLE';
+    final challanNo = trip['dspChallanNo'] ?? '';
+    final tripDate  = trip['tripDate'] ?? '';
+
+    // Tax calculations (SGST + CGST only, same state assumed)
+    // Transportation is NOT taxed separately — only material amount is the taxable base.
+    // This matches common practice for intra-state material supply.
+    final taxableAmount = matAmt; // transport excluded from GST base per current scope
+    final halfRate = gstRate / 2;
+    final sgstAmt  = taxableAmount * halfRate / 100;
+    final cgstAmt  = taxableAmount * halfRate / 100;
+    final grandTotal = matAmt + transChg + sgstAmt + cgstAmt;
+
+    String rs(double? v) => v != null ? '₹${numFmt.format(v)}' : '—';
+
+    pw.Widget row(String label, String value, {bool bold = false, pw.TextStyle? labelStyle}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
+          child: pw.Row(children: [
+            pw.SizedBox(width: 120,
+                child: pw.Text(label,
+                    style: pw.TextStyle(font: bold ? fontBold : font, fontSize: 8.5,
+                        color: PdfColors.grey700))),
+            pw.Text(value,
+                style: pw.TextStyle(font: bold ? fontBold : font, fontSize: 8.5)),
+          ]),
+        );
+
+    final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: fontBold));
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      build: (ctx) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
+        // Header
+        pw.Text(businessName,
+            style: pw.TextStyle(font: fontBold, fontSize: 16), textAlign: pw.TextAlign.center),
+        pw.Text('TAX INVOICE',
+            style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.blueGrey700),
+            textAlign: pw.TextAlign.center),
+        pw.Divider(thickness: 1),
+        pw.SizedBox(height: 8),
+
+        // Invoice meta
+        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text('Bill To:', style: pw.TextStyle(font: fontBold, fontSize: 9)),
+            pw.Text(party, style: pw.TextStyle(font: fontBold, fontSize: 10)),
+            if (gstin.isNotEmpty)
+              pw.Text('GSTIN: $gstin', style: pw.TextStyle(font: font, fontSize: 8.5)),
+          ]),
+          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+            if (challanNo.isNotEmpty)
+              pw.Text('Challan No: $challanNo', style: pw.TextStyle(font: font, fontSize: 8.5)),
+            pw.Text('Date: $tripDate', style: pw.TextStyle(font: font, fontSize: 8.5)),
+          ]),
+        ]),
+        pw.SizedBox(height: 12),
+
+        // Line items table
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+          columnWidths: const {
+            0: pw.FlexColumnWidth(4),
+            1: pw.FlexColumnWidth(1.5),
+            2: pw.FlexColumnWidth(1.5),
+            3: pw.FlexColumnWidth(2),
+          },
+          children: [
+            // Header row
+            pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+              children: [
+                for (final h in ['Description', 'Qty', 'Rate', 'Amount'])
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(h, style: pw.TextStyle(font: fontBold, fontSize: 8.5)),
+                  ),
+              ],
+            ),
+            // Material row
+            pw.TableRow(children: [
+              pw.Padding(padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text('$material (Supply)', style: pw.TextStyle(font: font, fontSize: 8.5))),
+              pw.Padding(padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text('$qty $unit', style: pw.TextStyle(font: font, fontSize: 8.5))),
+              pw.Padding(padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text(saleRate != null ? '${rs(saleRate)}/$unit' : '—',
+                      style: pw.TextStyle(font: font, fontSize: 8.5))),
+              pw.Padding(padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text(rs(matAmt), style: pw.TextStyle(font: font, fontSize: 8.5))),
+            ]),
+            if (!isOwn && transChg > 0)
+              pw.TableRow(children: [
+                pw.Padding(padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text('Transportation', style: pw.TextStyle(font: font, fontSize: 8.5))),
+                pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('—')),
+                pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('—')),
+                pw.Padding(padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(rs(transChg), style: pw.TextStyle(font: font, fontSize: 8.5))),
+              ]),
+          ],
+        ),
+        pw.SizedBox(height: 4),
+
+        // GST breakdown
+        pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.SizedBox(
+            width: 220,
+            child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
+              _invRow('Taxable Amount', rs(taxableAmount), font: font, fontBold: fontBold),
+              _invRow('SGST @ $halfRate%', rs(sgstAmt), font: font, fontBold: fontBold),
+              _invRow('CGST @ $halfRate%', rs(cgstAmt), font: font, fontBold: fontBold),
+              if (!isOwn && transChg > 0)
+                _invRow('Transport (excl. GST)', rs(transChg), font: font, fontBold: fontBold),
+              pw.Divider(thickness: 0.5),
+              _invRow('Grand Total', rs(grandTotal), bold: true, font: font, fontBold: fontBold),
+            ]),
+          ),
+        ),
+        pw.SizedBox(height: 16),
+        pw.Text(
+          'Note: GST applies to material supply only. Transportation charges are not subject to GST in this invoice.',
+          style: pw.TextStyle(font: font, fontSize: 7, color: PdfColors.grey600),
+        ),
+      ]),
+    ));
+    await Printing.layoutPdf(onLayout: (_) => doc.save());
+  }
+
+  static pw.Widget _invRow(String label, String value, {
+    bool bold = false, required pw.Font font, required pw.Font fontBold}) =>
+      pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Text(label, style: pw.TextStyle(font: bold ? fontBold : font, fontSize: 8.5)),
+          pw.Text(value, style: pw.TextStyle(font: bold ? fontBold : font, fontSize: 8.5)),
+        ]),
+      );
+
   Widget _buildCalculationDetail() {
     final t = widget.trip;
     final loadedKg  = (t['loadedWeightKg']     as num?)?.toDouble();
@@ -1038,17 +1202,26 @@ class _TripCardState extends State<_TripCard> {
                     if (!context.mounted) return;
                     if (v == 'edit')    widget.onEdit();
                     if (v == 'delete')  widget.onDelete();
-                    if (v == 'challan') _printChallan(context, trip);
+                    if (v == 'challan') {
+                      final isGstParty = trip['gstRegistered'] as bool? ?? false;
+                      if (isGstParty) {
+                        _printTaxInvoice(context, trip);
+                      } else {
+                        _printChallan(context, trip);
+                      }
+                    }
                     if (v == 'convert' && widget.onConvert != null) widget.onConvert!();
                     if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
                   },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
+                  itemBuilder: (_) {
+                    final isGstParty = trip['gstRegistered'] as bool? ?? false;
+                    return [
+                    PopupMenuItem(
                         value: 'challan',
                         child: Row(children: [
-                          Icon(Icons.print_outlined, size: 18),
-                          SizedBox(width: 8),
-                          Text('Print Challan'),
+                          const Icon(Icons.print_outlined, size: 18),
+                          const SizedBox(width: 8),
+                          Text(isGstParty ? 'Print Tax Invoice' : 'Print Challan'),
                         ])),
                     const PopupMenuItem(value: 'edit', child: Text('Edit')),
                     if (!isOneTime && widget.onPayment != null && (outstanding == null || outstanding > 0.5))
@@ -1072,7 +1245,8 @@ class _TripCardState extends State<_TripCard> {
                     const PopupMenuItem(
                         value: 'delete',
                         child: Text('Delete', style: TextStyle(color: Colors.red))),
-                  ],
+                  ];
+                  },
                 ),
               ],
             ),

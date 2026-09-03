@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 
@@ -79,7 +80,10 @@ final _ledgerProvider =
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class LedgerScreen extends ConsumerStatefulWidget {
-  const LedgerScreen({super.key});
+  /// When provided (from Accounts > Parties tap), the picker is pre-selected and the ledger
+  /// loads immediately without the user having to pick a party.
+  final int? initialVendorId;
+  const LedgerScreen({super.key, this.initialVendorId});
 
   @override
   ConsumerState<LedgerScreen> createState() => _LedgerScreenState();
@@ -98,6 +102,9 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
     final r = _presetRange(DateRangePreset.thisMonth);
     _from = r.from;
     _to   = r.to;
+    if (widget.initialVendorId != null) {
+      _vendorId = widget.initialVendorId;
+    }
   }
 
   String get _fromStr => DateFormat('yyyy-MM-dd').format(_from);
@@ -122,12 +129,35 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
     if (d != null) setState(() { _to = d; _preset = DateRangePreset.custom; });
   }
 
+  void _recordPayment() {
+    showRecordPaymentDialog(
+      context, ref,
+      initialVendorId:   _vendorId,
+      initialVendorName: _vendorName,
+      onSaved: () {
+        // Refresh ledger data after payment saved
+        ref.invalidate(_ledgerProvider(_LedgerParams(_vendorId!, _fromStr, _toStr)));
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vendors = ref.watch(_vendorsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Party Ledger')),
+      appBar: AppBar(
+        title: const Text('Party Ledger'),
+        actions: [
+          if (_vendorId != null)
+            TextButton.icon(
+              onPressed: _recordPayment,
+              icon: const Icon(Icons.payments_outlined, size: 18),
+              label: const Text('Record Payment'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
+        ],
+      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -143,6 +173,15 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                   error: (e, _) => Text('Error: $e'),
                   data: (list) {
                     final active = list.where((v) => v['status'] == 'ACTIVE').toList();
+                    // Resolve name for pre-selected party (from Accounts > Parties tap)
+                    if (_vendorId != null && _vendorName == null) {
+                      final match = active.where((e) => e['id'] == _vendorId).toList();
+                      if (match.isNotEmpty) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) setState(() => _vendorName = match.first['name'] as String);
+                        });
+                      }
+                    }
                     return SearchablePicker(
                       items: active,
                       itemLabel: (v) => v['name'] as String,

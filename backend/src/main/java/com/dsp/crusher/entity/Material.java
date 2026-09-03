@@ -45,6 +45,14 @@ public class Material {
     @Column(name = "kg_per_brass", precision = 10, scale = 3)
     private BigDecimal kgPerBrass;
 
+    /** GST rate as a whole-number percentage, e.g. 18, 5, 0 (0 = non-taxable). */
+    @Column(name = "gst_rate", precision = 5, scale = 2, nullable = false)
+    private BigDecimal gstRate = BigDecimal.ZERO;
+
+    /** HSN code — required for GST invoices. */
+    @Column(name = "hsn_code", length = 20)
+    private String hsnCode;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

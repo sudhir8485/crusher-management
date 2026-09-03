@@ -241,6 +241,12 @@ public class TripService {
                 ? materialRepo.findById(req.getMaterialId()).orElse(null)
                 : null;
         computeBilling(t, material);
+
+        // Snapshot the material's GST rate at creation/update time.
+        // Changing the material's GST rate later must not alter existing trips.
+        if (material != null && material.getGstRate() != null) {
+            t.setGstRate(material.getGstRate());
+        }
     }
 
     private void computeBilling(Trip t, Material material) {
@@ -348,6 +354,7 @@ public class TripService {
                     r.setVendorContact(v.getContact());
                     r.setPartyDisplayName(v.getName());
                     r.setPartyPhone(v.getContact());
+                    r.setGstRegistered(Boolean.TRUE.equals(v.getGstRegistered()));
                 }
             } else if ("ONE_TIME".equals(t.getPartyType())) {
                 r.setPartyDisplayName(t.getOneTimeCustomerName());
@@ -408,6 +415,9 @@ public class TripService {
                 BigDecimal paid   = totalPaidMap.getOrDefault(t.getVendorId(), BigDecimal.ZERO);
                 r.setVendorOutstanding(billed.subtract(paid));
             }
+
+            // GST snapshot
+            r.setGstRate(t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO);
 
             return r;
         }).collect(Collectors.toList());

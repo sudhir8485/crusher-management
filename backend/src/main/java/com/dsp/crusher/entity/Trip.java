@@ -136,4 +136,8 @@ public class Trip {
 
     @Column(name = "updated_by_name", length = 200)
     private String updatedByName;
+
+    /** GST rate snapshot from Material at creation time. Changing material's rate never alters old trips. */
+    @Column(name = "gst_rate", precision = 5, scale = 2)
+    private BigDecimal gstRate = BigDecimal.ZERO;
 }

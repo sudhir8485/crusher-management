@@ -57,5 +57,7 @@ public class MaterialService {
         m.setDefaultSaleRateBrass(req.getDefaultSaleRateBrass());
         m.setDefaultTransportRate(req.getDefaultTransportRate());
         m.setKgPerBrass(req.getKgPerBrass());
+        if (req.getGstRate() != null) m.setGstRate(req.getGstRate());
+        m.setHsnCode(req.getHsnCode());
     }
 }
