@@ -189,6 +189,10 @@ public class TripService {
         if (req.getBillableQuantity() != null) t.setBillableQuantity(req.getBillableQuantity());
 
         t.setSaleRate(req.getSaleRate());
+        // Direct material amount (when qty or rate is absent; computeBilling will override if both present)
+        if (req.getMaterialAmountDirect() != null) {
+            t.setMaterialAmount(req.getMaterialAmountDirect().setScale(2, RoundingMode.HALF_UP));
+        }
 
         // Vehicle & transport
         String vMode = req.getVehicleMode() != null ? req.getVehicleMode() : "COMPANY";
@@ -253,12 +257,14 @@ public class TripService {
             }
         }
 
-        // 3. Material amount
+        // 3. Material amount — auto-compute only when both qty and rate are available;
+        //    otherwise preserve any materialAmountDirect set in applyRequest()
         BigDecimal qty  = t.getBillableQuantity();
         BigDecimal rate = t.getSaleRate();
-        t.setMaterialAmount((qty != null && rate != null)
-                ? qty.multiply(rate).setScale(2, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO);
+        if (qty != null && rate != null) {
+            t.setMaterialAmount(qty.multiply(rate).setScale(2, RoundingMode.HALF_UP));
+        }
+        if (t.getMaterialAmount() == null) t.setMaterialAmount(BigDecimal.ZERO);
 
         // 4. Transportation charge
         if ("OWN_VEHICLE".equals(t.getVehicleMode())) {

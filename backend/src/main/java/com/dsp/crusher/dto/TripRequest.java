@@ -33,6 +33,8 @@ public class TripRequest {
     private BigDecimal billableQuantity;
 
     private BigDecimal saleRate;
+    // direct material amount override — used when qty or rate is absent
+    private BigDecimal materialAmountDirect;
 
     // ── Vehicle & Transportation ──────────────────────────────────────────────
     // vehicleMode: "COMPANY" (default) | "OWN_VEHICLE"

@@ -990,19 +990,19 @@ class _TripFormState extends ConsumerState<_TripForm> {
   Map<String, dynamic>? _material;
   bool _materialLoaded = false;
   String _quantityUnit = 'BRASS';
-  final _loadedKg    = TextEditingController();
-  final _emptyKg     = TextEditingController();
-  final _manualQty   = TextEditingController();
-  final _saleRate    = TextEditingController();
+  final _loadedKg       = TextEditingController();
+  final _emptyKg        = TextEditingController();
+  final _manualQty      = TextEditingController();
+  final _saleRate       = TextEditingController();
+  final _materialTotal  = TextEditingController(); // direct entry when qty or rate absent
 
   // Vehicle
   String _vehicleMode = 'COMPANY';
   int? _vehicleId;
   String? _vehicleError;
-  String _transportMode = 'CALCULATE'; // CALCULATE | DIRECT
   final _distance              = TextEditingController();
   final _transportRate         = TextEditingController();
-  final _transportChargeDirect = TextEditingController();
+  final _transportChargeDirect = TextEditingController(); // direct entry when dist or rate absent
 
   // Additional
   bool _showAdditional = false;
@@ -1038,11 +1038,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
       _oneTimePhone.text = e['oneTimeCustomerPhone'] ?? '';
       _oneTimeAddr.text  = e['oneTimeCustomerAddr'] ?? '';
 
-      _materialId     = e['materialId'];
-      _quantityUnit   = e['quantityUnit'] ?? 'BRASS';
-      _vehicleMode    = e['vehicleMode'] ?? 'COMPANY';
-      _transportMode  = e['transportMode'] ?? 'CALCULATE';
-      _vehicleId      = e['vehicleId'];
+      _materialId   = e['materialId'];
+      _quantityUnit = e['quantityUnit'] ?? 'BRASS';
+      _vehicleMode  = e['vehicleMode'] ?? 'COMPANY';
+      _vehicleId    = e['vehicleId'];
 
       // Weights: prefer new kg fields, fall back to ton×1000
       final loadedKg  = (e['loadedWeightKg'] as num?)?.toDouble();
@@ -1072,12 +1071,21 @@ class _TripFormState extends ConsumerState<_TripForm> {
       final sr = (e['saleRate'] as num?)?.toDouble();
       if (sr != null) _saleRate.text = sr.toStringAsFixed(2);
 
+      // Pre-fill materialTotal when qty or rate was absent
+      if (billableQty == null && qtyBrass == null || sr == null) {
+        final matAmt = (e['materialAmount'] as num?)?.toDouble();
+        if (matAmt != null && matAmt > 0) {
+          _materialTotal.text = matAmt.toStringAsFixed(2);
+        }
+      }
+
       final dist = (e['distanceKm'] as num?)?.toDouble();
       final tr   = (e['transportRatePerKm'] as num?)?.toDouble();
       final tc   = (e['transportationCharge'] as num?)?.toDouble();
       if (dist != null) _distance.text = dist.toStringAsFixed(1);
       if (tr != null)   _transportRate.text = tr.toStringAsFixed(2);
-      if (_transportMode == 'DIRECT' && tc != null) {
+      // Pre-fill transportChargeDirect when dist or rate absent
+      if ((dist == null || tr == null) && tc != null && tc > 0) {
         _transportChargeDirect.text = tc.toStringAsFixed(2);
       }
 
@@ -1093,7 +1101,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
           .any((c) => c.text.isNotEmpty);
     }
 
-    for (final ctrl in [_loadedKg, _emptyKg, _manualQty, _saleRate,
+    for (final ctrl in [_loadedKg, _emptyKg, _manualQty, _saleRate, _materialTotal,
                         _distance, _transportRate, _transportChargeDirect]) {
       ctrl.addListener(_recalculate);
     }
@@ -1105,7 +1113,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
   void dispose() {
     for (final ctrl in [
       _oneTimeName, _oneTimePhone, _oneTimeAddr,
-      _loadedKg, _emptyKg, _manualQty, _saleRate,
+      _loadedKg, _emptyKg, _manualQty, _saleRate, _materialTotal,
       _distance, _transportRate, _transportChargeDirect,
       _dspChallan, _vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes,
     ]) {
@@ -1142,17 +1150,24 @@ class _TripFormState extends ConsumerState<_TripForm> {
     }
 
     final rate = double.tryParse(_saleRate.text.trim());
-    final matAmt = (qty != null && rate != null) ? qty * rate : null;
+    // Material: auto when qty+rate both available, else direct entry
+    final matAmt = (qty != null && rate != null)
+        ? qty * rate
+        : double.tryParse(_materialTotal.text.trim());
 
     double? transport;
     if (_vehicleMode == 'OWN_VEHICLE') {
       transport = 0.0;
-    } else if (_transportMode == 'DIRECT') {
-      transport = double.tryParse(_transportChargeDirect.text.trim());
-    } else { // CALCULATE — qty × km × rate
+    } else {
       final dist = double.tryParse(_distance.text.trim());
       final tr   = double.tryParse(_transportRate.text.trim());
-      transport = (dist != null && tr != null && qty != null) ? dist * qty * tr : null;
+      if (dist != null && tr != null && qty != null) {
+        // Auto: qty × km × rate
+        transport = dist * qty * tr;
+      } else {
+        // Direct entry when dist or rate absent
+        transport = double.tryParse(_transportChargeDirect.text.trim());
+      }
     }
 
     setState(() {
@@ -1255,19 +1270,30 @@ class _TripFormState extends ConsumerState<_TripForm> {
     final sr = double.tryParse(_saleRate.text.trim());
     if (sr != null) b['saleRate'] = sr;
 
-    b['vehicleMode']    = _vehicleMode;
-    b['transportMode']  = _vehicleMode == 'OWN_VEHICLE' ? 'CALCULATE' : _transportMode;
+    // Material direct total — sent when qty or rate is absent
+    if (_billableQty == null || sr == null) {
+      final md = double.tryParse(_materialTotal.text.trim());
+      if (md != null) b['materialAmountDirect'] = md;
+    }
+
+    b['vehicleMode'] = _vehicleMode;
     if (_vehicleMode == 'COMPANY') {
       b['vehicleId'] = _vehicleId;
-      if (_transportMode == 'DIRECT') {
+      final dist = double.tryParse(_distance.text.trim());
+      final tr   = double.tryParse(_transportRate.text.trim());
+      if (dist != null && tr != null) {
+        // Auto-calculate mode: send dist and rate, backend computes qty×km×rate
+        b['transportMode']       = 'CALCULATE';
+        b['distanceKm']          = dist;
+        b['transportRatePerKm']  = tr;
+      } else {
+        // Direct mode: send the entered total
+        b['transportMode'] = 'DIRECT';
         final tc = double.tryParse(_transportChargeDirect.text.trim());
         if (tc != null) b['transportationChargeDirect'] = tc;
-      } else {
-        final dist = double.tryParse(_distance.text.trim());
-        final tr   = double.tryParse(_transportRate.text.trim());
-        if (dist != null) b['distanceKm']         = dist;
-        if (tr != null)   b['transportRatePerKm'] = tr;
       }
+    } else {
+      b['transportMode'] = 'CALCULATE';
     }
 
     void opt(String key, String val) {
@@ -1356,20 +1382,21 @@ class _TripFormState extends ConsumerState<_TripForm> {
     ),
   );
 
-  // Inline formula row: [slot1] × [slot2?] × [slot3] = [result]
+  // Inline formula row: [slot1] × [slot2?] × [slot3] = [totalSlot]
+  // totalSlot is either _readonlyBox (auto-computed) or a TextFormField (direct entry)
   Widget _formulaRow({
     required Widget slot1,
     Widget? slot2,
     required Widget slot3,
-    required String result,
+    required Widget totalSlot,
   }) {
     const op = Padding(
-      padding: EdgeInsets.symmetric(horizontal: 6),
-      child: Text('×', style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.w300)),
+      padding: EdgeInsets.symmetric(horizontal: 5),
+      child: Text('×', style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.w300)),
     );
     const eq = Padding(
-      padding: EdgeInsets.symmetric(horizontal: 6),
-      child: Text('=', style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.w300)),
+      padding: EdgeInsets.symmetric(horizontal: 5),
+      child: Text('=', style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.w300)),
     );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1379,30 +1406,27 @@ class _TripFormState extends ConsumerState<_TripForm> {
         if (slot2 != null) ...[Expanded(child: slot2), op],
         Expanded(child: slot3),
         eq,
-        Container(
-          constraints: const BoxConstraints(minWidth: 72),
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Text(result,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: result == '—' ? Colors.grey[400] : Colors.green.shade800)),
-        ),
+        Expanded(child: totalSlot),
       ],
     );
   }
 
   // Read-only display box that matches the visual weight of a TextFormField
-  Widget _readonlyBox(String value, String label) => InputDecorator(
+  Widget _readonlyBox(String value, String label, {bool isTotal = false}) => InputDecorator(
     decoration: InputDecoration(
       labelText: label,
       filled: true,
-      fillColor: Colors.grey.shade100,
+      fillColor: isTotal ? Colors.green.shade50 : Colors.grey.shade100,
       border: const OutlineInputBorder(),
+      enabledBorder: isTotal
+          ? OutlineInputBorder(borderSide: BorderSide(color: Colors.green.shade200))
+          : const OutlineInputBorder(),
     ),
     child: Text(value,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: isTotal ? Colors.green.shade800 : Colors.grey.shade800)),
   );
 
   Widget _partyPickerField(List<Map<String, dynamic>> vendors) {
@@ -1476,16 +1500,15 @@ class _TripFormState extends ConsumerState<_TripForm> {
           if (_vehicleMode == 'OWN_VEHICLE')
             _bRow("Customer's Own Vehicle", '₹ 0.00')
           else if (_transportCharge != null) ...[
-            if (_transportMode == 'DIRECT')
-              _bRow('Transportation (direct)', fmtCurr(transAmt))
-            else
-              _bRow(
-                  (_billableQty != null && _distance.text.isNotEmpty && _transportRate.text.isNotEmpty)
-                      ? '${numFmt.format(_billableQty!)} $_quantityUnit'
-                        ' × ${_distance.text} km'
-                        ' × ₹${_transportRate.text}/km/$_quantityUnit'
-                      : 'Transportation',
-                  fmtCurr(transAmt)),
+            _bRow(
+                (_billableQty != null &&
+                        _distance.text.isNotEmpty &&
+                        _transportRate.text.isNotEmpty)
+                    ? '${numFmt.format(_billableQty!)} $_quantityUnit'
+                      ' × ${_distance.text} km'
+                      ' × ₹${_transportRate.text}/km/$_quantityUnit'
+                    : 'Transportation',
+                fmtCurr(transAmt)),
           ],
           const Divider(height: 20),
           Row(
@@ -1700,20 +1723,18 @@ class _TripFormState extends ConsumerState<_TripForm> {
               ),
 
             const SizedBox(height: 12),
-            // Quantity × Sale Rate = Material Amount (inline formula row)
+            // Quantity × Sale Rate = Amount (auto when both filled, editable otherwise)
             _formulaRow(
               slot1: _qtyFromWeights && _billableQty != null
                   ? _readonlyBox(
                       '${numFmt.format(_billableQty!)} $_quantityUnit',
-                      'Quantity ($_quantityUnit)')
+                      'Qty ($_quantityUnit)')
                   : TextFormField(
                       controller: _manualQty,
                       decoration: InputDecoration(
                         labelText: 'Quantity *',
                         suffixText: _quantityUnit,
-                        helperText: _netWeightKg == null
-                            ? 'Or fill weights above'
-                            : null,
+                        helperText: _netWeightKg == null ? 'Or fill weights above' : null,
                       ),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       validator: (v) {
@@ -1726,7 +1747,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
               slot3: TextFormField(
                 controller: _saleRate,
                 decoration: InputDecoration(
-                  labelText: 'Sale Rate',
+                  labelText: 'Rate',
                   prefixText: '₹ ',
                   suffixText: '/$_quantityUnit',
                 ),
@@ -1737,7 +1758,25 @@ class _TripFormState extends ConsumerState<_TripForm> {
                   return null;
                 },
               ),
-              result: _materialAmount != null ? fmtCurr(_materialAmount!) : '—',
+              // Total: read-only if qty×rate computable, editable otherwise
+              totalSlot: (_billableQty != null &&
+                      double.tryParse(_saleRate.text.trim()) != null)
+                  ? _readonlyBox(
+                      _materialAmount != null ? fmtCurr(_materialAmount!) : '—',
+                      'Amount', isTotal: true)
+                  : TextFormField(
+                      controller: _materialTotal,
+                      decoration: const InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: '₹ ',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: (v) {
+                        if (v != null && v.trim().isNotEmpty &&
+                            double.tryParse(v.trim()) == null) return 'Invalid';
+                        return null;
+                      },
+                    ),
             ),
 
             // ── 4. Vehicle & Transportation ─────────────────────────────────
@@ -1783,76 +1822,62 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 ),
               ),
               const SizedBox(height: 12),
-              // Transport mode toggle
-              Row(children: [
-                Expanded(child: _pill(
-                    'Calculate Automatically',
-                    _transportMode == 'CALCULATE', () {
-                  setState(() => _transportMode = 'CALCULATE');
-                  _recalculate();
-                })),
-                const SizedBox(width: 8),
-                Expanded(child: _pill(
-                    'Enter Total Directly',
-                    _transportMode == 'DIRECT', () {
-                  setState(() => _transportMode = 'DIRECT');
-                  _recalculate();
-                })),
-              ]),
-              const SizedBox(height: 12),
-              if (_transportMode == 'CALCULATE') ...[
-                // Quantity × KM × Rate = Transport Total (inline formula row)
-                _formulaRow(
-                  slot1: _readonlyBox(
-                    _billableQty != null
-                        ? '${numFmt.format(_billableQty!)} $_quantityUnit'
-                        : '— $_quantityUnit',
-                    'Qty',
-                  ),
-                  slot2: TextFormField(
-                    controller: _distance,
-                    decoration: const InputDecoration(
-                      labelText: 'Distance',
-                      suffixText: 'km',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    validator: (v) {
-                      if (v != null && v.trim().isNotEmpty &&
-                          double.tryParse(v.trim()) == null) return 'Invalid';
-                      return null;
-                    },
-                  ),
-                  slot3: TextFormField(
-                    controller: _transportRate,
-                    decoration: InputDecoration(
-                      labelText: 'Rate',
-                      prefixText: '₹ ',
-                      suffixText: '/km/$_quantityUnit',
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    validator: (v) {
-                      if (v != null && v.trim().isNotEmpty &&
-                          double.tryParse(v.trim()) == null) return 'Invalid';
-                      return null;
-                    },
-                  ),
-                  result: _transportCharge != null ? fmtCurr(_transportCharge!) : '—',
+              const SizedBox(height: 4),
+              // Quantity × KM × Rate = Total (auto when dist+rate filled, editable otherwise)
+              _formulaRow(
+                slot1: _readonlyBox(
+                  _billableQty != null
+                      ? '${numFmt.format(_billableQty!)} $_quantityUnit'
+                      : '—',
+                  'Qty',
                 ),
-              ] else ...[
-                TextFormField(
-                  controller: _transportChargeDirect,
+                slot2: TextFormField(
+                  controller: _distance,
                   decoration: const InputDecoration(
-                    labelText: 'Transportation Charge',
-                    prefixText: '₹ ',
+                    labelText: 'Distance',
+                    suffixText: 'km',
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   validator: (v) {
                     if (v != null && v.trim().isNotEmpty &&
-                        double.tryParse(v.trim()) == null) return 'Invalid number';
+                        double.tryParse(v.trim()) == null) return 'Invalid';
                     return null;
                   },
                 ),
-              ],
+                slot3: TextFormField(
+                  controller: _transportRate,
+                  decoration: InputDecoration(
+                    labelText: 'Rate',
+                    prefixText: '₹ ',
+                    suffixText: '/km/$_quantityUnit',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v != null && v.trim().isNotEmpty &&
+                        double.tryParse(v.trim()) == null) return 'Invalid';
+                    return null;
+                  },
+                ),
+                // Total: read-only if dist+rate both filled, editable otherwise
+                totalSlot: (double.tryParse(_distance.text.trim()) != null &&
+                        double.tryParse(_transportRate.text.trim()) != null)
+                    ? _readonlyBox(
+                        _transportCharge != null ? fmtCurr(_transportCharge!) : '—',
+                        'Transport', isTotal: true)
+                    : TextFormField(
+                        controller: _transportChargeDirect,
+                        decoration: const InputDecoration(
+                          labelText: 'Transport',
+                          prefixText: '₹ ',
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v != null && v.trim().isNotEmpty &&
+                              double.tryParse(v.trim()) == null) return 'Invalid';
+                          return null;
+                        },
+                      ),
+              ),
             ],
 
             // ── 5. Billing Summary ──────────────────────────────────────────
