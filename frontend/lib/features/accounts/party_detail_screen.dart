@@ -176,11 +176,11 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     final sheet   = exl['Sheet1'];
     exl.setDefaultSheet('Sheet1');
 
-    // ── Helper styles ────────────────────────────────────────────────────────
-    xl.CellStyle hdrStyle()                        => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString('#D9E1F2'));
-    xl.CellStyle mainRowStyle({bool debit = true}) => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString(debit ? '#FFF2CC' : '#E2EFDA'));
-    xl.CellStyle subStyle()                        => xl.CellStyle(bold: false, backgroundColorHex: xl.ExcelColor.fromHexString('#F9F9F9'));
-    xl.CellStyle totalStyle()                      => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString('#D6DCE4'));
+    // ── Helper styles (matching Tally ledger conventions) ────────────────────
+    xl.CellStyle hdrStyle()                        => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString('#D9E1F2'), horizontalAlign: xl.HorizontalAlign.Center);
+    xl.CellStyle mainRowStyle({bool debit = true}) => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString(debit ? '#FFF2CC' : '#E2EFDA'));
+    xl.CellStyle subStyle()                        => xl.CellStyle(backgroundColorHex: xl.ExcelColor.fromHexString('#FFFFFF'));
+    xl.CellStyle totalStyle()                      => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString('#D6DCE4'));
 
     void setCell(int row, int col, dynamic val, [xl.CellStyle? style]) {
       final cell = sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row));
@@ -194,11 +194,12 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
 
     int row = 0;
 
-    // ── Row 0: Title ─────────────────────────────────────────────────────────
-    setCell(row, 0, '$vendorName\nLedger Account\n$fromFmt to $toFmt',
-        xl.CellStyle(bold: true, fontSize: 12, textWrapping: xl.TextWrapping.WrapText,
-            verticalAlign: xl.VerticalAlign.Center));
-    sheet.setRowHeight(row, 50);
+    // ── Row 0: Title — "Party Name / Ledger Account / period" (3 cells merged visually) ─
+    setCell(row, 0, vendorName,
+        xl.CellStyle(bold: true, fontSize: 12));
+    setCell(row, 1, 'Ledger Account');
+    setCell(row, 2, '$fromFmt to $toFmt');
+    sheet.setRowHeight(row, 20);
     row++;
 
     // ── Row 1: Column headers ────────────────────────────────────────────────
@@ -626,7 +627,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             data: (data) => _StatementBody(
               data: data,
               printing: _printing,
-              onPrint: () => _showStatementOptions(data),
+              onPrint: () => _exportExcel(data),
               onRecordPayment: () => showRecordPaymentDialog(
                 context, ref,
                 initialVendorId:   widget.vendorId,
@@ -757,8 +758,8 @@ class _StatementBody extends StatelessWidget {
               onPressed: printing ? null : onPrint,
               icon: printing
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.print_outlined, size: 16),
-              label: const Text('Print Statement'),
+                  : const Icon(Icons.table_view_outlined, size: 16),
+              label: const Text('Export Ledger'),
             )),
             const SizedBox(width: 10),
             Expanded(child: FilledButton.icon(
