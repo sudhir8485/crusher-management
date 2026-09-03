@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
-import '../ledger/ledger_screen.dart';
+import 'party_detail_screen.dart';
 import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 import '../vendor_payments/vendor_payments_screen.dart' as payments_screen;
 
@@ -218,7 +218,10 @@ class _PartiesTabState extends ConsumerState<_PartiesTab> {
 
   void _openLedger(Map<String, dynamic> party) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => LedgerScreen(initialVendorId: party['vendorId'] as int?),
+      builder: (_) => PartyDetailScreen(
+        vendorId:   party['vendorId'] as int,
+        vendorName: party['name']     as String? ?? '—',
+      ),
     ));
   }
 }

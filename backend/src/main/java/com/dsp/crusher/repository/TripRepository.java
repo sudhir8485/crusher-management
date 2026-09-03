@@ -69,4 +69,8 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     List<Object[]> lastTripDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
     List<Trip> findByVendorIdAndStatusOrderByTripDateAscIdAsc(Long vendorId, String status);
+
+    /** Sum of all trip bills for a vendor strictly before 'before' date (for opening balance). */
+    @Query("SELECT COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId = :vendorId AND t.tripDate < :before AND t.status = 'ACTIVE'")
+    BigDecimal sumTotalBillByVendorIdBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
 }

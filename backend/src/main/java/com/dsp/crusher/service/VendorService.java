@@ -1,12 +1,14 @@
 package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.TenantContext;
+import com.dsp.crusher.dto.PartyStatementResponse;
 import com.dsp.crusher.dto.VendorBalanceResponse;
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
 import com.dsp.crusher.dto.VendorTripBalanceResponse;
 import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
+import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.MaterialRepository;
@@ -107,6 +109,89 @@ public class VendorService {
             result.add(r);
         }
         return result;
+    }
+
+    /** Khatabook-style unified statement: trips (BILLED) + payments (RECEIVED) with running balance. */
+    public PartyStatementResponse getStatement(Long vendorId, LocalDate from, LocalDate to) {
+        Vendor v = repo.findById(vendorId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor not found: " + vendorId));
+
+        // Opening balance = all trip bills before 'from' − all payments before 'from'
+        BigDecimal tripsBefore    = tripRepo.sumTotalBillByVendorIdBefore(vendorId, from);
+        BigDecimal paymentsBefore = paymentRepo.sumAmountByVendorBefore(vendorId, from);
+        BigDecimal opening = tripsBefore.subtract(paymentsBefore);
+
+        // In-period trips
+        List<Trip> trips = tripRepo
+                .findByVendorIdAndTripDateBetweenAndStatusOrderByTripDateAscIdAsc(vendorId, from, to, "ACTIVE");
+
+        // In-period payments
+        List<VendorPayment> payments = paymentRepo
+                .findByVendorIdAndPaymentDateBetweenAndStatusOrderByPaymentDateAscIdAsc(vendorId, from, to, "ACTIVE");
+
+        // Resolve material names
+        Map<Long, String> matNames = materialRepo.findAll().stream()
+                .collect(Collectors.toMap(m -> m.getId(), m -> m.getName()));
+
+        // Merge and sort by date ASC, then ID ASC (trips before payments on same day)
+        List<PartyStatementResponse.StatementEntry> entries = new ArrayList<>();
+        int ti = 0, pi = 0;
+        while (ti < trips.size() || pi < payments.size()) {
+            boolean takeTrip;
+            if (ti >= trips.size()) takeTrip = false;
+            else if (pi >= payments.size()) takeTrip = true;
+            else {
+                int cmp = trips.get(ti).getTripDate().compareTo(payments.get(pi).getPaymentDate());
+                takeTrip = cmp <= 0; // trips first on same date
+            }
+
+            PartyStatementResponse.StatementEntry e = new PartyStatementResponse.StatementEntry();
+            if (takeTrip) {
+                Trip t = trips.get(ti++);
+                String mat = t.getMaterialId() != null ? matNames.getOrDefault(t.getMaterialId(), "—") : "—";
+                e.setId(t.getId());
+                e.setType("BILLED");
+                e.setDate(t.getTripDate());
+                e.setDescription("Trip — " + mat);
+                e.setAmount(t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO);
+            } else {
+                VendorPayment p = payments.get(pi++);
+                String mode = p.getPaymentMode() != null ? p.getPaymentMode() : "Cash";
+                e.setId(p.getId());
+                e.setType("RECEIVED");
+                e.setDate(p.getPaymentDate());
+                e.setDescription("Payment — " + mode.charAt(0) + mode.substring(1).toLowerCase());
+                e.setAmount(p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO);
+            }
+            entries.add(e);
+        }
+
+        // Running balance
+        BigDecimal running = opening;
+        BigDecimal totalBilled = BigDecimal.ZERO, totalReceived = BigDecimal.ZERO;
+        for (PartyStatementResponse.StatementEntry e : entries) {
+            if ("BILLED".equals(e.getType())) {
+                running = running.add(e.getAmount());
+                totalBilled = totalBilled.add(e.getAmount());
+            } else {
+                running = running.subtract(e.getAmount());
+                totalReceived = totalReceived.add(e.getAmount());
+            }
+            e.setRunningBalance(running);
+        }
+
+        PartyStatementResponse resp = new PartyStatementResponse();
+        resp.setVendorId(vendorId);
+        resp.setVendorName(v.getName());
+        resp.setVendorContact(v.getContact());
+        resp.setFrom(from);
+        resp.setTo(to);
+        resp.setOpeningBalance(opening);
+        resp.setTotalBilled(totalBilled);
+        resp.setTotalReceived(totalReceived);
+        resp.setClosingBalance(opening.add(totalBilled).subtract(totalReceived));
+        resp.setEntries(entries);
+        return resp;
     }
 
     public Vendor getById(Long id) {

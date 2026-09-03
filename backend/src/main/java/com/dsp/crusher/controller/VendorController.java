@@ -1,5 +1,6 @@
 package com.dsp.crusher.controller;
 
+import com.dsp.crusher.dto.PartyStatementResponse;
 import com.dsp.crusher.dto.VendorBalanceResponse;
 import com.dsp.crusher.dto.VendorRequest;
 import com.dsp.crusher.dto.VendorResponse;
@@ -10,10 +11,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
 
 import java.util.List;
 
@@ -41,6 +45,15 @@ public class VendorController {
     @Operation(summary = "Get party by ID")
     public Vendor get(@PathVariable Long id) {
         return service.getById(id);
+    }
+
+    @GetMapping("/{id}/statement")
+    @Operation(summary = "Khatabook-style trip+payment statement with running balance")
+    public PartyStatementResponse statement(
+            @PathVariable Long id,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return service.getStatement(id, from, to);
     }
 
     @GetMapping("/{id}/trip-balance")
