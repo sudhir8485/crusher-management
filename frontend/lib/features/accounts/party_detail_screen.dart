@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -97,7 +98,38 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     if (d != null) setState(() { _to = d; _preset = _Preset.custom; });
   }
 
-  Future<void> _printStatement(Map<String, dynamic> data) async {
+  void _showStatementOptions(Map<String, dynamic> data) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 8),
+          Container(width: 40, height: 4, decoration: BoxDecoration(
+              color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 12),
+          const Text('Print Statement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_outlined, color: Colors.red),
+            title: const Text('Print / Save as PDF'),
+            subtitle: const Text('Opens print preview'),
+            onTap: () { Navigator.pop(context); _printPdf(data); },
+          ),
+          ListTile(
+            leading: const Icon(Icons.table_view_outlined, color: Colors.green),
+            title: const Text('Export Excel (.xlsx)'),
+            subtitle: const Text('Tally-format ledger — same as reference'),
+            onTap: () { Navigator.pop(context); _exportExcel(data); },
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _printPdf(Map<String, dynamic> data) async {
     if (_printing) return;
     setState(() => _printing = true);
     try {
@@ -109,6 +141,178 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     } finally {
       if (mounted) setState(() => _printing = false);
     }
+  }
+
+  Future<void> _exportExcel(Map<String, dynamic> data) async {
+    if (_printing) return;
+    setState(() => _printing = true);
+    try {
+      final bytes = _buildExcel(data);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: '${widget.vendorName.replaceAll(' ', '_')}_Ledger.xlsx',
+      );
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  /// Generates a Tally-format ledger Excel matching the Malganga Ledger.xlsx structure.
+  /// Column layout: A=Date  B=Particulars  C=Sub-amount  D=Voucher Type  E=Debit  F=Credit
+  Uint8List _buildExcel(Map<String, dynamic> data) {
+    final vendorName   = data['vendorName']    as String? ?? widget.vendorName;
+    final gstRegistered = data['gstRegistered'] as bool? ?? false;
+    final from         = data['from'] as String? ?? _dateFmtKey.format(_from);
+    final to           = data['to']   as String? ?? _dateFmtKey.format(_to);
+    final opening      = (data['openingBalance'] as num?)?.toDouble() ?? 0;
+    final closing      = (data['closingBalance'] as num?)?.toDouble() ?? 0;
+    final entries      = List<Map<String, dynamic>>.from(
+        (data['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
+
+    final fromFmt = _dateFmtLong.format(DateTime.parse(from));
+    final toFmt   = _dateFmtLong.format(DateTime.parse(to));
+
+    final exl     = xl.Excel.createExcel();
+    final sheet   = exl['Sheet1'];
+    exl.setDefaultSheet('Sheet1');
+
+    // ── Helper styles ────────────────────────────────────────────────────────
+    xl.CellStyle hdrStyle()                        => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString('#D9E1F2'));
+    xl.CellStyle mainRowStyle({bool debit = true}) => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString(debit ? '#FFF2CC' : '#E2EFDA'));
+    xl.CellStyle subStyle()                        => xl.CellStyle(bold: false, backgroundColorHex: xl.ExcelColor.fromHexString('#F9F9F9'));
+    xl.CellStyle totalStyle()                      => xl.CellStyle(bold: true,  backgroundColorHex: xl.ExcelColor.fromHexString('#D6DCE4'));
+
+    void setCell(int row, int col, dynamic val, [xl.CellStyle? style]) {
+      final cell = sheet.cell(xl.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row));
+      if (val is double || val is int) {
+        cell.value = xl.DoubleCellValue(val.toDouble());
+      } else {
+        cell.value = xl.TextCellValue(val?.toString() ?? '');
+      }
+      if (style != null) cell.cellStyle = style;
+    }
+
+    int row = 0;
+
+    // ── Row 0: Title ─────────────────────────────────────────────────────────
+    setCell(row, 0, '$vendorName\nLedger Account\n$fromFmt to $toFmt',
+        xl.CellStyle(bold: true, fontSize: 12, textWrapping: xl.TextWrapping.WrapText,
+            verticalAlign: xl.VerticalAlign.Center));
+    sheet.setRowHeight(row, 50);
+    row++;
+
+    // ── Row 1: Column headers ────────────────────────────────────────────────
+    final headers = ['Date', 'Particulars', '', 'Voucher Type', 'Debit', 'Credit'];
+    for (var c = 0; c < headers.length; c++) {
+      setCell(row, c, headers[c], hdrStyle());
+    }
+    row++;
+
+    // ── Opening balance row (if non-zero) ────────────────────────────────────
+    if (opening.abs() > 0.5) {
+      setCell(row, 1, 'Opening Balance', xl.CellStyle(bold: true));
+      setCell(row, 4, opening > 0 ? opening : 0.0);
+      setCell(row, 5, opening < 0 ? opening.abs() : 0.0);
+      row++;
+    }
+
+    // ── Transaction rows ─────────────────────────────────────────────────────
+    double totalDebit = 0, totalCredit = 0;
+
+    for (final e in entries) {
+      final type     = e['type'] as String;
+      final isBill   = type == 'BILLED';
+      final amt      = (e['amount']              as num?)?.toDouble() ?? 0;
+      final matAmt   = (e['materialAmount']      as num?)?.toDouble() ?? amt;
+      final transAmt = (e['transportationCharge'] as num?)?.toDouble() ?? 0;
+      final gstRate  = (e['gstRate']             as num?)?.toDouble() ?? 0;
+      final dateStr  = DateFormat('dd.MM.yyyy').format(DateTime.parse(e['date'] as String));
+      final desc     = e['description'] as String? ?? '—';
+
+      if (isBill) {
+        final hasGst  = gstRegistered && gstRate > 0.01 && matAmt > 0;
+        final halfRate = gstRate / 2;
+        final sgst    = hasGst ? matAmt * halfRate / 100 : 0.0;
+        final cgst    = hasGst ? matAmt * halfRate / 100 : 0.0;
+        final debit   = matAmt + sgst + cgst + transAmt;
+        final roundOff = debit.roundToDouble() - debit;
+        final debitTotal = debit + roundOff;
+        totalDebit += debitTotal;
+
+        // Main "To (as per details)" row
+        setCell(row, 0, dateStr,             mainRowStyle(debit: true));
+        setCell(row, 1, 'To (as per details)', mainRowStyle(debit: true));
+        setCell(row, 2, '',                   mainRowStyle(debit: true));
+        setCell(row, 3, 'Sales',              mainRowStyle(debit: true));
+        setCell(row, 4, debitTotal,            mainRowStyle(debit: true));
+        setCell(row, 5, '',                   mainRowStyle(debit: true));
+        row++;
+
+        if (hasGst) {
+          // Sales sub-row
+          setCell(row, 1, 'Sales   ', subStyle()); setCell(row, 2, matAmt, subStyle());
+          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+          // SGST
+          final sgstLabel = 'SGST ${halfRate % 1 == 0 ? halfRate.toInt() : halfRate}%';
+          setCell(row, 1, sgstLabel, subStyle()); setCell(row, 2, sgst, subStyle());
+          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+          // CGST
+          final cgstLabel = 'CGST ${halfRate % 1 == 0 ? halfRate.toInt() : halfRate}%';
+          setCell(row, 1, cgstLabel, subStyle()); setCell(row, 2, cgst, subStyle());
+          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+          // Transportation if any
+          if (transAmt > 0.5) {
+            setCell(row, 1, 'Transportation', subStyle()); setCell(row, 2, transAmt, subStyle());
+            for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+          }
+          // Round Off
+          setCell(row, 1, 'Round Off', subStyle()); setCell(row, 2, roundOff, subStyle());
+          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+        } else {
+          // Non-GST trip — just show description and amount
+          setCell(row, 1, desc, subStyle()); setCell(row, 2, amt, subStyle());
+          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+        }
+      } else {
+        // Receipt row — "By [mode/reference]"
+        final byDesc = desc.replaceFirst('Payment — ', 'By ');
+        totalCredit += amt;
+        setCell(row, 0, dateStr,    mainRowStyle(debit: false));
+        setCell(row, 1, byDesc,     mainRowStyle(debit: false));
+        setCell(row, 2, '',         mainRowStyle(debit: false));
+        setCell(row, 3, 'Receipt',  mainRowStyle(debit: false));
+        setCell(row, 4, '',         mainRowStyle(debit: false));
+        setCell(row, 5, amt,        mainRowStyle(debit: false));
+        row++;
+      }
+    }
+
+    // ── Balance / closing row ────────────────────────────────────────────────
+    final isOwed    = closing > 0.5;
+    final isAdvance = closing < -0.5;
+    setCell(row, 1, 'Balance', totalStyle());
+    setCell(row, 3, isOwed ? 'Outstanding' : isAdvance ? 'Advance' : 'Settled', totalStyle());
+    setCell(row, 4, isOwed ? closing : 0.0, totalStyle());
+    setCell(row, 5, isAdvance ? closing.abs() : 0.0, totalStyle());
+    for (var c in [0, 2]) setCell(row, c, '', totalStyle());
+    row++;
+
+    // ── Totals row ───────────────────────────────────────────────────────────
+    setCell(row, 3, 'TOTAL', totalStyle());
+    setCell(row, 4, totalDebit + (opening > 0 ? opening : 0), totalStyle());
+    setCell(row, 5, totalCredit + (opening < 0 ? opening.abs() : 0), totalStyle());
+    for (var c in [0, 1, 2]) setCell(row, c, '', totalStyle());
+
+    // ── Column widths ─────────────────────────────────────────────────────────
+    sheet.setColumnWidth(0, 14); // Date
+    sheet.setColumnWidth(1, 44); // Particulars
+    sheet.setColumnWidth(2, 16); // Sub-amount
+    sheet.setColumnWidth(3, 14); // Voucher Type
+    sheet.setColumnWidth(4, 16); // Debit
+    sheet.setColumnWidth(5, 16); // Credit
+
+    final encoded = exl.encode();
+    return Uint8List.fromList(encoded!);
   }
 
   Future<Uint8List> _buildPdf(Map<String, dynamic> data) async {
@@ -422,7 +626,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             data: (data) => _StatementBody(
               data: data,
               printing: _printing,
-              onPrint: () => _printStatement(data),
+              onPrint: () => _showStatementOptions(data),
               onRecordPayment: () => showRecordPaymentDialog(
                 context, ref,
                 initialVendorId:   widget.vendorId,
