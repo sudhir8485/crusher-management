@@ -14,10 +14,34 @@ import '../../core/widgets/app_widgets.dart';
 
 final tripsDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
+// 'day' | 'week' | 'month' | 'custom'
+final tripsModeProvider = StateProvider<String>((ref) => 'day');
+
+// For custom range: [from, to]
+final tripsCustomRangeProvider =
+    StateProvider<List<DateTime>>((ref) => [DateTime.now(), DateTime.now()]);
+
+// Resolves the [from, to] range for the current mode + selected date
+List<DateTime> resolveTripsRange(String mode, DateTime anchor, List<DateTime> custom) {
+  switch (mode) {
+    case 'week':
+      final mon = anchor.subtract(Duration(days: anchor.weekday - 1));
+      return [mon, mon.add(const Duration(days: 6))];
+    case 'month':
+      return [DateTime(anchor.year, anchor.month, 1),
+              DateTime(anchor.year, anchor.month + 1, 0)];
+    case 'custom':
+      return custom;
+    default: // day
+      return [anchor, anchor];
+  }
+}
+
 final tripsProvider = FutureProvider.autoDispose
-    .family<List<Map<String, dynamic>>, String>((ref, date) async {
+    .family<List<Map<String, dynamic>>, String>((ref, rangeKey) async {
   final siteId = ref.watch(selectedSiteIdProvider);
-  final params = <String, dynamic>{'from': date, 'to': date};
+  final parts  = rangeKey.split('|');
+  final params = <String, dynamic>{'from': parts[0], 'to': parts[1]};
   if (siteId != null) params['siteId'] = siteId;
   final res = await ref.read(apiClientProvider).get('/api/trips', params: params);
   return List<Map<String, dynamic>>.from(res.data);
@@ -46,49 +70,66 @@ final _vendorsProvider =
 class TripsScreen extends ConsumerWidget {
   const TripsScreen({super.key});
 
+  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom) {
+    final fmt = DateFormat('yyyy-MM-dd');
+    final range = resolveTripsRange(mode, anchor, custom);
+    return '${fmt.format(range[0])}|${fmt.format(range[1])}';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(tripsDateProvider);
-    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final trips = ref.watch(tripsProvider(dateKey));
+    final mode         = ref.watch(tripsModeProvider);
+    final custom       = ref.watch(tripsCustomRangeProvider);
+    final rangeKey     = _rangeKey(mode, selectedDate, custom);
+    final trips        = ref.watch(tripsProvider(rangeKey));
+
+    void invalidate() => ref.invalidate(tripsProvider(rangeKey));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trips'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(tripsProvider(dateKey)),
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: invalidate),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate),
+        onPressed: () => _showForm(context, ref, null, selectedDate, rangeKey),
         icon: const Icon(Icons.add),
         label: const Text('Add Trip'),
       ),
       body: Column(
         children: [
-          AppDateBar(
+          _DateRangeBar(
             selectedDate: selectedDate,
-            onPick: (d) => ref.read(tripsDateProvider.notifier).state = d,
+            mode: mode,
+            custom: custom,
+            onDateChanged: (d) => ref.read(tripsDateProvider.notifier).state = d,
+            onModeChanged: (m) => ref.read(tripsModeProvider.notifier).state = m,
+            onCustomChanged: (r) => ref.read(tripsCustomRangeProvider.notifier).state = r,
           ),
           Expanded(
             child: trips.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
-              data: (list) => list.isEmpty
-                  ? AppEmptyState(
-                      icon: Icons.swap_horiz_outlined,
-                      message: 'No trips for ${DateFormat('d MMM yyyy').format(selectedDate)}',
-                      hint: 'Tap + to add a trip',
-                    )
-                  : _TripsList(
-                      list: list,
-                      onEdit: (t) => _showForm(context, ref, t, selectedDate),
-                      onDelete: (t) => _confirmDelete(context, ref, t, dateKey),
-                      onConvert: (t) => _showConvertDialog(context, ref, t, dateKey),
-                    ),
+              data: (list) {
+                final emptyMsg = mode == 'day'
+                    ? 'No trips for ${DateFormat('d MMM yyyy').format(selectedDate)}'
+                    : 'No trips for this ${mode == 'week' ? 'week' : mode == 'month' ? 'month' : 'range'}';
+                return list.isEmpty
+                    ? AppEmptyState(
+                        icon: Icons.swap_horiz_outlined,
+                        message: emptyMsg,
+                        hint: 'Tap + to add a trip',
+                      )
+                    : _TripsList(
+                        list: list,
+                        showDate: mode != 'day',
+                        onEdit: (t) => _showForm(context, ref, t, selectedDate, rangeKey),
+                        onDelete: (t) => _confirmDelete(context, ref, t, rangeKey),
+                        onConvert: (t) => _showConvertDialog(context, ref, t, rangeKey),
+                      );
+              },
             ),
           ),
         ],
@@ -97,23 +138,20 @@ class TripsScreen extends ConsumerWidget {
   }
 
   void _showForm(BuildContext context, WidgetRef ref,
-      Map<String, dynamic>? existing, DateTime date) {
+      Map<String, dynamic>? existing, DateTime date, String rangeKey) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => _TripForm(
         existing: existing,
         initialDate: date,
-        onSaved: () {
-          final dk = DateFormat('yyyy-MM-dd').format(ref.read(tripsDateProvider));
-          ref.invalidate(tripsProvider(dk));
-        },
+        onSaved: () => ref.invalidate(tripsProvider(rangeKey)),
       ),
     );
   }
 
   void _confirmDelete(BuildContext context, WidgetRef ref,
-      Map<String, dynamic> trip, String dateKey) {
+      Map<String, dynamic> trip, String rangeKey) {
     final customer = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
     final material = trip['materialName'] ?? '—';
     showDialog(
@@ -128,7 +166,7 @@ class TripsScreen extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(context);
               await ref.read(apiClientProvider).delete('/api/trips/${trip['id']}');
-              ref.invalidate(tripsProvider(dateKey));
+              ref.invalidate(tripsProvider(rangeKey));
             },
             child: const Text('Delete'),
           ),
@@ -138,17 +176,167 @@ class TripsScreen extends ConsumerWidget {
   }
 
   void _showConvertDialog(BuildContext context, WidgetRef ref,
-      Map<String, dynamic> trip, String dateKey) {
+      Map<String, dynamic> trip, String rangeKey) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => _ConvertCustomerDialog(
         trip: trip,
         onSaved: () {
-          ref.invalidate(tripsProvider(dateKey));
+          ref.invalidate(tripsProvider(rangeKey));
           ref.invalidate(_vendorsProvider);
         },
       ),
+    );
+  }
+}
+
+// ── Date Range Bar ────────────────────────────────────────────────────────────
+
+class _DateRangeBar extends StatelessWidget {
+  final DateTime selectedDate;
+  final String mode;
+  final List<DateTime> custom;
+  final ValueChanged<DateTime> onDateChanged;
+  final ValueChanged<String> onModeChanged;
+  final ValueChanged<List<DateTime>> onCustomChanged;
+
+  const _DateRangeBar({
+    required this.selectedDate,
+    required this.mode,
+    required this.custom,
+    required this.onDateChanged,
+    required this.onModeChanged,
+    required this.onCustomChanged,
+  });
+
+  void _prev() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.subtract(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month - 1, 1)); break;
+      default:      onDateChanged(selectedDate.subtract(const Duration(days: 1))); break;
+    }
+  }
+
+  void _next() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.add(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month + 1, 1)); break;
+      default:      onDateChanged(selectedDate.add(const Duration(days: 1))); break;
+    }
+  }
+
+  String _label() {
+    final fmt = DateFormat('d MMM yyyy');
+    final range = resolveTripsRange(mode, selectedDate, custom);
+    switch (mode) {
+      case 'week':
+        return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
+      case 'month':
+        return DateFormat('MMMM yyyy').format(selectedDate);
+      case 'custom':
+        return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
+      default:
+        return fmt.format(selectedDate);
+    }
+  }
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: DateTimeRange(start: custom[0], end: custom[1]),
+    );
+    if (picked != null) {
+      onCustomChanged([picked.start, picked.end]);
+      onModeChanged('custom');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final showArrows = mode != 'custom';
+
+    return Container(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Mode chips row
+        Row(children: [
+          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(m.$2),
+                selected: mode == m.$1,
+                onSelected: (_) => onModeChanged(m.$1),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                labelStyle: TextStyle(fontSize: 12,
+                    color: mode == m.$1 ? cs.onPrimary : null),
+                selectedColor: cs.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+            ),
+          InkWell(
+            onTap: () => _pickCustom(context),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: mode == 'custom' ? cs.primary : null,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: mode == 'custom' ? cs.primary : cs.outline.withValues(alpha: 0.4)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.date_range_outlined, size: 14,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface),
+                const SizedBox(width: 4),
+                Text('Custom', style: TextStyle(fontSize: 12,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface)),
+              ]),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 4),
+        // Date navigation row
+        Row(children: [
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: _prev,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          Expanded(
+            child: GestureDetector(
+              onTap: mode == 'day'
+                  ? () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (d != null) onDateChanged(d);
+                    }
+                  : mode == 'custom' ? () => _pickCustom(context) : null,
+              child: Text(_label(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            ),
+          ),
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: _next,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+        ]),
+      ]),
     );
   }
 }
@@ -157,11 +345,13 @@ class TripsScreen extends ConsumerWidget {
 
 class _TripsList extends StatefulWidget {
   final List<Map<String, dynamic>> list;
+  final bool showDate;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
   final void Function(Map<String, dynamic>) onConvert;
   const _TripsList({
     required this.list,
+    this.showDate = false,
     required this.onEdit,
     required this.onDelete,
     required this.onConvert,
@@ -172,96 +362,190 @@ class _TripsList extends StatefulWidget {
 }
 
 class _TripsListState extends State<_TripsList> {
-  bool _oneTimeOnly = false;
+  String _search = '';
+  bool _oneTimeOnly  = false;
+  bool _ownVehOnly   = false;
+  String? _matFilter; // materialName
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> all) {
+    var list = all;
+    if (_oneTimeOnly) list = list.where((t) => t['partyType'] == 'ONE_TIME').toList();
+    if (_ownVehOnly)  list = list.where((t) => t['vehicleMode'] == 'OWN_VEHICLE').toList();
+    if (_matFilter != null) list = list.where((t) => t['materialName'] == _matFilter).toList();
+    if (_search.isNotEmpty) {
+      list = list.where((t) {
+        final plate   = (t['vehiclePlateNumber'] as String? ?? '').toLowerCase();
+        final display = (t['vehicleDisplayName']  as String? ?? '').toLowerCase();
+        final party   = (t['partyDisplayName']    as String? ?? '').toLowerCase();
+        final challan = (t['dspChallanNo']         as String? ?? '').toLowerCase();
+        final vchal   = (t['vendorChallanNo']      as String? ?? '').toLowerCase();
+        return plate.contains(_search) || display.contains(_search) ||
+               party.contains(_search) || challan.contains(_search) ||
+               vchal.contains(_search);
+      }).toList();
+    }
+    return list;
+  }
+
+  Widget _filterChip(String label, bool active, VoidCallback onTap, {Color? color}) {
+    final c = color ?? Colors.blue;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? c.withValues(alpha: 0.15) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? c : Colors.grey.shade300),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+              color: active ? c : Colors.grey[700])),
+          if (active) ...[
+            const SizedBox(width: 3),
+            Icon(Icons.close, size: 11, color: c),
+          ],
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final all = widget.list;
-    final list = _oneTimeOnly
-        ? all.where((t) => t['partyType'] == 'ONE_TIME').toList()
-        : all;
-    final oneTimeCount = all.where((t) => t['partyType'] == 'ONE_TIME').length;
+    final all      = widget.list;
+    final filtered = _applyFilters(all);
 
-    final totalBill = list.fold<double>(
+    final oneTimeCount = all.where((t) => t['partyType'] == 'ONE_TIME').length;
+    final ownVehCount  = all.where((t) => t['vehicleMode'] == 'OWN_VEHICLE').length;
+
+    // Per-unit quantity totals — TON and BRASS are incompatible, show separately
+    double tonTotal   = 0, brassTotal = 0;
+    for (final t in filtered) {
+      final q    = (t['billableQuantity'] as num?)?.toDouble() ??
+                   (t['quantityBrass']    as num?)?.toDouble() ?? 0;
+      final unit = t['quantityUnit'] as String? ?? 'BRASS';
+      if (unit == 'TON') tonTotal += q; else brassTotal += q;
+    }
+
+    final totalBill = filtered.fold<double>(
         0, (s, t) => s + ((t['totalBill'] as num?)?.toDouble() ?? 0));
-    final totalQty = list.fold<double>(0, (s, t) {
-      final q = (t['billableQuantity'] as num?)?.toDouble() ??
-                (t['quantityBrass'] as num?)?.toDouble() ?? 0;
-      return s + q;
-    });
+
+    // Distinct materials for filter chips
+    final materials = all.map((t) => t['materialName'] as String?).whereType<String>()
+        .toSet().toList()..sort();
 
     return Column(
       children: [
+        // ── Summary bar ──────────────────────────────────────────────────────
         Container(
           color: Colors.green.shade50,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              const Icon(Icons.swap_horiz, size: 16, color: Colors.green),
-              const SizedBox(width: 6),
-              Text('${list.length} trip${list.length == 1 ? '' : 's'}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              if (totalQty > 0) ...[
-                const SizedBox(width: 16),
-                const Icon(Icons.inventory_2_outlined, size: 16, color: Colors.green),
-                const SizedBox(width: 6),
-                Text('${numFmt.format(totalQty)} total',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
-              ],
-              // One-time filter chip — tap to show only one-time customer trips
-              if (oneTimeCount > 0) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => setState(() => _oneTimeOnly = !_oneTimeOnly),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: _oneTimeOnly
-                          ? Colors.orange.shade200
-                          : Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange.shade300),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text('$oneTimeCount one-time',
-                          style: TextStyle(fontSize: 11, color: Colors.orange.shade800,
-                              fontWeight: FontWeight.w600)),
-                      if (_oneTimeOnly) ...[
-                        const SizedBox(width: 3),
-                        Icon(Icons.close, size: 12, color: Colors.orange.shade800),
-                      ],
-                    ]),
-                  ),
-                ),
-              ],
-              if (totalBill > 0) ...[
-                const Spacer(),
-                Text(fmtCurr(totalBill),
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 14,
-                        color: Colors.green.shade800)),
-              ],
+          child: Row(children: [
+            const Icon(Icons.swap_horiz, size: 16, color: Colors.green),
+            const SizedBox(width: 6),
+            Text('${filtered.length} trip${filtered.length == 1 ? '' : 's'}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            // Separate per-unit totals
+            if (tonTotal > 0) ...[
+              const SizedBox(width: 12),
+              const Icon(Icons.inventory_2_outlined, size: 15, color: Colors.green),
+              const SizedBox(width: 4),
+              Text('${numFmt.format(tonTotal)} TON',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
+                      color: Colors.green)),
             ],
+            if (brassTotal > 0) ...[
+              const SizedBox(width: 10),
+              const Icon(Icons.inventory_2_outlined, size: 15, color: Colors.green),
+              const SizedBox(width: 4),
+              Text('${numFmt.format(brassTotal)} BRASS',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
+                      color: Colors.green)),
+            ],
+            const Spacer(),
+            if (totalBill > 0)
+              Text(fmtCurr(totalBill),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
+                      color: Colors.green.shade800)),
+          ]),
+        ),
+        // ── Search bar ───────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Search vehicle, customer, challan…',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => setState(() {
+                        _search = '';
+                        _searchCtrl.clear();
+                      }),
+                    )
+                  : null,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (v) => setState(() => _search = v.toLowerCase().trim()),
           ),
         ),
+        // ── Filter chips ─────────────────────────────────────────────────────
+        if (oneTimeCount > 0 || ownVehCount > 0 || materials.length > 1)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(children: [
+              if (oneTimeCount > 0) ...[
+                _filterChip('One-Time ($oneTimeCount)', _oneTimeOnly,
+                    () => setState(() => _oneTimeOnly = !_oneTimeOnly),
+                    color: Colors.orange),
+                const SizedBox(width: 6),
+              ],
+              if (ownVehCount > 0) ...[
+                _filterChip('Own Vehicle ($ownVehCount)', _ownVehOnly,
+                    () => setState(() => _ownVehOnly = !_ownVehOnly),
+                    color: Colors.blue),
+                const SizedBox(width: 6),
+              ],
+              for (final mat in materials) ...[
+                _filterChip(mat, _matFilter == mat,
+                    () => setState(() => _matFilter = _matFilter == mat ? null : mat),
+                    color: Colors.indigo),
+                const SizedBox(width: 6),
+              ],
+            ]),
+          ),
+        // ── Trip list ────────────────────────────────────────────────────────
         Expanded(
-          child: list.isEmpty
-              ? const AppEmptyState(
-                  icon: Icons.person_outline,
-                  message: 'No one-time customer trips today',
-                  hint: 'Tap the "one-time" chip again to show all trips',
+          child: filtered.isEmpty
+              ? AppEmptyState(
+                  icon: Icons.search_off,
+                  message: 'No trips match the current filter',
+                  hint: 'Clear the search or remove a filter chip',
                 )
               : ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                  itemCount: list.length,
+                  itemCount: filtered.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _TripCard(
-                    trip: list[i],
-                    onEdit: () => widget.onEdit(list[i]),
-                    onDelete: () => widget.onDelete(list[i]),
-                    onConvert: list[i]['partyType'] == 'ONE_TIME'
-                        ? () => widget.onConvert(list[i])
+                    trip: filtered[i],
+                    showDate: widget.showDate,
+                    onEdit: () => widget.onEdit(filtered[i]),
+                    onDelete: () => widget.onDelete(filtered[i]),
+                    onConvert: filtered[i]['partyType'] == 'ONE_TIME'
+                        ? () => widget.onConvert(filtered[i])
                         : null,
                   ),
                 ),
@@ -275,11 +559,13 @@ class _TripsListState extends State<_TripsList> {
 
 class _TripCard extends StatefulWidget {
   final Map<String, dynamic> trip;
+  final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onConvert;
   const _TripCard({
     required this.trip,
+    this.showDate = false,
     required this.onEdit,
     required this.onDelete,
     this.onConvert,
@@ -569,6 +855,12 @@ class _TripCardState extends State<_TripCard> {
             const Divider(height: 16),
             row('TOTAL BILL', fmtCurr(total), totalRow: true),
           ],
+          // Audit info
+          const Divider(height: 16),
+          sHead('RECORD INFO'),
+          row('Entered by',      t['createdByName'] as String? ?? '—'),
+          if ((t['updatedByName'] as String?) != null)
+            row('Last edited by', t['updatedByName'] as String),
         ],
       ),
     );
@@ -588,10 +880,28 @@ class _TripCardState extends State<_TripCard> {
     final totalBill = (trip['totalBill'] as num?)?.toDouble();
     final party     = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
     final isOneTime = trip['partyType'] == 'ONE_TIME';
+    final outstanding = (trip['vendorOutstanding'] as num?)?.toDouble();
 
     final badgeLabel = isOwn
         ? 'OWN'
         : vehicle.length > 4 ? vehicle.substring(vehicle.length - 4) : vehicle;
+
+    // Payment status derived from vendor's total outstanding balance
+    Widget? paymentBadge;
+    if (!isOneTime && outstanding != null && totalBill != null && totalBill > 0) {
+      if (outstanding <= 0.5) {
+        paymentBadge = Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.check_circle, size: 12, color: Colors.green.shade600),
+          const SizedBox(width: 3),
+          Text('Paid', style: TextStyle(fontSize: 11, color: Colors.green.shade700,
+              fontWeight: FontWeight.w500)),
+        ]);
+      } else {
+        paymentBadge = Text('Balance ${fmtCurr(outstanding)}',
+            style: TextStyle(fontSize: 11, color: Colors.orange.shade800,
+                fontWeight: FontWeight.w500));
+      }
+    }
 
     return Card(
       child: Padding(
@@ -609,16 +919,24 @@ class _TripCardState extends State<_TripCard> {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
+                      // OWN badge: amber to visually distinguish from company vehicle
                       color: isOwn
-                          ? Colors.blue.shade100
+                          ? Colors.amber.shade100
                           : Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Center(
-                      child: Text(badgeLabel,
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center),
-                    ),
+                    child: isOwn
+                        ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Icon(Icons.person_outline, size: 16,
+                                color: Colors.amber.shade800),
+                            Text('OWN', style: TextStyle(fontSize: 8,
+                                fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
+                          ])
+                        : Center(
+                            child: Text(badgeLabel,
+                                style: const TextStyle(fontSize: 10,
+                                    fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.center)),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -629,6 +947,11 @@ class _TripCardState extends State<_TripCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(children: [
+                          if (widget.showDate) ...[
+                            Text(trip['tripDate'] as String? ?? '',
+                                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                            const SizedBox(width: 8),
+                          ],
                           Expanded(child: Text(material,
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
                           if (billableQty != null)
@@ -668,10 +991,16 @@ class _TripCardState extends State<_TripCard> {
                         Row(children: [
                           Expanded(child: Text(vehicle,
                               style: TextStyle(fontSize: 12, color: Colors.grey[500]))),
-                          if (totalBill != null && totalBill > 0)
-                            Text(fmtCurr(totalBill),
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
-                                    color: Colors.indigo.shade700)),
+                          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            if (totalBill != null && totalBill > 0)
+                              Text(fmtCurr(totalBill),
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+                                      color: Colors.indigo.shade700)),
+                            if (paymentBadge != null) ...[
+                              const SizedBox(height: 1),
+                              paymentBadge,
+                            ],
+                          ]),
                         ]),
                       ],
                     ),

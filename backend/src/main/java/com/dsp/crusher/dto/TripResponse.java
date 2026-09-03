@@ -59,5 +59,11 @@ public class TripResponse {
     private BigDecimal loadedWeightTon;
     private BigDecimal emptyWeightTon;
 
+    // ── Audit ─────────────────────────────────────────────────────────────────
     private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
+
+    // ── Finance: vendor's total outstanding (null for ONE_TIME) ──────────────
+    private BigDecimal vendorOutstanding;
 }

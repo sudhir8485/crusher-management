@@ -61,4 +61,7 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
 
     @Query("SELECT t.materialId, COUNT(t), COALESCE(SUM(t.quantityBrass), 0) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) GROUP BY t.materialId")
     List<Object[]> summarizeByMaterialAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT t.vendorId, COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId IN :vendorIds AND t.status = 'ACTIVE' GROUP BY t.vendorId")
+    List<Object[]> sumTotalBillByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 }

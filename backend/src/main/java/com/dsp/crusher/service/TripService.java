@@ -12,7 +12,9 @@ import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.TripRepository;
+import com.dsp.crusher.repository.UserRepository;
 import com.dsp.crusher.repository.VehicleRepository;
+import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -35,6 +37,8 @@ public class TripService {
     private final VehicleRepository vehicleRepo;
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
+    private final VendorPaymentRepository paymentRepo;
+    private final UserRepository userRepo;
 
     // ── List queries ──────────────────────────────────────────────────────────
 
@@ -98,6 +102,7 @@ public class TripService {
         Trip t = new Trip();
         t.setTenantId(TenantContext.get());
         t.setSiteId(resolveCreateSite(targetSiteId));
+        t.setCreatedByName(getCurrentUserName());
         applyRequest(t, req);
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
@@ -107,6 +112,7 @@ public class TripService {
         validate(req);
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
+        t.setUpdatedByName(getCurrentUserName());
         applyRequest(t, req);
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
@@ -311,6 +317,19 @@ public class TripService {
         Map<Long, Vendor> vendors = vendorRepo.findAll().stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
 
+        // Batch-compute vendor outstanding = total billed - total paid
+        List<Long> vendorIds = trips.stream()
+                .filter(t -> "REGULAR".equals(t.getPartyType()) && t.getVendorId() != null)
+                .map(Trip::getVendorId).distinct().collect(Collectors.toList());
+        Map<Long, BigDecimal> totalBilledMap = new java.util.HashMap<>();
+        Map<Long, BigDecimal> totalPaidMap   = new java.util.HashMap<>();
+        if (!vendorIds.isEmpty()) {
+            tripRepo.sumTotalBillByVendorIds(vendorIds)
+                    .forEach(row -> totalBilledMap.put((Long) row[0], (BigDecimal) row[1]));
+            paymentRepo.sumByVendorIds(vendorIds)
+                    .forEach(row -> totalPaidMap.put((Long) row[0], (BigDecimal) row[1]));
+        }
+
         return trips.stream().map(t -> {
             TripResponse r = new TripResponse();
             r.setId(t.getId());
@@ -378,7 +397,18 @@ public class TripService {
             r.setLoadedWeightTon(t.getLoadedWeightTon());
             r.setEmptyWeightTon(t.getEmptyWeightTon());
 
+            // Audit
             r.setCreatedAt(t.getCreatedAt());
+            r.setCreatedByName(t.getCreatedByName());
+            r.setUpdatedByName(t.getUpdatedByName());
+
+            // Vendor outstanding
+            if ("REGULAR".equals(t.getPartyType()) && t.getVendorId() != null) {
+                BigDecimal billed = totalBilledMap.getOrDefault(t.getVendorId(), BigDecimal.ZERO);
+                BigDecimal paid   = totalPaidMap.getOrDefault(t.getVendorId(), BigDecimal.ZERO);
+                r.setVendorOutstanding(billed.subtract(paid));
+            }
+
             return r;
         }).collect(Collectors.toList());
     }
@@ -396,5 +426,16 @@ public class TripService {
         Long sid = effectiveSiteId(targetSiteId);
         if (sid == null) throw new IllegalArgumentException("Select a site before creating entries");
         return sid;
+    }
+
+    private String getCurrentUserName() {
+        try {
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            return userRepo.findByEmailNative(email)
+                    .map(u -> u.getFullName())
+                    .orElse(email);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
