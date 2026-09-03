@@ -815,6 +815,103 @@ class _PartySearchDialogState extends State<_PartySearchDialog> {
   }
 }
 
+// ── Vehicle Picker Dialog ─────────────────────────────────────────────────────
+
+class _VehiclePickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> vehicles;
+  final int? currentId;
+  const _VehiclePickerDialog({required this.vehicles, this.currentId});
+
+  @override
+  State<_VehiclePickerDialog> createState() => _VehiclePickerDialogState();
+}
+
+class _VehiclePickerDialogState extends State<_VehiclePickerDialog> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _query.isEmpty
+        ? widget.vehicles
+        : widget.vehicles.where((v) {
+            final plate = (v['plateNumber'] as String? ?? '').toLowerCase();
+            final name  = (v['displayName']  as String? ?? '').toLowerCase();
+            return plate.contains(_query) || name.contains(_query);
+          }).toList();
+    final cs = Theme.of(context).colorScheme;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Vehicle',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 10),
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search by plate or name…',
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (q) => setState(() => _query = q.toLowerCase().trim()),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: filtered.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('No vehicles found',
+                          style: TextStyle(color: Colors.grey))))
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final v = filtered[i];
+                        final id = v['id'] as int?;
+                        final isSelected = id == widget.currentId;
+                        final label = '${v['displayName'] ?? v['plateNumber'] ?? '—'}';
+                        final sub   = v['vehicleType'] as String? ?? '';
+                        return ListTile(
+                          dense: true,
+                          title: Text(label,
+                              style: const TextStyle(fontWeight: FontWeight.w500)),
+                          subtitle: sub.isNotEmpty ? Text(sub) : null,
+                          trailing: isSelected
+                              ? Icon(Icons.check, color: cs.primary, size: 20)
+                              : null,
+                          tileColor: isSelected
+                              ? cs.primary.withValues(alpha: 0.06)
+                              : null,
+                          onTap: () => Navigator.pop(context, v),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Convert One-Time to Regular Customer ──────────────────────────────────────
 
 class _ConvertCustomerDialog extends ConsumerStatefulWidget {
@@ -882,7 +979,7 @@ class _ConvertCustomerDialogState extends ConsumerState<_ConvertCustomerDialog> 
         final qty = t['billableQuantity'] ?? t['quantityBrass'];
         if (qty != null) body['billableQuantity'] = qty;
       }
-      for (final k in ['dspChallanNo', 'vendorChallanNo', 'channelNo',
+      for (final k in ['dspChallanNo', 'vendorChallanNo',
                         'loadingLocation', 'unloadingLocation', 'notes']) {
         if (t[k] != null) body[k] = t[k];
       }
@@ -999,6 +1096,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
   // Vehicle
   String _vehicleMode = 'COMPANY';
   int? _vehicleId;
+  String _vehicleName = '';
   String? _vehicleError;
   final _distance              = TextEditingController();
   final _transportRate         = TextEditingController();
@@ -1008,7 +1106,6 @@ class _TripFormState extends ConsumerState<_TripForm> {
   bool _showAdditional = false;
   final _dspChallan   = TextEditingController();
   final _vdrChallan   = TextEditingController();
-  final _channel      = TextEditingController();
   final _loadingLoc   = TextEditingController();
   final _unloadingLoc = TextEditingController();
   final _notes        = TextEditingController();
@@ -1089,15 +1186,15 @@ class _TripFormState extends ConsumerState<_TripForm> {
         _transportChargeDirect.text = tc.toStringAsFixed(2);
       }
 
+      _vehicleName   = e['vehicleDisplayName'] ?? e['vehiclePlateNumber'] ?? '';
       _dspChallan.text   = e['dspChallanNo'] ?? '';
       _vdrChallan.text   = e['vendorChallanNo'] ?? '';
-      _channel.text      = e['channelNo'] ?? '';
       _loadingLoc.text   = e['loadingLocation'] ?? '';
       _unloadingLoc.text = e['unloadingLocation'] ?? '';
       _notes.text        = e['notes'] ?? '';
 
-      // Expand additional if any field has content (dspChallan is now in main form)
-      _showAdditional = [_vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes]
+      // Expand additional if any field has content
+      _showAdditional = [_vdrChallan, _loadingLoc, _unloadingLoc, _notes]
           .any((c) => c.text.isNotEmpty);
     }
 
@@ -1115,7 +1212,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
       _oneTimeName, _oneTimePhone, _oneTimeAddr,
       _loadedKg, _emptyKg, _manualQty, _saleRate, _materialTotal,
       _distance, _transportRate, _transportChargeDirect,
-      _dspChallan, _vdrChallan, _channel, _loadingLoc, _unloadingLoc, _notes,
+      _dspChallan, _vdrChallan, _loadingLoc, _unloadingLoc, _notes,
     ]) {
       ctrl.dispose();
     }
@@ -1300,12 +1397,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
       final t = val.trim();
       if (t.isNotEmpty) b[key] = t;
     }
-    opt('dspChallanNo',     _dspChallan.text);
-    opt('vendorChallanNo',  _vdrChallan.text);
-    opt('channelNo',        _channel.text);
-    opt('loadingLocation',  _loadingLoc.text);
+    opt('dspChallanNo',      _dspChallan.text);
+    opt('vendorChallanNo',   _vdrChallan.text);
+    opt('loadingLocation',   _loadingLoc.text);
     opt('unloadingLocation', _unloadingLoc.text);
-    opt('notes',            _notes.text);
+    opt('notes',             _notes.text);
 
     final api    = ref.read(apiClientProvider);
     final siteId = ref.read(selectedSiteIdProvider);
@@ -1466,6 +1562,37 @@ class _TripFormState extends ConsumerState<_TripForm> {
                         style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
               )
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+
+  Widget _vehiclePickerField(List<Map<String, dynamic>> vehicles) {
+    return GestureDetector(
+      onTap: () async {
+        final result = await showDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (_) => _VehiclePickerDialog(vehicles: vehicles, currentId: _vehicleId),
+        );
+        if (result != null) {
+          setState(() {
+            _vehicleId   = result['id'] as int?;
+            _vehicleName = '${result['displayName'] ?? result['plateNumber'] ?? ''}';
+            _vehicleError = null;
+          });
+        }
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Vehicle *',
+          errorText: _vehicleError,
+          suffixIcon: const Icon(Icons.search),
+          border: const OutlineInputBorder(),
+        ),
+        isEmpty: _vehicleName.isEmpty,
+        child: _vehicleName.isNotEmpty
+            ? Text(_vehicleName,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500))
             : const SizedBox.shrink(),
       ),
     );
@@ -1808,18 +1935,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
               vehs.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('Error loading vehicles: $e'),
-                data: (list) => SearchablePicker(
-                  items: list,
-                  itemLabel: (v) =>
-                      '${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
-                  fieldLabel: 'Vehicle *',
-                  value: _vehicleId,
-                  onChanged: (v) => setState(() {
-                    _vehicleId = v;
-                    _vehicleError = null;
-                  }),
-                  validator: (_) => _vehicleError,
-                ),
+                data: _vehiclePickerField,
               ),
               const SizedBox(height: 12),
               const SizedBox(height: 4),
@@ -1898,7 +2014,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 title: Text(
                     _showAdditional
                         ? 'Additional Details'
-                        : '+ Additional Details (Vendor Challan, Channel, Notes)',
+                        : '+ Additional Details (Vendor Challan, Notes)',
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: const EdgeInsets.only(top: 8),
@@ -1908,10 +2024,6 @@ class _TripFormState extends ConsumerState<_TripForm> {
                   TextFormField(
                       controller: _vdrChallan,
                       decoration: const InputDecoration(labelText: 'Vendor Challan Number')),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                      controller: _channel,
-                      decoration: const InputDecoration(labelText: 'Channel No')),
                   const SizedBox(height: 10),
                   Row(children: [
                     Expanded(child: TextFormField(
