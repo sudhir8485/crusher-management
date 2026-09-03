@@ -1396,8 +1396,13 @@ class _TripFormState extends ConsumerState<_TripForm> {
       if (mat != null) {
         final u = mat['unit'] as String?;
         if (u == 'TON' || u == 'BRASS') _quantityUnit = u!;
-        // Always prefill sale rate from material default (user can edit afterward)
-        final defRate = _rateForUnit(_quantityUnit, mat);
+        // Load sale rate: try the material's default unit first, fall back to the other unit
+        double? defRate = _rateForUnit(_quantityUnit, mat);
+        if (defRate == null) {
+          final other = _quantityUnit == 'TON' ? 'BRASS' : 'TON';
+          defRate = _rateForUnit(other, mat);
+          if (defRate != null) _quantityUnit = other; // switch unit to match the available rate
+        }
         if (defRate != null) _saleRate.text = defRate.toStringAsFixed(2);
         // Always prefill transport rate from material default
         final defTrans = (mat['defaultTransportRate'] as num?)?.toDouble();
