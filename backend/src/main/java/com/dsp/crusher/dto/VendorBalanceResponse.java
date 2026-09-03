@@ -13,6 +13,7 @@ public class VendorBalanceResponse {
     private String contact;
     private String gstin;
     private Boolean gstRegistered;
+    private Boolean isRegular;
     /** positive = party owes us (Outstanding), negative = we owe party (Advance), 0 = Settled. */
     private BigDecimal outstanding;
     private LocalDate lastActivityDate;

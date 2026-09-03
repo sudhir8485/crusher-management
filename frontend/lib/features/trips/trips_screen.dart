@@ -126,9 +126,8 @@ class TripsScreen extends ConsumerWidget {
                     : _TripsList(
                         list: list,
                         showDate: mode != 'day',
-                        onEdit: (t) => _showForm(context, ref, t, selectedDate, rangeKey),
-                        onDelete: (t) => _confirmDelete(context, ref, t, rangeKey),
-                        onConvert: (t) => _showConvertDialog(context, ref, t, rangeKey),
+                        onEdit:    (t) => _showForm(context, ref, t, selectedDate, rangeKey),
+                        onDelete:  (t) => _confirmDelete(context, ref, t, rangeKey),
                         onPayment: (t) => _showPaymentForm(context, ref, t, rangeKey),
                       );
               },
@@ -173,21 +172,6 @@ class TripsScreen extends ConsumerWidget {
             child: const Text('Delete'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showConvertDialog(BuildContext context, WidgetRef ref,
-      Map<String, dynamic> trip, String rangeKey) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _ConvertCustomerDialog(
-        trip: trip,
-        onSaved: () {
-          ref.invalidate(tripsProvider(rangeKey));
-          ref.invalidate(_vendorsProvider);
-        },
       ),
     );
   }
@@ -361,14 +345,12 @@ class _TripsList extends StatefulWidget {
   final bool showDate;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
-  final void Function(Map<String, dynamic>) onConvert;
   final void Function(Map<String, dynamic>) onPayment;
   const _TripsList({
     required this.list,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
-    required this.onConvert,
     required this.onPayment,
   });
 
@@ -378,7 +360,6 @@ class _TripsList extends StatefulWidget {
 
 class _TripsListState extends State<_TripsList> {
   String _search = '';
-  bool _oneTimeOnly  = false;
   bool _ownVehOnly   = false;
   String? _matFilter; // materialName
   final _searchCtrl = TextEditingController();
@@ -391,7 +372,6 @@ class _TripsListState extends State<_TripsList> {
 
   List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> all) {
     var list = all;
-    if (_oneTimeOnly) list = list.where((t) => t['partyType'] == 'ONE_TIME').toList();
     if (_ownVehOnly)  list = list.where((t) => t['vehicleMode'] == 'OWN_VEHICLE').toList();
     if (_matFilter != null) list = list.where((t) => t['materialName'] == _matFilter).toList();
     if (_search.isNotEmpty) {
@@ -438,7 +418,6 @@ class _TripsListState extends State<_TripsList> {
     final all      = widget.list;
     final filtered = _applyFilters(all);
 
-    final oneTimeCount = all.where((t) => t['partyType'] == 'ONE_TIME').length;
     final ownVehCount  = all.where((t) => t['vehicleMode'] == 'OWN_VEHICLE').length;
 
     // Per-unit quantity totals — TON and BRASS are incompatible, show separately
@@ -517,17 +496,11 @@ class _TripsListState extends State<_TripsList> {
           ),
         ),
         // ── Filter chips ─────────────────────────────────────────────────────
-        if (oneTimeCount > 0 || ownVehCount > 0 || materials.length > 1)
+        if (ownVehCount > 0 || materials.length > 1)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(children: [
-              if (oneTimeCount > 0) ...[
-                _filterChip('One-Time ($oneTimeCount)', _oneTimeOnly,
-                    () => setState(() => _oneTimeOnly = !_oneTimeOnly),
-                    color: Colors.orange),
-                const SizedBox(width: 6),
-              ],
               if (ownVehCount > 0) ...[
                 _filterChip('Own Vehicle ($ownVehCount)', _ownVehOnly,
                     () => setState(() => _ownVehOnly = !_ownVehOnly),
@@ -557,14 +530,9 @@ class _TripsListState extends State<_TripsList> {
                   itemBuilder: (_, i) => _TripCard(
                     trip: filtered[i],
                     showDate: widget.showDate,
-                    onEdit: () => widget.onEdit(filtered[i]),
-                    onDelete: () => widget.onDelete(filtered[i]),
-                    onConvert: filtered[i]['partyType'] == 'ONE_TIME'
-                        ? () => widget.onConvert(filtered[i])
-                        : null,
-                    onPayment: filtered[i]['partyType'] == 'REGULAR'
-                        ? () => widget.onPayment(filtered[i])
-                        : null,
+                    onEdit:    () => widget.onEdit(filtered[i]),
+                    onDelete:  () => widget.onDelete(filtered[i]),
+                    onPayment: () => widget.onPayment(filtered[i]),
                   ),
                 ),
         ),
@@ -580,14 +548,12 @@ class _TripCard extends StatefulWidget {
   final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback? onConvert;
   final VoidCallback? onPayment;
   const _TripCard({
     required this.trip,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
-    this.onConvert,
     this.onPayment,
   });
 
@@ -1063,7 +1029,6 @@ class _TripCardState extends State<_TripCard> {
     final unit      = trip['quantityUnit'] ?? 'Brass';
     final totalBill = (trip['totalBill'] as num?)?.toDouble();
     final party     = trip['partyDisplayName'] ?? trip['vendorName'] ?? '—';
-    final isOneTime = trip['partyType'] == 'ONE_TIME';
     final outstanding = (trip['vendorOutstanding'] as num?)?.toDouble();
 
     final badgeLabel = isOwn
@@ -1072,7 +1037,7 @@ class _TripCardState extends State<_TripCard> {
 
     // Payment status derived from vendor's total outstanding balance
     Widget? paymentBadge;
-    if (!isOneTime && outstanding != null && totalBill != null && totalBill > 0) {
+    if (outstanding != null && totalBill != null && totalBill > 0) {
       if (outstanding.abs() <= 0.5) {
         paymentBadge = Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.check_circle, size: 12, color: Colors.green.shade600),
@@ -1157,19 +1122,6 @@ class _TripCardState extends State<_TripCard> {
                         ]),
                         const SizedBox(height: 3),
                         Row(children: [
-                          if (isOneTime)
-                            Container(
-                              margin: const EdgeInsets.only(right: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade50,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: Colors.orange.shade200),
-                              ),
-                              child: Text('ONE-TIME',
-                                  style: TextStyle(fontSize: 9, color: Colors.orange.shade800,
-                                      fontWeight: FontWeight.w600)),
-                            ),
                           Expanded(child: Text(party,
                               style: TextStyle(fontSize: 13, color: Colors.grey[800],
                                   fontWeight: FontWeight.w500),
@@ -1210,7 +1162,6 @@ class _TripCardState extends State<_TripCard> {
                         _printChallan(context, trip);
                       }
                     }
-                    if (v == 'convert' && widget.onConvert != null) widget.onConvert!();
                     if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
                   },
                   itemBuilder: (_) {
@@ -1224,7 +1175,7 @@ class _TripCardState extends State<_TripCard> {
                           Text(isGstParty ? 'Print Tax Invoice' : 'Print Challan'),
                         ])),
                     const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    if (!isOneTime && widget.onPayment != null && (outstanding == null || outstanding > 0.5))
+                    if (widget.onPayment != null && (outstanding == null || outstanding > 0.5))
                       const PopupMenuItem(
                           value: 'payment',
                           child: Row(children: [
@@ -1232,15 +1183,6 @@ class _TripCardState extends State<_TripCard> {
                             SizedBox(width: 8),
                             Text('Record Payment',
                                 style: TextStyle(color: Colors.green)),
-                          ])),
-                    if (isOneTime)
-                      const PopupMenuItem(
-                          value: 'convert',
-                          child: Row(children: [
-                            Icon(Icons.person_add_outlined, size: 18, color: Colors.blue),
-                            SizedBox(width: 8),
-                            Text('Convert to Regular Customer',
-                                style: TextStyle(color: Colors.blue)),
                           ])),
                     const PopupMenuItem(
                         value: 'delete',
@@ -1261,97 +1203,229 @@ class _TripCardState extends State<_TripCard> {
 
 // ── Party Search Dialog ───────────────────────────────────────────────────────
 
-class _PartySearchDialog extends StatefulWidget {
+// ── Unified Customer Picker (Regular default, search all, + Add New) ──────────
+
+class _CustomerPickerDialog extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> vendors;
   final int? currentId;
-  const _PartySearchDialog({required this.vendors, this.currentId});
+  final VoidCallback onVendorCreated;
+  const _CustomerPickerDialog({
+    required this.vendors, this.currentId, required this.onVendorCreated,
+  });
 
   @override
-  State<_PartySearchDialog> createState() => _PartySearchDialogState();
+  ConsumerState<_CustomerPickerDialog> createState() => _CustomerPickerDialogState();
 }
 
-class _PartySearchDialogState extends State<_PartySearchDialog> {
+class _CustomerPickerDialogState extends ConsumerState<_CustomerPickerDialog> {
   String _query = '';
+  bool _showAddForm = false;
+
+  // Add-form controllers
+  final _newName    = TextEditingController();
+  final _newPhone   = TextEditingController();
+  final _newAddr    = TextEditingController();
+  bool _newIsRegular = false;
+  bool _addSaving    = false;
+
+  @override
+  void dispose() {
+    _newName.dispose(); _newPhone.dispose(); _newAddr.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _defaultList =>
+      widget.vendors.where((v) => v['isRegular'] == true).toList();
+
+  List<Map<String, dynamic>> get _searchList {
+    final q = _query;
+    return widget.vendors.where((v) {
+      final name  = (v['name']    as String? ?? '').toLowerCase();
+      final phone = (v['contact'] as String? ?? '').toLowerCase();
+      return name.contains(q) || phone.contains(q);
+    }).toList();
+  }
+
+  Future<void> _createAndSelect() async {
+    final name = _newName.text.trim();
+    if (name.isEmpty) return;
+    setState(() => _addSaving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final body = <String, dynamic>{
+        'name': name,
+        'isRegular': _newIsRegular,
+        if (_newPhone.text.trim().isNotEmpty) 'contact': _newPhone.text.trim(),
+        if (_newAddr.text.trim().isNotEmpty)  'address': _newAddr.text.trim(),
+      };
+      final res = await api.post('/api/parties', data: body);
+      final newVendor = Map<String, dynamic>.from(res.data as Map);
+      widget.onVendorCreated();
+      if (mounted) Navigator.pop(context, newVendor);
+    } catch (e) {
+      setState(() => _addSaving = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _query.isEmpty
-        ? widget.vendors
-        : widget.vendors.where((v) {
-            final name = (v['name'] as String? ?? '').toLowerCase();
-            final phone = (v['contact'] as String? ?? '').toLowerCase();
-            return name.contains(_query) || phone.contains(_query);
-          }).toList();
     final cs = Theme.of(context).colorScheme;
+
+    if (_showAddForm) return _buildAddForm(cs);
+
+    final displayed = _query.isEmpty ? _defaultList : _searchList;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
         child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('Select Customer',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 10),
                 TextField(
                   autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Search by name or phone…',
-                    prefixIcon: Icon(Icons.search, size: 20),
+                  decoration: InputDecoration(
+                    hintText: _query.isEmpty
+                        ? 'Regular customers shown · search for all…'
+                        : 'Search by name or phone…',
+                    prefixIcon: const Icon(Icons.search, size: 20),
                     isDense: true,
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   ),
                   onChanged: (q) => setState(() => _query = q.toLowerCase().trim()),
                 ),
-              ],
+              ]),
             ),
-          ),
-          const Divider(height: 1),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 340),
-            child: filtered.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                        child: Text('No parties found',
-                            style: TextStyle(color: Colors.grey))))
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
-                      final v = filtered[i];
-                      final id = v['id'] as int?;
-                      final isSelected = id == widget.currentId;
-                      final contact = v['contact'] as String? ?? '';
-                      return ListTile(
-                        dense: true,
-                        title: Text(v['name'] as String? ?? '',
-                            style: const TextStyle(fontWeight: FontWeight.w500)),
-                        subtitle: contact.isNotEmpty ? Text(contact) : null,
-                        trailing: isSelected
-                            ? Icon(Icons.check, color: cs.primary, size: 20)
-                            : null,
-                        tileColor: isSelected
-                            ? cs.primary.withValues(alpha: 0.06)
-                            : null,
+            const Divider(height: 1),
+            // Pinned: + Add New Customer
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.add_circle_outline, color: cs.primary, size: 20),
+              title: Text('+ Add New Customer',
+                  style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+              onTap: () => setState(() => _showAddForm = true),
+            ),
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: displayed.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(child: Text(
+                          _query.isEmpty ? 'No regular customers yet' : 'No customers found',
+                          style: const TextStyle(color: Colors.grey))))
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: displayed.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final v = displayed[i];
+                        final id = v['id'] as int?;
+                        final isSelected = id == widget.currentId;
+                        final contact = v['contact'] as String? ?? '';
+                        final isRegular = v['isRegular'] as bool? ?? false;
+                        return ListTile(
+                          dense: true,
+                          title: Text(v['name'] as String? ?? '',
+                              style: const TextStyle(fontWeight: FontWeight.w500)),
+                          subtitle: contact.isNotEmpty ? Text(contact) : null,
+                          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                            if (!isRegular)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.grey.shade300),
+                                ),
+                                child: Text('Occasional',
+                                    style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
+                              ),
+                            if (isSelected) ...[
+                              const SizedBox(width: 6),
+                              Icon(Icons.check, color: cs.primary, size: 20),
+                            ],
+                          ]),
+                        tileColor: isSelected ? cs.primary.withValues(alpha: 0.06) : null,
                         onTap: () => Navigator.pop(context, v),
                       );
                     },
                   ),
-          ),
-          const SizedBox(height: 4),
-        ],
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildAddForm(ColorScheme cs) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+            Row(children: [
+              IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _showAddForm = false)),
+              const SizedBox(width: 4),
+              const Text('Add New Customer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _newName,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  labelText: 'Customer Name *', border: OutlineInputBorder(), isDense: true),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: TextField(
+                  controller: _newPhone,
+                  decoration: const InputDecoration(
+                      labelText: 'Phone (optional)', border: OutlineInputBorder(), isDense: true))),
+              const SizedBox(width: 10),
+              Expanded(child: TextField(
+                  controller: _newAddr,
+                  decoration: const InputDecoration(
+                      labelText: 'Address (optional)', border: OutlineInputBorder(), isDense: true))),
+            ]),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Mark as Regular customer', style: TextStyle(fontSize: 13)),
+              subtitle: const Text('Regular customers appear in the default quick-select list',
+                  style: TextStyle(fontSize: 11)),
+              value: _newIsRegular,
+              onChanged: (v) => setState(() => _newIsRegular = v ?? false),
+            ),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: OutlinedButton(
+                  onPressed: () => setState(() => _showAddForm = false),
+                  child: const Text('Cancel'))),
+              const SizedBox(width: 10),
+              Expanded(child: FilledButton(
+                  onPressed: _addSaving ? null : _createAndSelect,
+                  child: _addSaving
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Save & Select'))),
+            ]),
+          ]),
+        ),
       ),
     );
   }
@@ -1560,147 +1634,6 @@ class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
   }
 }
 
-// ── Convert One-Time to Regular Customer ──────────────────────────────────────
-
-class _ConvertCustomerDialog extends ConsumerStatefulWidget {
-  final Map<String, dynamic> trip;
-  final VoidCallback onSaved;
-  const _ConvertCustomerDialog({required this.trip, required this.onSaved});
-
-  @override
-  ConsumerState<_ConvertCustomerDialog> createState() => _ConvertCustomerDialogState();
-}
-
-class _ConvertCustomerDialogState extends ConsumerState<_ConvertCustomerDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final _name  = TextEditingController(
-      text: widget.trip['oneTimeCustomerName']  as String? ?? '');
-  late final _phone = TextEditingController(
-      text: widget.trip['oneTimeCustomerPhone'] as String? ?? '');
-  late final _addr  = TextEditingController(
-      text: widget.trip['oneTimeCustomerAddr']  as String? ?? '');
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _name.dispose(); _phone.dispose(); _addr.dispose();
-    super.dispose();
-  }
-
-  Future<void> _convert() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
-    final api = ref.read(apiClientProvider);
-    try {
-      // 1. Create a regular customer/party record
-      final partyRes = await api.post('/api/parties', data: {
-        'name':   _name.text.trim(),
-        if (_phone.text.trim().isNotEmpty) 'contact': _phone.text.trim(),
-        if (_addr.text.trim().isNotEmpty)  'address': _addr.text.trim(),
-        'status': 'ACTIVE',
-      });
-      final newVendorId = partyRes.data['id'];
-
-      // 2. Update trip: switch to REGULAR party, preserve all billing fields
-      final t = widget.trip;
-      final body = <String, dynamic>{
-        'tripDate':      t['tripDate'],
-        'partyType':     'REGULAR',
-        'vendorId':      newVendorId,
-        'materialId':    t['materialId'],
-        'quantityUnit':  t['quantityUnit'] ?? 'BRASS',
-        'vehicleMode':   t['vehicleMode']   ?? 'COMPANY',
-        'transportMode': t['transportMode'] ?? 'CALCULATE',
-      };
-      if (t['loadedWeightKg']     != null) body['loadedWeightKg']     = t['loadedWeightKg'];
-      if (t['emptyWeightKg']      != null) body['emptyWeightKg']      = t['emptyWeightKg'];
-      if (t['saleRate']           != null) body['saleRate']           = t['saleRate'];
-      if (t['vehicleId']          != null) body['vehicleId']          = t['vehicleId'];
-      if (t['distanceKm']         != null) body['distanceKm']         = t['distanceKm'];
-      if (t['transportRatePerKm'] != null) body['transportRatePerKm'] = t['transportRatePerKm'];
-      // Re-send stored charge for DIRECT mode
-      if (t['transportMode'] == 'DIRECT' && t['transportationCharge'] != null) {
-        body['transportationChargeDirect'] = t['transportationCharge'];
-      }
-      // Only send billableQuantity when weights are absent (backend recalculates from weights)
-      if (t['loadedWeightKg'] == null || t['emptyWeightKg'] == null) {
-        final qty = t['billableQuantity'] ?? t['quantityBrass'];
-        if (qty != null) body['billableQuantity'] = qty;
-      }
-      for (final k in ['dspChallanNo', 'vendorChallanNo',
-                        'loadingLocation', 'unloadingLocation', 'notes']) {
-        if (t[k] != null) body[k] = t[k];
-      }
-
-      await api.put('/api/trips/${t['id']}', data: body);
-
-      widget.onSaved();
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${_name.text.trim()} added as a regular customer'),
-          backgroundColor: Colors.green,
-        ));
-      }
-    } catch (e) {
-      setState(() => _saving = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppDialog(
-      title: 'Convert to Regular Customer',
-      maxWidth: 440,
-      actions: [
-        TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
-        FilledButton(
-          onPressed: _saving ? null : _convert,
-          child: _saving
-              ? const SizedBox(width: 18, height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Save & Convert'),
-        ),
-      ],
-      body: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Creates a new Customer entry and links this trip to them. '
-              'Trip history and billing amounts are preserved.',
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _name,
-              decoration: const InputDecoration(labelText: 'Customer Name *'),
-              validator: (v) => v!.trim().isEmpty ? 'Required' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _phone,
-              decoration: const InputDecoration(labelText: 'Phone Number'),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _addr,
-              decoration: const InputDecoration(labelText: 'Address'),
-              maxLines: 2,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ── Trip Form ─────────────────────────────────────────────────────────────────
 
@@ -1720,15 +1653,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
   // Date
   late DateTime _tripDate;
 
-  // Party
-  String _partyType = 'REGULAR';
+  // Party (unified — all trips now have a real vendor record)
   int? _vendorId;
   String _vendorName = '';
   String _vendorPhone = '';
   String? _vendorError;
-  final _oneTimeName  = TextEditingController();
-  final _oneTimePhone = TextEditingController();
-  final _oneTimeAddr  = TextEditingController();
 
   // Material
   int? _materialId;
@@ -1775,13 +1704,9 @@ class _TripFormState extends ConsumerState<_TripForm> {
     _tripDate = widget.initialDate;
 
     if (e != null) {
-      _partyType = e['partyType'] ?? 'REGULAR';
       _vendorId  = e['vendorId'];
       _vendorName = e['vendorName'] ?? e['partyDisplayName'] ?? '';
       _vendorPhone = e['vendorContact'] ?? e['partyPhone'] ?? '';
-      _oneTimeName.text  = e['oneTimeCustomerName'] ?? '';
-      _oneTimePhone.text = e['oneTimeCustomerPhone'] ?? '';
-      _oneTimeAddr.text  = e['oneTimeCustomerAddr'] ?? '';
 
       _materialId   = e['materialId'];
       _quantityUnit = e['quantityUnit'] ?? 'BRASS';
@@ -1857,7 +1782,6 @@ class _TripFormState extends ConsumerState<_TripForm> {
   @override
   void dispose() {
     for (final ctrl in [
-      _oneTimeName, _oneTimePhone, _oneTimeAddr,
       _loadedKg, _emptyKg, _manualQty, _saleRate, _materialTotal,
       _distance, _transportRate, _transportChargeDirect,
       _dspChallan, _vdrChallan, _loadingLoc, _unloadingLoc, _notes,
@@ -1983,7 +1907,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
   Future<void> _save() async {
     // Manual validation for dialog pickers (not in Form tree)
     setState(() {
-      _vendorError   = (_partyType == 'REGULAR' && _vendorId == null) ? 'Select a customer' : null;
+      _vendorError   = _vendorId == null ? 'Select a customer' : null;
       _vehicleError  = (_vehicleMode == 'COMPANY' && _vehicleId == null) ? 'Select a vehicle' : null;
       _materialError = _materialId == null ? 'Select a material' : null;
     });
@@ -1994,19 +1918,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
     setState(() => _saving = true);
 
     final b = <String, dynamic>{
-      'tripDate': DateFormat('yyyy-MM-dd').format(_tripDate),
-      'partyType': _partyType,
+      'tripDate':  DateFormat('yyyy-MM-dd').format(_tripDate),
+      'partyType': 'REGULAR',
+      'vendorId':  _vendorId,
     };
-
-    if (_partyType == 'REGULAR') {
-      b['vendorId'] = _vendorId;
-    } else {
-      b['oneTimeCustomerName'] = _oneTimeName.text.trim();
-      final ph = _oneTimePhone.text.trim();
-      if (ph.isNotEmpty) b['oneTimeCustomerPhone'] = ph;
-      final ad = _oneTimeAddr.text.trim();
-      if (ad.isNotEmpty) b['oneTimeCustomerAddr'] = ad;
-    }
 
     b['materialId']   = _materialId;
     b['quantityUnit'] = _quantityUnit;
@@ -2205,7 +2120,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
       onTap: () async {
         final result = await showDialog<Map<String, dynamic>>(
           context: context,
-          builder: (_) => _PartySearchDialog(vendors: vendors, currentId: _vendorId),
+          builder: (_) => _CustomerPickerDialog(
+            vendors: vendors,
+            currentId: _vendorId,
+            onVendorCreated: () => ref.invalidate(_vendorsProvider),
+          ),
         );
         if (result != null) {
           setState(() {
@@ -2230,8 +2149,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(_vendorName,
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w500)),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
                   if (_vendorPhone.isNotEmpty)
                     Text(_vendorPhone,
                         style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -2434,41 +2352,11 @@ class _TripFormState extends ConsumerState<_TripForm> {
 
             // ── 2. Customer ─────────────────────────────────────────────────
             _sectionHead('CUSTOMER'),
-            Row(children: [
-              Expanded(child: _pill('Regular Customer', _partyType == 'REGULAR', () {
-                setState(() { _partyType = 'REGULAR'; _vendorError = null; });
-              })),
-              const SizedBox(width: 8),
-              Expanded(child: _pill('One-Time Customer', _partyType == 'ONE_TIME', () {
-                setState(() { _partyType = 'ONE_TIME'; _vendorError = null; });
-              })),
-            ]),
-            const SizedBox(height: 12),
-            if (_partyType == 'REGULAR')
-              vendors.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('Error loading parties: $e'),
-                data: _partyPickerField,
-              )
-            else ...[
-              TextFormField(
-                controller: _oneTimeName,
-                decoration: const InputDecoration(labelText: 'Customer Name *'),
-                validator: (v) =>
-                    (_partyType == 'ONE_TIME' && (v == null || v.trim().isEmpty))
-                        ? 'Name is required' : null,
-              ),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: TextFormField(
-                    controller: _oneTimePhone,
-                    decoration: const InputDecoration(labelText: 'Phone Number'))),
-                const SizedBox(width: 12),
-                Expanded(child: TextFormField(
-                    controller: _oneTimeAddr,
-                    decoration: const InputDecoration(labelText: 'Address'))),
-              ]),
-            ],
+            vendors.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error loading parties: $e'),
+              data: _partyPickerField,
+            ),
 
             // ── 3. Material & Quantity ──────────────────────────────────────
             _sectionHead('MATERIAL & QUANTITY'),

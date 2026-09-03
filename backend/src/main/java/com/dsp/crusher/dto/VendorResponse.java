@@ -10,6 +10,7 @@ public class VendorResponse {
     private String name;
     private String gstin;
     private Boolean gstRegistered;
+    private Boolean isRegular;
     private String contact;
     private String address;
     private String status;

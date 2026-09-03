@@ -27,6 +27,14 @@ public class Vendor {
     @Column(name = "gst_registered", nullable = false)
     private Boolean gstRegistered = false;
 
+    /**
+     * True = Regular customer (appears in Trip quick-select default list).
+     * False = Occasional customer (reachable via search in Trip form, but not in the default list).
+     * INDEPENDENT of gstRegistered — these are separate, unrelated flags.
+     */
+    @Column(name = "is_regular", nullable = false)
+    private Boolean isRegular = false;
+
     @Column(length = 100)
     private String contact;
 

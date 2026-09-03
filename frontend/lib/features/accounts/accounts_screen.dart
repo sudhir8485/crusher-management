@@ -107,6 +107,8 @@ class _PartiesTabState extends ConsumerState<_PartiesTab> {
       list = list.where((p) => (_outstanding(p)) < -0.5).toList();
     } else if (_filter == 'settled') {
       list = list.where((p) => (_outstanding(p)).abs() <= 0.5).toList();
+    } else if (_filter == 'occasional') {
+      list = list.where((p) => p['isRegular'] == false).toList();
     }
     // Default sort: highest outstanding first, then advances, then settled
     list.sort((a, b) {
@@ -173,7 +175,7 @@ class _PartiesTabState extends ConsumerState<_PartiesTab> {
             child: Row(children: [
               for (final (label, value) in [
                 ('All', 'all'), ('Outstanding', 'outstanding'),
-                ('Advance', 'advance'), ('Settled', 'settled'),
+                ('Advance', 'advance'), ('Settled', 'settled'), ('Occasional', 'occasional'),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6),

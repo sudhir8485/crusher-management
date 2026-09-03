@@ -226,12 +226,14 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
   late final TextEditingController _contact= TextEditingController(text: widget.existing?['contact'] ?? '');
   late final TextEditingController _address= TextEditingController(text: widget.existing?['address'] ?? '');
   bool _gstRegistered = false;
+  bool _isRegular = false;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _gstRegistered = widget.existing?['gstRegistered'] as bool? ?? false;
+    _isRegular     = widget.existing?['isRegular']     as bool? ?? false;
   }
 
   @override
@@ -247,6 +249,7 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
     final data = {
       'name': _name.text,
       'gstRegistered': _gstRegistered,
+      'isRegular': _isRegular,
       if (_gstin.text.trim().isNotEmpty) 'gstin': _gstin.text.trim(),
       if (_contact.text.trim().isNotEmpty) 'contact': _contact.text.trim(),
       if (_address.text.trim().isNotEmpty) 'address': _address.text.trim(),
@@ -265,6 +268,27 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
     }
   }
 
+  Widget _typeBtn(String label, bool selected, VoidCallback onTap) {
+    final color = Theme.of(context).colorScheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? color : Colors.grey.shade300),
+        ),
+        child: Text(label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                color: selected ? color : Colors.grey.shade700)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -278,7 +302,21 @@ class _VendorFormState extends ConsumerState<_VendorForm> {
             children: [
               TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Name *'),
                   validator: (v) => v!.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
+              // Regular vs Occasional — independent of GST status
+              Row(children: [
+                Expanded(child: _typeBtn('Regular', _isRegular, () => setState(() => _isRegular = true))),
+                const SizedBox(width: 8),
+                Expanded(child: _typeBtn('Occasional', !_isRegular, () => setState(() => _isRegular = false))),
+              ]),
+              const SizedBox(height: 4),
+              Text(
+                _isRegular
+                    ? 'Appears in Trip quick-select list by default'
+                    : 'Reachable via search in Trip form — not in default list',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+              ),
+              const Divider(height: 20),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('GST Registered', style: TextStyle(fontSize: 14)),

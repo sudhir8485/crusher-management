@@ -48,6 +48,7 @@ public class VendorService {
         r.setName(v.getName());
         r.setGstin(v.getGstin());
         r.setGstRegistered(v.getGstRegistered());
+        r.setIsRegular(v.getIsRegular());
         r.setContact(v.getContact());
         r.setAddress(v.getAddress());
         r.setStatus(v.getStatus());
@@ -104,6 +105,7 @@ public class VendorService {
             r.setContact(v.getContact());
             r.setGstin(v.getGstin());
             r.setGstRegistered(v.getGstRegistered());
+            r.setIsRegular(v.getIsRegular());
             r.setOutstanding(billed.subtract(paid));
             r.setLastActivityDate(lastActivity);
             result.add(r);
@@ -234,6 +236,7 @@ public class VendorService {
         v.setName(req.getName());
         v.setGstin(req.getGstin());
         if (req.getGstRegistered() != null) v.setGstRegistered(req.getGstRegistered());
+        if (req.getIsRegular() != null) v.setIsRegular(req.getIsRegular());
         v.setContact(req.getContact());
         v.setAddress(req.getAddress());
         return repo.save(v);
@@ -245,6 +248,7 @@ public class VendorService {
         v.setName(req.getName());
         v.setGstin(req.getGstin());
         if (req.getGstRegistered() != null) v.setGstRegistered(req.getGstRegistered());
+        if (req.getIsRegular() != null) v.setIsRegular(req.getIsRegular());
         v.setContact(req.getContact());
         v.setAddress(req.getAddress());
         return repo.save(v);
