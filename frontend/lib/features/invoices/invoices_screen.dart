@@ -80,6 +80,15 @@ final _vendorsProvider =
   return List<Map<String, dynamic>>.from(res.data);
 });
 
+final _invoiceMaterialsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/materials');
+  return (res.data as List)
+      .map((e) => Map<String, dynamic>.from(e as Map))
+      .where((m) => m['status'] == 'ACTIVE')
+      .toList();
+});
+
 final _invoicePaymentsProvider =
     FutureProvider.autoDispose.family<List<Map<String, dynamic>>, int>(
         (ref, invoiceId) async {
@@ -461,19 +470,24 @@ class _InvoiceDetailDialogState
 
   @override
   Widget build(BuildContext context) {
-    final inv       = widget.invoice;
-    final invoiceId = inv['id'] as int;
-    final items     = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
-    final cgstRate  = inv['cgstRate'] as num? ?? 9;
-    final sgstRate  = inv['sgstRate'] as num? ?? 9;
-    final subtotal  = inv['subtotal'] as num? ?? 0;
-    final cgstAmt   = inv['cgstAmount'] as num? ?? 0;
-    final sgstAmt   = inv['sgstAmount'] as num? ?? 0;
-    final grandTotal = inv['grandTotal'] as num? ?? 0;
-    final totalPaid  = inv['totalPaid'] as num? ?? 0;
+    final inv        = widget.invoice;
+    final invoiceId  = inv['id'] as int;
+    final items      = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
+    final cgstRate   = inv['cgstRate'] as num? ?? 9;
+    final sgstRate   = inv['sgstRate'] as num? ?? 9;
+    final subtotal   = inv['subtotal'] as num? ?? 0;
+    final cgstAmt    = inv['cgstAmount'] as num? ?? 0;
+    final sgstAmt    = inv['sgstAmount'] as num? ?? 0;
+    final grandTotal  = inv['grandTotal'] as num? ?? 0;
+    final totalPaid   = inv['totalPaid'] as num? ?? 0;
     final outstanding = inv['outstandingAmount'] as num? ?? 0;
-    final status     = inv['paymentStatus'] as String? ?? 'UNPAID';
+    final status      = inv['paymentStatus'] as String? ?? 'UNPAID';
     final statusColor = _statusColor(status);
+    final gstStatus   = inv['gstStatus'] as String? ?? 'SET';
+    final isPending   = gstStatus == 'PENDING';
+    // Audit trail for display after recalculation
+    final prevSgst    = inv['gstPrevSgstRate'] as num?;
+    final recalcBy    = inv['gstRecalculatedBy'] as String?;
 
     final payments = ref.watch(_invoicePaymentsProvider(invoiceId));
 
@@ -556,6 +570,90 @@ class _InvoiceDetailDialogState
               ],
             ),
           ),
+          // GST Pending banner + Recalculate action
+          if (isPending) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('GST: Pending',
+                            style: TextStyle(fontWeight: FontWeight.bold,
+                                fontSize: 13, color: Colors.orange.shade900)),
+                        Text('GST rate was not configured when this invoice was raised. '
+                            'Set the rate in Material Master, then tap Recalculate.',
+                            style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(
+                        backgroundColor: Colors.orange.shade100,
+                        foregroundColor: Colors.orange.shade900),
+                    onPressed: () async {
+                      final api = ref.read(apiClientProvider);
+                      try {
+                        final res = await api.post('/api/invoices/$invoiceId/recalculate-gst');
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                        ref.read(_invoicesNotifierProvider.notifier).refresh();
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('GST recalculated — '
+                              'SGST ${res.data['sgstRate']}% / '
+                              'CGST ${res.data['cgstRate']}% applied. '
+                              'Invoice locked as SET.'),
+                          backgroundColor: Colors.green,
+                        ));
+                      } catch (err) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('Error: $err'),
+                            backgroundColor: Colors.red));
+                      }
+                    },
+                    child: const Text('Recalculate GST'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          // Audit log line shown after a recalculation (gstStatus=SET + prevRate present)
+          if (!isPending && prevSgst != null && recalcBy != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'GST recalculated by $recalcBy — '
+                      'prev rate ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
+                      style: TextStyle(fontSize: 11, color: Colors.green.shade800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           // Tabs
           TabBar(
@@ -891,6 +989,11 @@ class _ItemRow {
   final rateCtrl = TextEditingController();
   final amtCtrl  = TextEditingController();
 
+  // Material picker state
+  int?    materialId;
+  String? materialName;
+  bool    materialGstConfigured = true;   // false → will create PENDING invoice
+
   _ItemRow({Map<String, dynamic>? data}) {
     if (data != null) {
       descCtrl.text = data['description'] as String? ?? '';
@@ -900,6 +1003,7 @@ class _ItemRow {
       final rate = data['rate'];
       if (rate != null) rateCtrl.text = rate.toString();
       amtCtrl.text = (data['amount'] as num? ?? 0).toString();
+      materialId   = data['materialId'] as int?;
     }
   }
 
@@ -914,6 +1018,7 @@ class _ItemRow {
         'quantityBrass': double.tryParse(qtyCtrl.text),
         'rate':          double.tryParse(rateCtrl.text),
         'amount':        double.tryParse(amtCtrl.text) ?? 0.0,
+        'materialId':    materialId,
       };
 }
 
@@ -1133,7 +1238,7 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
 
 // ── item row widget ───────────────────────────────────────────────────────────
 
-class _ItemRowWidget extends StatelessWidget {
+class _ItemRowWidget extends ConsumerStatefulWidget {
   final _ItemRow row;
   final int index;
   final bool canRemove;
@@ -1145,74 +1250,272 @@ class _ItemRowWidget extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-        decoration: BoxDecoration(
-          color: Colors.grey[50],
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey[200]!),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Text('Item ${index + 1}',
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              if (canRemove)
-                GestureDetector(
-                    onTap: onRemove,
-                    child: const Icon(Icons.close, size: 18, color: Colors.red)),
-            ]),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: row.descCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'Description *', isDense: true),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
+  ConsumerState<_ItemRowWidget> createState() => _ItemRowWidgetState();
+}
+
+class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
+  /// Opens the shared material search dialog (reuses the same pattern as the
+  /// trips form: SearchablePicker embedded in a compact dialog).
+  Future<void> _pickMaterial(List<Map<String, dynamic>> materials) async {
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _MaterialPickerDialog(materials: materials),
+    );
+    if (picked == null) return;
+    setState(() {
+      widget.row.materialId            = picked['id'] as int?;
+      widget.row.materialName          = picked['name'] as String?;
+      widget.row.materialGstConfigured = picked['gstRateConfigured'] as bool? ?? true;
+      // Auto-fill HSN from material
+      final hsn = picked['hsnCode'] as String?;
+      if (hsn != null && hsn.isNotEmpty) widget.row.hsnCtrl.text = hsn;
+      // Auto-fill description if blank
+      if (widget.row.descCtrl.text.trim().isEmpty) {
+        widget.row.descCtrl.text = 'Trip — ${picked['name']}';
+      }
+    });
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final materialsAsync = ref.watch(_invoiceMaterialsProvider);
+    final row = widget.row;
+    final hasMaterial   = row.materialId != null;
+    final gstPending    = hasMaterial && !row.materialGstConfigured;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: gstPending ? Colors.amber.shade50 : Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+            color: gstPending ? Colors.amber.shade300 : Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header row ─────────────────────────────────────────────────────
+          Row(children: [
+            Text('Item ${widget.index + 1}',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const Spacer(),
+            // Material picker button — reuses the same compact dialog as Trips
+            materialsAsync.when(
+              loading: () => const SizedBox(width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (mats) => InkWell(
+                onTap: () => _pickMaterial(mats),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: hasMaterial
+                        ? (gstPending
+                            ? Colors.amber.shade100
+                            : Colors.blue.shade50)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: hasMaterial
+                            ? (gstPending
+                                ? Colors.amber.shade400
+                                : Colors.blue.shade300)
+                            : Colors.grey.shade300),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.category_outlined,
+                        size: 14,
+                        color: hasMaterial
+                            ? (gstPending
+                                ? Colors.orange.shade700
+                                : Colors.blue.shade700)
+                            : Colors.grey.shade600),
+                    const SizedBox(width: 4),
+                    Text(
+                      hasMaterial ? row.materialName! : 'Select Material',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: hasMaterial
+                              ? (gstPending
+                                  ? Colors.orange.shade800
+                                  : Colors.blue.shade700)
+                              : Colors.grey.shade600),
+                    ),
+                  ]),
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(width: 8),
+            if (widget.canRemove)
+              GestureDetector(
+                  onTap: widget.onRemove,
+                  child: const Icon(Icons.close, size: 18, color: Colors.red)),
+          ]),
+
+          // GST-pending warning chip
+          if (gstPending) ...[
+            const SizedBox(height: 6),
             Row(children: [
-              Expanded(child: TextFormField(
-                controller: row.hsnCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'HSN Code', isDense: true),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: TextFormField(
-                controller: row.qtyCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Qty (Brass)', isDense: true),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              )),
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              Expanded(child: TextFormField(
-                controller: row.rateCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Rate', isDense: true, prefixText: '₹'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: TextFormField(
-                controller: row.amtCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Amount *', isDense: true, prefixText: '₹'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) =>
-                    (v == null || double.tryParse(v) == null) ? 'Required' : null,
-              )),
+              Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
+              const SizedBox(width: 4),
+              Text(
+                'GST rate not set for ${row.materialName} — invoice will be PENDING',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+              ),
             ]),
           ],
+
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: row.descCtrl,
+            decoration: const InputDecoration(
+                labelText: 'Description *', isDense: true),
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Required' : null,
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextFormField(
+              controller: row.hsnCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'HSN Code', isDense: true),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: TextFormField(
+              controller: row.qtyCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Qty (Brass)', isDense: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+            )),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextFormField(
+              controller: row.rateCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Rate', isDense: true, prefixText: '₹'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: TextFormField(
+              controller: row.amtCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Amount *', isDense: true, prefixText: '₹'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              validator: (v) =>
+                  (v == null || double.tryParse(v) == null) ? 'Required' : null,
+            )),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Material picker dialog (compact, searchable — same pattern as Trips) ──────
+
+class _MaterialPickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> materials;
+  const _MaterialPickerDialog({required this.materials});
+
+  @override
+  State<_MaterialPickerDialog> createState() => _MaterialPickerDialogState();
+}
+
+class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
+  final _search = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() { _search.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.materials.where((m) {
+      final name = (m['name'] as String? ?? '').toLowerCase();
+      final code = (m['code'] as String? ?? '').toLowerCase();
+      return _q.isEmpty || name.contains(_q) || code.contains(_q);
+    }).toList();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 480),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(children: [
+                const Expanded(child: Text('Select Material',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold))),
+                IconButton(icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => Navigator.pop(context)),
+              ]),
+            ),
+            // Search field
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _search,
+                autofocus: true,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Search by name or code…',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onChanged: (v) => setState(() => _q = v.toLowerCase()),
+              ),
+            ),
+            // List
+            Expanded(
+              child: ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, indent: 16),
+                itemBuilder: (_, i) {
+                  final m = filtered[i];
+                  final gstRate     = m['gstRate'] as num? ?? 0;
+                  final configured  = m['gstRateConfigured'] as bool? ?? false;
+                  final isPending   = gstRate == 0 && !configured;
+                  return ListTile(
+                    dense: true,
+                    title: Text(m['name'] as String? ?? '—'),
+                    subtitle: Text(
+                      isPending
+                          ? 'GST: not configured — invoice will be PENDING'
+                          : gstRate > 0
+                              ? 'GST ${gstRate}%  ·  HSN ${m['hsnCode'] ?? '—'}'
+                              : 'GST 0% (zero-rated)  ·  HSN ${m['hsnCode'] ?? '—'}',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: isPending
+                              ? Colors.orange.shade700
+                              : Colors.grey.shade600),
+                    ),
+                    trailing: isPending
+                        ? Icon(Icons.warning_amber_rounded,
+                            size: 16, color: Colors.orange.shade600)
+                        : null,
+                    onTap: () => Navigator.pop(context, m),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
 // ── shared table cells ────────────────────────────────────────────────────────

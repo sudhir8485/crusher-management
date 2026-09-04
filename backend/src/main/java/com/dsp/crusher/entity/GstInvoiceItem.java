@@ -32,4 +32,9 @@ public class GstInvoiceItem {
 
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal amount;
+
+    /** Optional link to Material Master — present when the item was raised from a
+     *  known material, enabling the Recalculate GST action to pull the current rate. */
+    @Column(name = "material_id")
+    private Long materialId;
 }

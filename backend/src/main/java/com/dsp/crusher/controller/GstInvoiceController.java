@@ -58,4 +58,20 @@ public class GstInvoiceController {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
     }
+
+    /** Explicit Recalculate GST — only allowed when gst_status = PENDING.
+     *  Pulls current Material GST rate, recomputes, locks as SET, logs who/when/old-rate. */
+    @PostMapping("/{id}/recalculate-gst")
+    public GstInvoiceResponse recalculateGst(@PathVariable Long id) {
+        return service.recalculateGst(id);
+    }
+
+    /** Set a specific GST rate directly on a PENDING invoice (no Material Master needed).
+     *  rate = total GST% (e.g. 18 → SGST 9% + CGST 9%). Locks as SET. */
+    @PostMapping("/{id}/set-gst-rate")
+    public GstInvoiceResponse setGstRate(
+            @PathVariable Long id,
+            @RequestParam java.math.BigDecimal rate) {
+        return service.setGstRate(id, rate);
+    }
 }

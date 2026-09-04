@@ -18,17 +18,20 @@ class _Range { final DateTime from, to; const _Range(this.from, this.to); }
 
 _Range _presetRange(_Preset p) {
   final now = DateTime.now();
+  final fyStart = now.month >= 4
+      ? DateTime(now.year, 4, 1)
+      : DateTime(now.year - 1, 4, 1);
   switch (p) {
     case _Preset.thisMonth:
-      return _Range(DateTime(now.year, now.month, 1), DateTime(now.year, now.month + 1, 0));
+      return _Range(DateTime(now.year, now.month, 1), now);
     case _Preset.lastMonth:
       final m = now.month == 1 ? 12 : now.month - 1;
       final y = now.month == 1 ? now.year - 1 : now.year;
       return _Range(DateTime(y, m, 1), DateTime(y, m + 1, 0));
     case _Preset.thisYear:
-      return _Range(DateTime(now.year, 4, 1), DateTime(now.year + 1, 3, 31));
+      return _Range(fyStart, now);
     case _Preset.prevYear:
-      return _Range(DateTime(now.year - 1, 4, 1), DateTime(now.year, 3, 31));
+      return _Range(DateTime(fyStart.year - 1, 4, 1), DateTime(fyStart.year, 3, 31));
     case _Preset.custom:
       return _Range(now, now);
   }
@@ -36,21 +39,28 @@ _Range _presetRange(_Preset p) {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
-final _statementProvider = FutureProvider.autoDispose
-    .family<Map<String, dynamic>, String>((ref, key) async {
-  // key: "vendorId|from|to"
-  final parts = key.split('|');
+class _LedgerKey {
+  final int vendorId;
+  final String from, to;
+  const _LedgerKey(this.vendorId, this.from, this.to);
+  @override bool operator ==(Object o) =>
+      o is _LedgerKey && o.vendorId == vendorId && o.from == from && o.to == to;
+  @override int get hashCode => Object.hash(vendorId, from, to);
+}
+
+final _ledgerProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, _LedgerKey>((ref, k) async {
   final res = await ref.read(apiClientProvider).get(
-    '/api/parties/${parts[0]}/statement',
-    params: {'from': parts[1], 'to': parts[2]},
+    '/api/ledger/party/${k.vendorId}',
+    params: {'from': k.from, 'to': k.to},
   );
   return Map<String, dynamic>.from(res.data as Map);
 });
 
-final _dateFmtKey  = DateFormat('yyyy-MM-dd');
-final _dateFmtLong = DateFormat('d MMM yyyy');
+final _dateFmtKey   = DateFormat('yyyy-MM-dd');
+final _dateFmtLong  = DateFormat('d MMM yyyy');
 final _dateFmtShort = DateFormat('d MMM yy');
-final _numFmt = NumberFormat('#,##,##0.##');
+final _numFmt       = NumberFormat('#,##,##0.##');
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -76,7 +86,8 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     _from = r.from; _to = r.to;
   }
 
-  String get _key => '${widget.vendorId}|${_dateFmtKey.format(_from)}|${_dateFmtKey.format(_to)}';
+  _LedgerKey get _key =>
+      _LedgerKey(widget.vendorId, _dateFmtKey.format(_from), _dateFmtKey.format(_to));
 
   void _applyPreset(_Preset p) {
     if (p == _Preset.custom) return;
@@ -98,7 +109,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     if (d != null) setState(() { _to = d; _preset = _Preset.custom; });
   }
 
-  void _showStatementOptions(Map<String, dynamic> data) {
+  void _showExportOptions(Map<String, dynamic> data) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -109,7 +120,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
           Container(width: 40, height: 4, decoration: BoxDecoration(
               color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 12),
-          const Text('Print Statement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Text('Export Ledger', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 8),
           ListTile(
             leading: const Icon(Icons.picture_as_pdf_outlined, color: Colors.red),
@@ -120,7 +131,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
           ListTile(
             leading: const Icon(Icons.table_view_outlined, color: Colors.green),
             title: const Text('Export Excel (.xlsx)'),
-            subtitle: const Text('Tally-format ledger — same as reference'),
+            subtitle: const Text('Tally-format ledger — matches Ledger.xlsx'),
             onTap: () { Navigator.pop(context); _exportExcel(data); },
           ),
           const SizedBox(height: 8),
@@ -136,8 +147,11 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
       final bytes = await _buildPdf(data);
       await Printing.layoutPdf(
         onLayout: (_) => bytes,
-        name: '${widget.vendorName.replaceAll(' ', '_')}_Statement.pdf',
+        name: '${widget.vendorName.replaceAll(' ', '_')}_Ledger.pdf',
       );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF failed: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _printing = false);
     }
@@ -157,29 +171,29 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     }
   }
 
-  /// Generates a Tally-format ledger Excel matching the Malganga Ledger.xlsx structure.
-  /// Column layout: A=Date  B=Particulars  C=Sub-amount  D=Voucher Type  E=Debit  F=Credit
+  // ── Excel export — Tally format matching Ledger.xlsx ─────────────────────────
+  // Columns: A=Date  B=Particulars  C=Sub-amount  D=Voucher Type  E=Debit  F=Credit
+
   Uint8List _buildExcel(Map<String, dynamic> data) {
-    final vendorName   = data['vendorName']    as String? ?? widget.vendorName;
-    final gstRegistered = data['gstRegistered'] as bool? ?? false;
-    final from         = data['from'] as String? ?? _dateFmtKey.format(_from);
-    final to           = data['to']   as String? ?? _dateFmtKey.format(_to);
-    final opening      = (data['openingBalance'] as num?)?.toDouble() ?? 0;
-    final closing      = (data['closingBalance'] as num?)?.toDouble() ?? 0;
-    final entries      = List<Map<String, dynamic>>.from(
+    final vendorName = data['vendorName'] as String? ?? widget.vendorName;
+    final fromStr    = data['fromDate']   as String? ?? _dateFmtKey.format(_from);
+    final toStr      = data['toDate']     as String? ?? _dateFmtKey.format(_to);
+    final opening    = (data['openingBalance'] as num?)?.toDouble() ?? 0;
+    final closing    = (data['closingBalance'] as num?)?.toDouble() ?? 0;
+    final entries    = List<Map<String, dynamic>>.from(
         (data['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
 
-    final fromFmt = _dateFmtLong.format(DateTime.parse(from));
-    final toFmt   = _dateFmtLong.format(DateTime.parse(to));
+    final fromFmt = _dateFmtLong.format(DateTime.parse(fromStr));
+    final toFmt   = _dateFmtLong.format(DateTime.parse(toStr));
 
-    final exl     = xl.Excel.createExcel();
-    final sheet   = exl['Sheet1'];
+    final exl   = xl.Excel.createExcel();
+    final sheet = exl['Sheet1'];
     exl.setDefaultSheet('Sheet1');
 
-    // ── Helper styles (matching Tally ledger conventions) ────────────────────
     xl.CellStyle hdrStyle()                        => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString('#D9E1F2'), horizontalAlign: xl.HorizontalAlign.Center);
     xl.CellStyle mainRowStyle({bool debit = true}) => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString(debit ? '#FFF2CC' : '#E2EFDA'));
     xl.CellStyle subStyle()                        => xl.CellStyle(backgroundColorHex: xl.ExcelColor.fromHexString('#FFFFFF'));
+    xl.CellStyle pendingStyle()                    => xl.CellStyle(backgroundColorHex: xl.ExcelColor.fromHexString('#FFF8E1'), italic: true);
     xl.CellStyle totalStyle()                      => xl.CellStyle(bold: true, backgroundColorHex: xl.ExcelColor.fromHexString('#D6DCE4'));
 
     void setCell(int row, int col, dynamic val, [xl.CellStyle? style]) {
@@ -194,153 +208,168 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
 
     int row = 0;
 
-    // ── Row 0: Title — "Party Name / Ledger Account / period" (3 cells merged visually) ─
-    setCell(row, 0, vendorName,
-        xl.CellStyle(bold: true, fontSize: 12));
+    // Title row
+    setCell(row, 0, vendorName, xl.CellStyle(bold: true, fontSize: 12));
     setCell(row, 1, 'Ledger Account');
     setCell(row, 2, '$fromFmt to $toFmt');
     sheet.setRowHeight(row, 20);
     row++;
 
-    // ── Row 1: Column headers ────────────────────────────────────────────────
-    final headers = ['Date', 'Particulars', '', 'Voucher Type', 'Debit', 'Credit'];
-    for (var c = 0; c < headers.length; c++) {
-      setCell(row, c, headers[c], hdrStyle());
+    // Column headers
+    for (var c = 0; c < 7; c++) {
+      setCell(row, c, ['Date', 'Particulars', '', 'Voucher Type', 'Debit', 'Credit', 'Balance'][c], hdrStyle());
     }
     row++;
 
-    // ── Opening balance row (if non-zero) ────────────────────────────────────
+    String balXl(double v) {
+      if (v > 0.5)  return '${_numFmt.format(v)} Dr';
+      if (v < -0.5) return '${_numFmt.format(v.abs())} Cr';
+      return '—';
+    }
+
+    // Opening balance
     if (opening.abs() > 0.5) {
       setCell(row, 1, 'Opening Balance', xl.CellStyle(bold: true));
       setCell(row, 4, opening > 0 ? opening : 0.0);
       setCell(row, 5, opening < 0 ? opening.abs() : 0.0);
+      setCell(row, 6, balXl(opening), xl.CellStyle(bold: true));
+      for (var c in [0, 2, 3]) setCell(row, c, '');
       row++;
     }
 
-    // ── Transaction rows ─────────────────────────────────────────────────────
     double totalDebit = 0, totalCredit = 0;
 
     for (final e in entries) {
-      final type     = e['type'] as String;
-      final isBill   = type == 'BILLED';
-      final amt      = (e['amount']              as num?)?.toDouble() ?? 0;
-      final matAmt   = (e['materialAmount']      as num?)?.toDouble() ?? amt;
-      final transAmt = (e['transportationCharge'] as num?)?.toDouble() ?? 0;
-      final gstRate  = (e['gstRate']             as num?)?.toDouble() ?? 0;
+      final isSales  = (e['voucherType'] as String?) == 'Sales';
+      final debit    = (e['debit']  as num?)?.toDouble();
+      final credit   = (e['credit'] as num?)?.toDouble();
+      final runBal   = (e['runningBalance'] as num?)?.toDouble() ?? 0;
       final dateStr  = DateFormat('dd.MM.yyyy').format(DateTime.parse(e['date'] as String));
-      final desc     = e['description'] as String? ?? '—';
+      final particulars = e['particulars'] as String? ?? '—';
+      final invoiceNo   = e['invoiceNo']   as String? ?? '';
+      final isPending   = (e['gstStatus'] as String?) == 'PENDING';
+      final details  = List<Map<String, dynamic>>.from(
+          (e['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
 
-      if (isBill) {
-        final hasGst  = gstRegistered && gstRate > 0.01 && matAmt > 0;
-        final halfRate = gstRate / 2;
-        final sgst    = hasGst ? matAmt * halfRate / 100 : 0.0;
-        final cgst    = hasGst ? matAmt * halfRate / 100 : 0.0;
-        final debit   = matAmt + sgst + cgst + transAmt;
-        final roundOff = debit.roundToDouble() - debit;
-        final debitTotal = debit + roundOff;
-        totalDebit += debitTotal;
+      if (isSales && debit != null) {
+        totalDebit += debit;
+        final mainLabel = invoiceNo.isNotEmpty
+            ? 'To (as per details)  [$invoiceNo]'
+            : 'To (as per details)';
 
-        // Main "To (as per details)" row
-        setCell(row, 0, dateStr,             mainRowStyle(debit: true));
-        setCell(row, 1, 'To (as per details)', mainRowStyle(debit: true));
-        setCell(row, 2, '',                   mainRowStyle(debit: true));
-        setCell(row, 3, 'Sales',              mainRowStyle(debit: true));
-        setCell(row, 4, debitTotal,            mainRowStyle(debit: true));
-        setCell(row, 5, '',                   mainRowStyle(debit: true));
+        setCell(row, 0, dateStr,       mainRowStyle(debit: true));
+        setCell(row, 1, mainLabel,     mainRowStyle(debit: true));
+        setCell(row, 2, '',            mainRowStyle(debit: true));
+        setCell(row, 3, 'Sales',       mainRowStyle(debit: true));
+        setCell(row, 4, debit,         mainRowStyle(debit: true));
+        setCell(row, 5, '',            mainRowStyle(debit: true));
+        setCell(row, 6, balXl(runBal), mainRowStyle(debit: true));
         row++;
 
-        if (hasGst) {
-          // Sales sub-row
-          setCell(row, 1, 'Sales   ', subStyle()); setCell(row, 2, matAmt, subStyle());
-          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
-          // SGST
-          final sgstLabel = 'SGST ${halfRate % 1 == 0 ? halfRate.toInt() : halfRate}%';
-          setCell(row, 1, sgstLabel, subStyle()); setCell(row, 2, sgst, subStyle());
-          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
-          // CGST
-          final cgstLabel = 'CGST ${halfRate % 1 == 0 ? halfRate.toInt() : halfRate}%';
-          setCell(row, 1, cgstLabel, subStyle()); setCell(row, 2, cgst, subStyle());
-          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
-          // Transportation if any
-          if (transAmt > 0.5) {
-            setCell(row, 1, 'Transportation', subStyle()); setCell(row, 2, transAmt, subStyle());
-            for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
-          }
-          // Round Off
-          setCell(row, 1, 'Round Off', subStyle()); setCell(row, 2, roundOff, subStyle());
-          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+        if (isPending) {
+          setCell(row, 1, 'GST: Pending — tap invoice to set rate', pendingStyle());
+          for (var c in [0, 2, 3, 4, 5, 6]) setCell(row, c, '', pendingStyle());
+          row++;
         } else {
-          // Non-GST trip — just show description and amount
-          setCell(row, 1, desc, subStyle()); setCell(row, 2, amt, subStyle());
-          for (var c in [0,3,4,5]) setCell(row, c, '', subStyle()); row++;
+          for (final d in details) {
+            final label  = d['label']  as String? ?? '';
+            final amount = (d['amount'] as num?)?.toDouble();
+            setCell(row, 1, label,  subStyle());
+            if (amount != null) setCell(row, 2, amount, subStyle());
+            for (var c in [0, 3, 4, 5, 6]) setCell(row, c, '', subStyle());
+            row++;
+          }
         }
-      } else {
-        // Receipt row — "By [mode/reference]"
-        final byDesc = desc.replaceFirst('Payment — ', 'By ');
-        totalCredit += amt;
-        setCell(row, 0, dateStr,    mainRowStyle(debit: false));
-        setCell(row, 1, byDesc,     mainRowStyle(debit: false));
-        setCell(row, 2, '',         mainRowStyle(debit: false));
-        setCell(row, 3, 'Receipt',  mainRowStyle(debit: false));
-        setCell(row, 4, '',         mainRowStyle(debit: false));
-        setCell(row, 5, amt,        mainRowStyle(debit: false));
+      } else if ((e['voucherType'] as String?) == 'MachineWork') {
+        final isPending = (e['gstStatus'] as String?) == 'PENDING';
+        if (!isPending && debit != null) totalDebit += debit;
+        setCell(row, 0, dateStr,        mainRowStyle(debit: true));
+        setCell(row, 1, particulars,    mainRowStyle(debit: true));
+        setCell(row, 2, '',             mainRowStyle(debit: true));
+        setCell(row, 3, 'Machine Work', mainRowStyle(debit: true));
+        setCell(row, 4, debit != null ? debit : '', mainRowStyle(debit: true));
+        setCell(row, 5, '',             mainRowStyle(debit: true));
+        setCell(row, 6, debit != null ? balXl(runBal) : '', mainRowStyle(debit: true));
+        row++;
+        if (isPending) {
+          setCell(row, 1, 'Rate: Pending — tap entry to set rate', pendingStyle());
+          for (var c in [0, 2, 3, 4, 5, 6]) setCell(row, c, '', pendingStyle());
+          row++;
+        } else {
+          for (final d in details) {
+            final label  = d['label']  as String? ?? '';
+            final amount = (d['amount'] as num?)?.toDouble();
+            setCell(row, 1, label,  subStyle());
+            if (amount != null) setCell(row, 2, amount, subStyle());
+            for (var c in [0, 3, 4, 5, 6]) setCell(row, c, '', subStyle());
+            row++;
+          }
+        }
+      } else if (!isSales && credit != null) {
+        totalCredit += credit;
+        setCell(row, 0, dateStr,       mainRowStyle(debit: false));
+        setCell(row, 1, particulars,   mainRowStyle(debit: false));
+        setCell(row, 2, '',            mainRowStyle(debit: false));
+        setCell(row, 3, 'Receipt',     mainRowStyle(debit: false));
+        setCell(row, 4, '',            mainRowStyle(debit: false));
+        setCell(row, 5, credit,        mainRowStyle(debit: false));
+        setCell(row, 6, balXl(runBal), mainRowStyle(debit: false));
         row++;
       }
     }
 
-    // ── Balance / closing row ────────────────────────────────────────────────
+    // Balance / closing row
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
-    setCell(row, 1, 'Balance', totalStyle());
+    setCell(row, 1, 'Balance',  totalStyle());
     setCell(row, 3, isOwed ? 'Outstanding' : isAdvance ? 'Advance' : 'Settled', totalStyle());
     setCell(row, 4, isOwed ? closing : 0.0, totalStyle());
     setCell(row, 5, isAdvance ? closing.abs() : 0.0, totalStyle());
+    setCell(row, 6, balXl(closing), totalStyle());
     for (var c in [0, 2]) setCell(row, c, '', totalStyle());
     row++;
 
-    // ── Totals row ───────────────────────────────────────────────────────────
+    // Totals row
     setCell(row, 3, 'TOTAL', totalStyle());
-    setCell(row, 4, totalDebit + (opening > 0 ? opening : 0), totalStyle());
+    setCell(row, 4, totalDebit  + (opening > 0 ? opening : 0), totalStyle());
     setCell(row, 5, totalCredit + (opening < 0 ? opening.abs() : 0), totalStyle());
+    setCell(row, 6, '', totalStyle());
     for (var c in [0, 1, 2]) setCell(row, c, '', totalStyle());
 
-    // ── Column widths ─────────────────────────────────────────────────────────
-    sheet.setColumnWidth(0, 14); // Date
-    sheet.setColumnWidth(1, 44); // Particulars
-    sheet.setColumnWidth(2, 16); // Sub-amount
-    sheet.setColumnWidth(3, 14); // Voucher Type
-    sheet.setColumnWidth(4, 16); // Debit
-    sheet.setColumnWidth(5, 16); // Credit
+    // Column widths
+    sheet.setColumnWidth(0, 14);
+    sheet.setColumnWidth(1, 48);
+    sheet.setColumnWidth(2, 16);
+    sheet.setColumnWidth(3, 14);
+    sheet.setColumnWidth(4, 16);
+    sheet.setColumnWidth(5, 16);
+    sheet.setColumnWidth(6, 18);
 
-    final encoded = exl.encode();
-    return Uint8List.fromList(encoded!);
+    return Uint8List.fromList(exl.encode()!);
   }
+
+  // ── PDF export — Tally format with Noto Sans (₹ support) ─────────────────────
 
   Future<Uint8List> _buildPdf(Map<String, dynamic> data) async {
     final font     = await PdfGoogleFonts.notoSansRegular();
     final fontBold = await PdfGoogleFonts.notoSansBold();
 
-    final vendorName   = data['vendorName']    as String? ?? widget.vendorName;
-    final contact      = data['vendorContact'] as String? ?? '';
-    final gstRegistered = data['gstRegistered'] as bool? ?? false;
-    final from         = data['from'] as String? ?? _dateFmtKey.format(_from);
-    final to           = data['to']   as String? ?? _dateFmtKey.format(_to);
-    final opening      = (data['openingBalance'] as num?)?.toDouble() ?? 0;
-    final closing      = (data['closingBalance'] as num?)?.toDouble() ?? 0;
-    final billed       = (data['totalBilled']    as num?)?.toDouble() ?? 0;
-    final received     = (data['totalReceived']  as num?)?.toDouble() ?? 0;
-    final entries      = List<Map<String, dynamic>>.from(
+    final vendorName = data['vendorName'] as String? ?? widget.vendorName;
+    final fromStr    = data['fromDate']   as String? ?? _dateFmtKey.format(_from);
+    final toStr      = data['toDate']     as String? ?? _dateFmtKey.format(_to);
+    final opening    = (data['openingBalance'] as num?)?.toDouble() ?? 0;
+    final closing    = (data['closingBalance'] as num?)?.toDouble() ?? 0;
+    final totalDebit = (data['totalDebit']  as num?)?.toDouble() ?? 0;
+    final totalCred  = (data['totalCredit'] as num?)?.toDouble() ?? 0;
+    final entries    = List<Map<String, dynamic>>.from(
         (data['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
 
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
-    final balLabel  = isOwed    ? 'Outstanding: ₹${_numFmt.format(closing)}'
-        : isAdvance ? 'Advance: ₹${_numFmt.format(closing.abs())}'
-        : 'Settled Up';
     final balColor  = isOwed ? PdfColors.orange900 : isAdvance ? PdfColors.blue700 : PdfColors.green800;
 
     String rs(double v) => '₹${_numFmt.format(v)}';
-    String n(double v)  => _numFmt.format(v);  // number without ₹ (for sub-rows)
+    String n(double v)  => _numFmt.format(v);
     String balStr(double v) => v > 0.5 ? rs(v) : v < -0.5 ? 'Adv ${rs(v.abs())}' : '₹0';
 
     pw.TextStyle bold({double size = 8.5}) => pw.TextStyle(font: fontBold, fontSize: size);
@@ -353,267 +382,454 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
           child: pw.Text(t, style: b ? bold() : reg(color: color), textAlign: a));
-    pw.Widget cs(String t, {PdfColor? color}) =>
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          child: pw.Text(t, style: small(color: color)));
 
     final pdf = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: fontBold));
 
-    // ── Shared header ──────────────────────────────────────────────────────────
+    // Header (repeated on every page)
     pw.Widget pdfHeader(pw.Context ctx) => pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Text('ACCOUNT STATEMENT', style: bold(size: 13)),
-        pw.SizedBox(height: 4),
         pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Text(vendorName, style: bold(size: 11)),
-            if (contact.isNotEmpty) pw.Text(contact, style: reg(size: 9, color: PdfColors.grey600)),
-            if (gstRegistered) pw.Text('GST Registered', style: small(color: PdfColors.indigo)),
+            pw.Text('Party Ledger Account', style: bold(size: 13)),
+            pw.SizedBox(height: 2),
+            pw.Text(vendorName, style: reg(size: 10, color: PdfColors.blueGrey700)),
           ]),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
             pw.Text(
-              'Period: ${_dateFmtLong.format(DateTime.parse(from))} — ${_dateFmtLong.format(DateTime.parse(to))}',
-              style: reg(size: 8.5, color: PdfColors.grey700)),
-            pw.SizedBox(height: 3),
-            pw.Text(balLabel, style: bold(size: 9).copyWith(color: balColor)),
+              '${_dateFmtLong.format(DateTime.parse(fromStr))} — ${_dateFmtLong.format(DateTime.parse(toStr))}',
+              style: bold(size: 9).copyWith(color: PdfColors.blueGrey700)),
+            if (ctx.pageNumber > 1)
+              pw.Text('(continued)', style: small(color: PdfColors.grey500)),
           ]),
         ]),
-        pw.Divider(thickness: 0.8),
+        pw.Divider(thickness: 0.8, color: PdfColors.blueGrey200),
       ]);
 
-    // ── Summary block ──────────────────────────────────────────────────────────
+    // Summary block
     pw.Widget summaryRow() => pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      margin: const pw.EdgeInsets.only(bottom: 8),
       decoration: const pw.BoxDecoration(color: PdfColors.grey100),
       child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
         pw.Text('Opening: ${balStr(opening)}', style: reg(size: 8)),
-        pw.Text('Billed: ${rs(billed)}', style: reg(size: 8, color: PdfColors.orange900)),
-        pw.Text('Received: ${rs(received)}', style: reg(size: 8, color: PdfColors.green800)),
-        pw.Text('Closing: ${balStr(closing)}', style: bold(size: 8).copyWith(color: balColor)),
+        pw.Text('Invoiced: ${rs(totalDebit)}', style: reg(size: 8, color: PdfColors.orange900)),
+        pw.Text('Received: ${rs(totalCred)}', style: reg(size: 8, color: PdfColors.green800)),
+        pw.Text(
+          isOwed    ? 'Outstanding: ${rs(closing)}'
+            : isAdvance ? 'Advance: ${rs(closing.abs())}'
+            : 'Settled Up',
+          style: bold(size: 8).copyWith(color: balColor)),
       ]),
     );
 
-    if (gstRegistered) {
-      // ── Tally-style format (SGST+CGST assumed same-state; IGST not implemented) ─
-      // Structure matches Malganga Ledger.xlsx:
-      //   Date | Particulars | Sub-amount | Voucher Type | Debit | Credit
-      //   date | To (as per details) |  | Sales | total |
-      //        | Sales       | base |   |       |
-      //        | SGST X%     | amt  |   |       |
-      //        | CGST X%     | amt  |   |       |
-      //        | Round Off   | 0    |   |       |
-      //   date | By [mode]   |  | Receipt |  | amount |
-      const widths = {
-        0: pw.FixedColumnWidth(58),   // Date
-        1: pw.FlexColumnWidth(3),     // Particulars
-        2: pw.FixedColumnWidth(66),   // Sub-amount (col G in xlsx)
-        3: pw.FixedColumnWidth(52),   // Voucher Type
-        4: pw.FixedColumnWidth(68),   // Debit
-        5: pw.FixedColumnWidth(68),   // Credit
-      };
+    // Tally-style table: Date | Particulars | Sub-amt | Voucher Type | Debit ₹ | Credit ₹ | Balance ₹
+    const widths = <int, pw.TableColumnWidth>{
+      0: pw.FixedColumnWidth(54),
+      1: pw.FlexColumnWidth(3),
+      2: pw.FixedColumnWidth(60),
+      3: pw.FixedColumnWidth(48),
+      4: pw.FixedColumnWidth(62),
+      5: pw.FixedColumnWidth(62),
+      6: pw.FixedColumnWidth(64),
+    };
 
-      // Build all table rows from entries (ASC = chronological)
-      final rows = <pw.TableRow>[];
+    // Balance cell — colored Dr/Cr suffix
+    pw.Widget bal(double v) {
+      final isAdv = v < -0.5;
+      final isOwedBal = v > 0.5;
+      final label = isAdv ? '${n(v.abs())} Cr' : isOwedBal ? '${n(v)} Dr' : '—';
+      final color = isAdv ? PdfColors.blue700 : isOwedBal ? PdfColors.orange900 : PdfColors.green700;
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: pw.Text(label,
+            textAlign: pw.TextAlign.right,
+            style: pw.TextStyle(font: fontBold, fontSize: 8, color: color)));
+    }
 
-      // Header
-      rows.add(pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
-        children: [
-          for (final h in ['Date', 'Particulars', '', 'Voucher Type', 'Debit ₹', 'Credit ₹'])
-            c(h, b: true),
-        ],
-      ));
+    final rows = <pw.TableRow>[];
 
-      // Opening balance if non-zero
-      if (opening.abs() > 0.5)
-        rows.add(pw.TableRow(children: [
-          c(''), c('Opening Balance', b: true), c(''), c(''), c(balStr(opening), b: true), c(''),
-        ]));
+    // Header row
+    rows.add(pw.TableRow(
+      decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+      children: [
+        for (final h in ['Date', 'Particulars', '', 'Voucher Type', 'Debit ₹', 'Credit ₹', 'Balance ₹'])
+          c(h, b: true),
+      ],
+    ));
 
-      for (final e in entries) {
-        final type    = e['type'] as String;
-        final isBill  = type == 'BILLED';
-        final amt     = (e['amount']         as num?)?.toDouble() ?? 0;
-        final matAmt  = (e['materialAmount'] as num?)?.toDouble() ?? amt;  // fallback to total if null
-        final transAmt = (e['transportationCharge'] as num?)?.toDouble() ?? 0;
-        final gstRate = (e['gstRate']         as num?)?.toDouble() ?? 0;
-        final dateStr = _dateFmtLong.format(DateTime.parse(e['date'] as String));
-        final desc    = e['description'] as String? ?? '—';
+    // Opening balance row
+    if (opening.abs() > 0.5)
+      rows.add(pw.TableRow(children: [
+        c(''), c('Opening Balance', b: true), c(''), c(''),
+        c(opening > 0 ? rs(opening) : '', b: true, a: pw.TextAlign.right),
+        c(opening < 0 ? rs(opening.abs()) : '', b: true, a: pw.TextAlign.right),
+        bal(opening),
+      ]));
 
-        if (isBill) {
-          final hasGst = gstRate > 0.01 && matAmt > 0;
-          final halfRate = gstRate / 2;
-          final sgst = hasGst ? matAmt * halfRate / 100 : 0.0;
-          final cgst = hasGst ? matAmt * halfRate / 100 : 0.0;
-          // Debit = material (taxable base) + SGST + CGST + transport (non-taxable)
-          final debit = matAmt + sgst + cgst + transAmt;
-          final roundOff = (debit.round() - debit).abs() < 1 ? debit.round() - debit : 0.0;
+    for (final e in entries) {
+      final isSales  = (e['voucherType'] as String?) == 'Sales';
+      final debit    = (e['debit']  as num?)?.toDouble();
+      final credit   = (e['credit'] as num?)?.toDouble();
+      final runBal   = (e['runningBalance'] as num?)?.toDouble() ?? 0;
+      final dateStr  = _dateFmtLong.format(DateTime.parse(e['date'] as String));
+      final particulars = e['particulars'] as String? ?? '—';
+      final invoiceNo   = e['invoiceNo']   as String? ?? '';
+      final isPending   = (e['gstStatus'] as String?) == 'PENDING';
+      final details  = List<Map<String, dynamic>>.from(
+          (e['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
 
-          // Main row: To (as per details)
+      if (isSales && debit != null) {
+        rows.add(pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.orange50),
+          children: [
+            c(dateStr),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Text('To (as per details)', style: bold()),
+                if (invoiceNo.isNotEmpty)
+                  pw.Text(invoiceNo, style: small(color: PdfColors.blueGrey600)),
+              ])),
+            c(''),
+            c('Sales', b: true),
+            c(n(debit), b: true, a: pw.TextAlign.right),
+            c(''),
+            bal(runBal),
+          ],
+        ));
+
+        if (isPending) {
           rows.add(pw.TableRow(
-            decoration: const pw.BoxDecoration(color: PdfColors.orange50),
+            decoration: const pw.BoxDecoration(color: PdfColors.amber50),
             children: [
-              c(dateStr),
-              c('To (as per details)', b: true),
               c(''),
-              c('Sales', b: true),
-              c(n(debit + roundOff), b: true, a: pw.TextAlign.right),
-              c(''),
+              pw.Padding(
+                padding: const pw.EdgeInsets.fromLTRB(14, 2, 4, 2),
+                child: pw.Text('GST: Pending',
+                    style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: PdfColors.orange800))),
+              c(''), c(''), c(''), c(''), c(''),
             ],
           ));
-
-          if (hasGst) {
-            // Sub-rows matching Tally format: Sales base, SGST, CGST, Round Off
-            for (final (label, val, color) in [
-              ('Sales', matAmt, PdfColors.grey800),
-              ('SGST ${halfRate.toStringAsFixed(halfRate == halfRate.truncate() ? 0 : 1)}%', sgst, PdfColors.grey700),
-              ('CGST ${halfRate.toStringAsFixed(halfRate == halfRate.truncate() ? 0 : 1)}%', cgst, PdfColors.grey700),
-              if (transAmt > 0.5) ('Transportation', transAmt, PdfColors.grey700),
-              ('Round Off', roundOff, PdfColors.grey500),
-            ])
-              rows.add(pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.grey50),
-                children: [
-                  c(''),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
-                    child: pw.Text(label, style: small(color: color))),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    child: pw.Text(n(val), style: small(color: color), textAlign: pw.TextAlign.right)),
-                  c(''), c(''), c(''),
-                ],
-              ));
-          } else {
-            // Old trip (gstRate=0) — flat sub-row showing just the amount
+        } else {
+          for (final d in details) {
+            final label  = d['label']  as String? ?? '';
+            final amount = (d['amount'] as num?)?.toDouble();
             rows.add(pw.TableRow(
               decoration: const pw.BoxDecoration(color: PdfColors.grey50),
               children: [
                 c(''),
                 pw.Padding(
                   padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
-                  child: pw.Text(desc, style: small())),
+                  child: pw.Text(label, style: small())),
                 pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  child: pw.Text(n(amt), style: small(), textAlign: pw.TextAlign.right)),
-                c(''), c(''), c(''),
+                  child: pw.Text(
+                    amount != null ? n(amount) : '',
+                    style: small(), textAlign: pw.TextAlign.right)),
+                c(''), c(''), c(''), c(''),
               ],
             ));
           }
-        } else {
-          // Receipt row: By [payment mode / reference]
-          final modeDesc = desc.replaceFirst('Payment — ', 'By ');
+        }
+      } else if ((e['voucherType'] as String?) == 'MachineWork') {
+        rows.add(pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.lightBlue50),
+          children: [
+            c(dateStr),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Text(particulars, style: bold()),
+              ])),
+            c(''),
+            c('Mach.\nWork', b: true),
+            debit != null
+                ? c(n(debit), b: true, a: pw.TextAlign.right)
+                : c('—', a: pw.TextAlign.right),
+            c(''),
+            debit != null ? bal(runBal) : c(''),
+          ],
+        ));
+        if (isPending) {
           rows.add(pw.TableRow(
-            decoration: const pw.BoxDecoration(color: PdfColors.green50),
+            decoration: const pw.BoxDecoration(color: PdfColors.amber50),
             children: [
-              c(dateStr),
-              c(modeDesc, b: true),
               c(''),
-              c('Receipt'),
-              c(''),
-              c(n(amt), b: true, a: pw.TextAlign.right),
+              pw.Padding(
+                padding: const pw.EdgeInsets.fromLTRB(14, 2, 4, 2),
+                child: pw.Text('Rate: Pending',
+                    style: pw.TextStyle(
+                        font: fontBold, fontSize: 7.5,
+                        color: PdfColors.orange800))),
+              c(''), c(''), c(''), c(''), c(''),
             ],
           ));
+        } else {
+          for (final d in details) {
+            final label  = d['label']  as String? ?? '';
+            final amount = (d['amount'] as num?)?.toDouble();
+            rows.add(pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColors.grey50),
+              children: [
+                c(''),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
+                  child: pw.Text(label, style: small())),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  child: pw.Text(
+                    amount != null ? n(amount) : '',
+                    style: small(), textAlign: pw.TextAlign.right)),
+                c(''), c(''), c(''), c(''),
+              ],
+            ));
+          }
         }
+      } else if (!isSales && credit != null) {
+        rows.add(pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.green50),
+          children: [
+            c(dateStr),
+            c(particulars, b: true),
+            c(''),
+            c('Receipt'),
+            c(''),
+            c(n(credit), b: true, a: pw.TextAlign.right),
+            bal(runBal),
+          ],
+        ));
       }
+    }
 
-      pdf.addPage(pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(24, 24, 24, 24),
-        header: pdfHeader,
-        build: (_) => [
-          summaryRow(),
-          pw.SizedBox(height: 8),
-          pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
-            columnWidths: widths,
-            children: rows,
-          ),
-        ],
-      ));
-    } else {
-      // ── Flat format for non-GST parties (unchanged) ────────────────────────
-      pw.Widget cell2(String t, {bool isBold = false, pw.TextAlign align = pw.TextAlign.left, PdfColor? color}) =>
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-            child: pw.Text(t, style: isBold ? bold() : reg(color: color), textAlign: align));
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.fromLTRB(24, 24, 24, 24),
+      header: pdfHeader,
+      build: (_) => [
+        summaryRow(),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
+          columnWidths: widths,
+          children: rows,
+        ),
+      ],
+    ));
 
-      pdf.addPage(pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
-        header: pdfHeader,
-        build: (_) => [
-          summaryRow(),
-          pw.SizedBox(height: 8),
-          pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-            columnWidths: const {
-              0: pw.FixedColumnWidth(72),
-              1: pw.FlexColumnWidth(3),
-              2: pw.FixedColumnWidth(72),
-              3: pw.FixedColumnWidth(72),
-              4: pw.FixedColumnWidth(78),
-            },
-            children: [
-              pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
-                children: [
-                  for (final h in ['Date', 'Description', 'Billed ₹', 'Received ₹', 'Balance ₹'])
-                    cell2(h, isBold: true),
-                ],
+    return pdf.save();
+  }
+
+  Future<void> _showSetGstDialog(BuildContext ctx, int invoiceId, String invoiceNo) async {
+    final rateCtrl = TextEditingController();
+    double? previewRate;
+
+    final confirmed = await showDialog<String>(
+      context: ctx,
+      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
+        void updatePreview(String v) {
+          final d = double.tryParse(v);
+          setS(() => previewRate = (d != null && d >= 0 && d <= 28) ? d : null);
+        }
+
+        return AlertDialog(
+          title: Text('Set GST Rate — $invoiceNo'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Enter total GST % (SGST + CGST combined)',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            // Common rate chips
+            Wrap(spacing: 8, children: [
+              for (final r in [0, 5, 12, 18, 28])
+                ActionChip(
+                  label: Text('$r%'),
+                  onPressed: () {
+                    rateCtrl.text = r.toString();
+                    updatePreview(r.toString());
+                  },
+                ),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+              controller: rateCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Total GST %',
+                suffixText: '%',
+                border: OutlineInputBorder(),
+                isDense: true,
               ),
-              if (opening.abs() > 0.5)
-                pw.TableRow(children: [
-                  cell2(''), cell2('Opening Balance', isBold: true),
-                  cell2(''), cell2(''), cell2(balStr(opening), isBold: true),
+              onChanged: updatePreview,
+            ),
+            if (previewRate != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                  Text('SGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('+'),
+                  Text('CGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('='),
+                  Text('$previewRate%', style: const TextStyle(fontWeight: FontWeight.bold,
+                      color: Colors.blue)),
                 ]),
-              ...entries.map((e) {
-                final type   = e['type'] as String;
-                final isBill = type == 'BILLED';
-                final amt    = (e['amount']         as num?)?.toDouble() ?? 0;
-                final bal    = (e['runningBalance'] as num?)?.toDouble() ?? 0;
-                final dateStr = _dateFmtLong.format(DateTime.parse(e['date'] as String));
-                final desc   = e['description'] as String? ?? '—';
-                return [pw.TableRow(children: [
-                  cell2(dateStr),
-                  cell2(desc),
-                  cell2(isBill ? rs(amt) : '', align: pw.TextAlign.right,
-                      color: isBill ? PdfColors.orange900 : null),
-                  cell2(!isBill ? rs(amt) : '', align: pw.TextAlign.right,
-                      color: !isBill ? PdfColors.green800 : null),
-                  cell2(balStr(bal), isBold: true),
-                ])];
-              }).expand((r) => r),
+              ),
             ],
-          ),
-        ],
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: previewRate != null
+                  ? () => Navigator.pop(dctx, rateCtrl.text)
+                  : null,
+              child: const Text('Apply & Lock'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (confirmed == null || !mounted) return;
+    final rate = double.tryParse(confirmed);
+    if (rate == null) return;
+
+    try {
+      await ref.read(apiClientProvider).post(
+        '/api/invoices/$invoiceId/set-gst-rate',
+        data: null,
+        params: {'rate': rate.toString()},
+      );
+      if (mounted) {
+        ref.invalidate(_ledgerProvider(_key));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('GST set to $rate% on $invoiceNo — invoice locked'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Failed: $e'),
+        backgroundColor: Colors.red,
       ));
     }
-    return pdf.save();
+  }
+
+  Future<void> _showSetMachineRateDialog(
+      BuildContext ctx, int machineWorkId, double? totalHours, double? currentRate) async {
+    final rateCtrl = TextEditingController(text: currentRate?.toString() ?? '');
+    final isEditing = currentRate != null;
+    double? previewTotal = (currentRate != null && totalHours != null)
+        ? currentRate * totalHours : null;
+
+    final confirmed = await showDialog<String>(
+      context: ctx,
+      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
+        void updatePreview(String v) {
+          final r = double.tryParse(v);
+          setS(() => previewTotal =
+              (r != null && totalHours != null) ? r * totalHours : null);
+        }
+
+        return AlertDialog(
+          title: Text(isEditing ? 'Edit Machine Work Rate' : 'Set Machine Work Rate'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (totalHours != null)
+              Text('${totalHours.toStringAsFixed(2)} hrs of work',
+                  style: const TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: rateCtrl,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Rate ₹/hr',
+                prefixText: '₹',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: updatePreview,
+            ),
+            if (previewTotal != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total:'),
+                      Text(
+                        '₹${_numFmt.format(previewTotal!)}',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                            fontSize: 15),
+                      ),
+                    ]),
+              ),
+            ],
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dctx),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: rateCtrl.text.isNotEmpty
+                  ? () => Navigator.pop(dctx, rateCtrl.text)
+                  : null,
+              child: Text(isEditing ? 'Update' : 'Apply & Lock'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (confirmed == null || !mounted) return;
+    final rate = double.tryParse(confirmed);
+    if (rate == null) return;
+
+    try {
+      await ref.read(apiClientProvider).post(
+        '/api/machine-work/$machineWorkId/set-rate',
+        data: null,
+        params: {'rate': rate.toString()},
+      );
+      if (mounted) {
+        ref.invalidate(_ledgerProvider(_key));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isEditing
+              ? 'Rate updated to ₹$rate/hr'
+              : 'Rate set to ₹$rate/hr — entry locked'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Failed: $e'),
+        backgroundColor: Colors.red,
+      ));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final statement = ref.watch(_statementProvider(_key));
+    final ledger = ref.watch(_ledgerProvider(_key));
 
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.vendorName),
         actions: [
-          if (statement.valueOrNull != null)
-            statement.maybeWhen(
-              data: (d) {
-                final contact = d['vendorContact'] as String? ?? '';
-                return contact.isNotEmpty
-                    ? IconButton(icon: const Icon(Icons.phone_outlined), tooltip: contact, onPressed: () {})
-                    : const SizedBox.shrink();
-              },
-              orElse: () => const SizedBox.shrink(),
-            ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_statementProvider(_key)),
+            onPressed: () => ref.invalidate(_ledgerProvider(_key)),
           ),
         ],
       ),
@@ -621,18 +837,20 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         _DateFilterBar(preset: _preset, from: _from, to: _to,
             onPreset: _applyPreset, onPickFrom: _pickFrom, onPickTo: _pickTo),
         Expanded(
-          child: statement.when(
+          child: ledger.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error: $e')),
-            data: (data) => _StatementBody(
+            data: (data) => _LedgerBody(
               data: data,
               printing: _printing,
-              onPrint: () => _exportExcel(data),
+              onExport: () => _showExportOptions(data),
+              onSetGst: _showSetGstDialog,
+              onSetMachineRate: _showSetMachineRateDialog,
               onRecordPayment: () => showRecordPaymentDialog(
                 context, ref,
                 initialVendorId:   widget.vendorId,
                 initialVendorName: widget.vendorName,
-                onSaved: () => ref.invalidate(_statementProvider(_key)),
+                onSaved: () => ref.invalidate(_ledgerProvider(_key)),
               ),
             ),
           ),
@@ -701,23 +919,26 @@ class _DateFilterBar extends StatelessWidget {
   );
 }
 
-// ── Statement body ────────────────────────────────────────────────────────────
+// ── Ledger body ───────────────────────────────────────────────────────────────
 
-class _StatementBody extends StatelessWidget {
+class _LedgerBody extends StatelessWidget {
   final Map<String, dynamic> data;
   final bool printing;
-  final VoidCallback onPrint;
+  final VoidCallback onExport;
   final VoidCallback onRecordPayment;
+  final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
 
-  const _StatementBody({
+  const _LedgerBody({
     required this.data, required this.printing,
-    required this.onPrint, required this.onRecordPayment,
+    required this.onExport, required this.onRecordPayment,
+    required this.onSetGst, required this.onSetMachineRate,
   });
 
   @override
   Widget build(BuildContext context) {
     final closing  = (data['closingBalance'] as num?)?.toDouble() ?? 0;
-    final rawEntries = List<Map<String, dynamic>>.from(
+    final entries  = List<Map<String, dynamic>>.from(
         (data['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
 
     final isOwed    = closing > 0.5;
@@ -732,10 +953,8 @@ class _StatementBody extends StatelessWidget {
         : isAdvance ? Colors.blue.shade50
         : Colors.green.shade50;
 
-    // Display newest-first. Balance-per-row is already computed correctly
-    // (ASC/oldest-first) by the backend and stored on each entry — reversing
-    // the display order does NOT affect those stored values.
-    final displayEntries = rawEntries.reversed.toList();
+    // Newest first
+    final displayEntries = entries.reversed.toList();
 
     return Column(children: [
       Padding(
@@ -755,7 +974,7 @@ class _StatementBody extends StatelessWidget {
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: OutlinedButton.icon(
-              onPressed: printing ? null : onPrint,
+              onPressed: printing ? null : onExport,
               icon: printing
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.table_view_outlined, size: 16),
@@ -772,13 +991,14 @@ class _StatementBody extends StatelessWidget {
       ),
       const Divider(height: 1),
       Expanded(
-        child: rawEntries.isEmpty
-            ? AppEmptyState(
+        child: entries.isEmpty
+            ? const AppEmptyState(
                 icon: Icons.receipt_long_outlined,
-                message: 'No transactions in this period',
-                hint: 'Try changing the date range',
+                message: 'No invoices in this period',
+                hint: 'Try a wider date range or create a GST invoice for this party',
               )
-            : _EntryList(entries: displayEntries),
+            : _EntryList(entries: displayEntries, onSetGst: onSetGst,
+                onSetMachineRate: onSetMachineRate),
       ),
     ]);
   }
@@ -787,65 +1007,74 @@ class _StatementBody extends StatelessWidget {
 // ── Entry list with date grouping (newest first) ──────────────────────────────
 
 class _EntryList extends StatelessWidget {
-  final List<Map<String, dynamic>> entries; // already reversed (newest first)
-
-  const _EntryList({required this.entries});
+  final List<Map<String, dynamic>> entries;
+  final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
+  const _EntryList({
+    required this.entries, required this.onSetGst,
+    required this.onSetMachineRate,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Group by date — entries are already in DESC order, so groups are too
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final e in entries) {
-      final key = e['date'] as String;
-      grouped.putIfAbsent(key, () => []).add(e);
+      grouped.putIfAbsent(e['date'] as String, () => []).add(e);
     }
-    // Preserve DESC order of date keys (they appear in the order first encountered)
     final dates = grouped.keys.toList();
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 80),
       itemCount: dates.length,
       itemBuilder: (_, i) {
-        final date = dates[i];
+        final date      = dates[i];
         final dayEntries = grouped[date]!;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              color: Colors.grey.shade100,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Text(
-                _dateFmtLong.format(DateTime.parse(date)),
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600, letterSpacing: 0.3),
-              ),
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: double.infinity,
+            color: Colors.grey.shade100,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Text(
+              _dateFmtLong.format(DateTime.parse(date)),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600, letterSpacing: 0.3),
             ),
-            const Divider(height: 1),
-            ...dayEntries.map((e) => _EntryRow(entry: e)),
-          ],
-        );
+          ),
+          const Divider(height: 1),
+          ...dayEntries.map((e) => _EntryCard(
+              entry: e, onSetGst: onSetGst, onSetMachineRate: onSetMachineRate)),
+        ]);
       },
     );
   }
 }
 
-// ── Single entry row ──────────────────────────────────────────────────────────
+// ── Entry card — invoice with GST sub-rows, or payment ───────────────────────
 
-class _EntryRow extends StatelessWidget {
+class _EntryCard extends StatelessWidget {
   final Map<String, dynamic> entry;
-  const _EntryRow({required this.entry});
+  final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
+  const _EntryCard({
+    required this.entry, required this.onSetGst,
+    required this.onSetMachineRate,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final type    = entry['type'] as String;
-    final isBill  = type == 'BILLED';
-    final desc    = entry['description'] as String? ?? '—';
-    final amount  = (entry['amount']         as num?)?.toDouble() ?? 0;
-    final balance = (entry['runningBalance'] as num?)?.toDouble() ?? 0;
-
-    final amtColor   = isBill ? Colors.orange.shade800 : Colors.green.shade700;
-    final typeLabel  = isBill ? 'Billed' : 'Received';
+    final voucherType  = (entry['voucherType'] as String?) ?? '';
+    final isSales      = voucherType == 'Sales';
+    final isMachineWork = voucherType == 'MachineWork';
+    final debit     = (entry['debit']  as num?)?.toDouble();
+    final credit    = (entry['credit'] as num?)?.toDouble();
+    final balance   = (entry['runningBalance'] as num?)?.toDouble() ?? 0;
+    final particulars  = entry['particulars'] as String? ?? '—';
+    final invoiceNo    = entry['invoiceNo']   as String? ?? '';
+    final isPending    = (entry['gstStatus']  as String?) == 'PENDING';
+    final sourceId     = entry['sourceId'] as int?;
+    final totalHours   = (entry['totalHours'] as num?)?.toDouble();
+    final details   = List<Map<String, dynamic>>.from(
+        (entry['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
 
     final balIsOwed = balance > 0.5;
     final balIsAdv  = balance < -0.5;
@@ -856,22 +1085,133 @@ class _EntryRow extends StatelessWidget {
         : balIsAdv  ? Colors.blue.shade700
         : Colors.green.shade700;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(desc, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text(balText, style: TextStyle(fontSize: 11, color: balColor)),
-        ])),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(typeLabel, style: TextStyle(fontSize: 10, color: amtColor)),
-          const SizedBox(height: 2),
-          Text(fmtCurr(amount),
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: amtColor)),
-        ]),
+    final cardBg = isPending
+        ? Colors.amber.shade50
+        : isSales ? Colors.white
+        : isMachineWork ? Colors.lightBlue.shade50
+        : Colors.green.shade50;
+
+    VoidCallback? onTap;
+    if (sourceId != null) {
+      if (isSales && isPending) {
+        onTap = () => onSetGst(context, sourceId, invoiceNo);
+      } else if (isMachineWork) {
+        final currentRate = (debit != null && totalHours != null && totalHours > 0)
+            ? debit / totalHours : null;
+        onTap = () => onSetMachineRate(context, sourceId, totalHours, currentRate);
+      }
+    }
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Main row
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Left: title + badge
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                if (isMachineWork)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.construction_outlined, size: 14,
+                        color: Colors.blueGrey.shade600)),
+                Expanded(
+                  child: Text(
+                    isSales
+                        ? (invoiceNo.isNotEmpty ? invoiceNo : 'Sales Invoice')
+                        : particulars,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                if (isPending)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.amber.shade400),
+                    ),
+                    child: Text(
+                      isSales ? 'GST: Pending' : 'Rate: Pending',
+                      style: TextStyle(fontSize: 10, color: Colors.orange.shade900,
+                          fontWeight: FontWeight.w600)),
+                  ),
+              ]),
+              const SizedBox(height: 2),
+              if (balance != 0 || !isPending)
+                Text(balText, style: TextStyle(fontSize: 11, color: balColor)),
+            ])),
+            const SizedBox(width: 12),
+            // Right: type label + amount
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(
+                isSales ? 'Billed'
+                    : isMachineWork ? 'Machine Work'
+                    : 'Received',
+                style: TextStyle(fontSize: 10,
+                    color: isSales ? Colors.orange.shade700
+                        : isMachineWork ? Colors.blueGrey.shade600
+                        : Colors.green.shade700),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isMachineWork
+                    ? (debit != null ? fmtCurr(debit) : '—')
+                    : isSales
+                        ? fmtCurr(debit ?? 0)
+                        : fmtCurr(credit ?? 0),
+                style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.bold,
+                  color: isSales ? Colors.orange.shade800
+                      : isMachineWork ? Colors.blueGrey.shade700
+                      : Colors.green.shade700,
+                ),
+              ),
+            ]),
+          ]),
+        ),
+
+        // Sub-rows: GST breakdown (Sales) or rate info (MachineWork)
+        if ((isSales || isMachineWork) && !isPending && details.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: details.map((d) {
+                final label  = d['label']  as String? ?? '';
+                final amount = (d['amount'] as num?)?.toDouble();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(children: [
+                    Expanded(child: Text(label,
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
+                    if (amount != null)
+                      Text(_numFmt.format(amount),
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  ]),
+                );
+              }).toList(),
+            ),
+          ),
+
+        if ((isSales || isMachineWork) && isPending)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
+            child: Text(
+              isSales ? 'Tap to set GST rate' : 'Tap to set rate',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
+                  fontStyle: FontStyle.italic),
+            ),
+          ),
       ]),
-    );
+    ));  // closes Container + InkWell
   }
 }

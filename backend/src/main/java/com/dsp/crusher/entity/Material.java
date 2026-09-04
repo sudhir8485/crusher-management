@@ -49,6 +49,11 @@ public class Material {
     @Column(name = "gst_rate", precision = 5, scale = 2, nullable = false)
     private BigDecimal gstRate = BigDecimal.ZERO;
 
+    /** TRUE once an admin has explicitly saved a GST rate (even 0%).
+     *  FALSE = rate was never configured — invoices for this material are PENDING. */
+    @Column(name = "gst_rate_configured", nullable = false)
+    private boolean gstRateConfigured = false;
+
     /** HSN code — required for GST invoices. */
     @Column(name = "hsn_code", length = 20)
     private String hsnCode;

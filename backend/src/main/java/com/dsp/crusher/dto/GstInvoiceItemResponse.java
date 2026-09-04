@@ -12,4 +12,5 @@ public class GstInvoiceItemResponse {
     private BigDecimal quantityBrass;
     private BigDecimal rate;
     private BigDecimal amount;
+    private Long materialId;
 }

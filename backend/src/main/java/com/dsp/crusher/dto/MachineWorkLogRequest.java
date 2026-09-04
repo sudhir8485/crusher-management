@@ -23,4 +23,10 @@ public class MachineWorkLogRequest {
     private BigDecimal openingReading;
     private BigDecimal closingReading;
     private String notes;
+
+    // ── Customer Billable ─────────────────────────────────────────────────────
+
+    private String workPurpose = "INTERNAL";   // INTERNAL | CUSTOMER_BILLABLE
+    private Long customerId;
+    private BigDecimal rate;   // null = save as PENDING
 }

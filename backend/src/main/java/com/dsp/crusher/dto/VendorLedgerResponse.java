@@ -30,7 +30,9 @@ public class VendorLedgerResponse {
         private BigDecimal credit;
         private BigDecimal runningBalance;
         private Long sourceId;
-        private List<DetailLine> details;  // breakdown lines (invoice only)
+        private String gstStatus;      // "PENDING" | "SET" | null (receipts/internal)
+        private BigDecimal totalHours; // MachineWork entries only — for Set Rate preview
+        private List<DetailLine> details;  // breakdown lines (invoice / machine work)
     }
 
     @Data

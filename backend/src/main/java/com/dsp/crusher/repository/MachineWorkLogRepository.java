@@ -42,4 +42,12 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     @Query("SELECT COALESCE(SUM(m.totalHours), 0) FROM MachineWorkLog m WHERE m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId)")
     BigDecimal sumHoursByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    // ── Customer Billable — used by LedgerService ────────────────────────────
+
+    @Query("SELECT m FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' ORDER BY m.logDate ASC, m.id ASC")
+    List<MachineWorkLog> findBillableByCustomerAndDateRange(@Param("customerId") Long customerId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.logDate < :before AND m.status = 'ACTIVE'")
+    java.math.BigDecimal sumTotalAmountByCustomerBefore(@Param("customerId") Long customerId, @Param("before") LocalDate before);
 }

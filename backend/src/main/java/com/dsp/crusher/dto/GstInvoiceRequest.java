@@ -21,8 +21,8 @@ public class GstInvoiceRequest {
     private LocalDate supplyDate;
     private String poNo;
 
-    private BigDecimal cgstRate = new BigDecimal("9.00");
-    private BigDecimal sgstRate = new BigDecimal("9.00");
+    private BigDecimal cgstRate;   // null → infer from material, then fall back to 9%
+    private BigDecimal sgstRate;
 
     @NotEmpty
     @Valid

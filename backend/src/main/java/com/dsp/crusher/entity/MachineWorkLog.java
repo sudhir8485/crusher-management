@@ -51,4 +51,30 @@ public class MachineWorkLog {
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    // ── Customer Billable fields ──────────────────────────────────────────────
+
+    @Column(name = "work_purpose", nullable = false, length = 20)
+    private String workPurpose = "INTERNAL";   // INTERNAL | CUSTOMER_BILLABLE
+
+    @Column(name = "customer_id")
+    private Long customerId;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal rate;
+
+    @Column(name = "rate_status", length = 20)
+    private String rateStatus;   // PENDING | SET (null for INTERNAL)
+
+    @Column(name = "total_amount", precision = 14, scale = 2)
+    private BigDecimal totalAmount;
+
+    @Column(name = "rate_set_by", length = 200)
+    private String rateSetBy;
+
+    @Column(name = "rate_set_at")
+    private LocalDateTime rateSetAt;
+
+    @Column(name = "rate_prev", precision = 12, scale = 2)
+    private BigDecimal ratePrev;
 }

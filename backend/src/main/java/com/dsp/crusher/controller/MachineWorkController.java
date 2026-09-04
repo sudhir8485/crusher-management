@@ -53,4 +53,13 @@ public class MachineWorkController {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
     }
+
+    /** Lock a pending rate on a Customer Billable entry. Only valid when rateStatus = PENDING. */
+    @PostMapping("/{id}/set-rate")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    public MachineWorkLogResponse setRate(
+            @PathVariable Long id,
+            @RequestParam java.math.BigDecimal rate) {
+        return service.setRate(id, rate);
+    }
 }

@@ -22,6 +22,14 @@ final _machinesProvider =
   return List<Map<String, dynamic>>.from(res.data);
 });
 
+final _vendorsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/parties');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
+final _numFmt = NumberFormat('#,##,##0.##');
+
 // ── screen ───────────────────────────────────────────────────────────────────
 
 class MachineWorkScreen extends ConsumerWidget {
@@ -77,9 +85,9 @@ class MachineWorkScreen extends ConsumerWidget {
                   separatorBuilder: (_, idx) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
-                    onEdit: () =>
-                        _showForm(context, ref, data[i], selectedDate),
+                    onEdit: () => _showForm(context, ref, data[i], selectedDate),
                     onDelete: () => _confirmDelete(context, ref, data[i], dateKey),
+                    onSetRate: () => _showSetRateDialog(context, ref, data[i], dateKey),
                   ),
                 );
               },
@@ -101,6 +109,110 @@ class MachineWorkScreen extends ConsumerWidget {
         onSaved: () {
           final dateKey = DateFormat('yyyy-MM-dd').format(date);
           ref.invalidate(_logsProvider(dateKey));
+        },
+      ),
+    );
+  }
+
+  void _showSetRateDialog(BuildContext ctx, WidgetRef ref,
+      Map<String, dynamic> log, String dateKey) {
+    final totalHours = (log['totalHours'] as num?)?.toDouble();
+    final isSet = (log['rateStatus'] as String?) == 'SET';
+    final currentRate = isSet ? (log['rate'] as num?)?.toDouble() : null;
+    final rateCtrl = TextEditingController(text: currentRate?.toString() ?? '');
+    double? previewTotal = (currentRate != null && totalHours != null)
+        ? currentRate * totalHours : null;
+
+    showDialog(
+      context: ctx,
+      builder: (_) => StatefulBuilder(
+        builder: (dctx, setS) {
+          void updatePreview(String v) {
+            final r = double.tryParse(v);
+            setS(() => previewTotal =
+                (r != null && totalHours != null) ? r * totalHours : null);
+          }
+
+          return AlertDialog(
+            title: Text('${isSet ? 'Edit' : 'Set'} Rate — ${log['machineName'] ?? 'Machine Work'}'),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (totalHours != null)
+                Text('${totalHours.toStringAsFixed(2)} hrs of work recorded',
+                    style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: rateCtrl,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Rate ₹/hr',
+                  prefixText: '₹',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: updatePreview,
+              ),
+              if (previewTotal != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total amount:'),
+                        Text(
+                          '₹${_numFmt.format(previewTotal)}',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green.shade700,
+                              fontSize: 15),
+                        ),
+                      ]),
+                ),
+              ],
+            ]),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dctx),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed: rateCtrl.text.isNotEmpty
+                    ? () async {
+                        Navigator.pop(dctx);
+                        try {
+                          await ref.read(apiClientProvider).post(
+                            '/api/machine-work/${log['id']}/set-rate',
+                            data: null,
+                            params: {'rate': rateCtrl.text},
+                          );
+                          ref.invalidate(_logsProvider(dateKey));
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                              content: Text(isSet
+                                  ? 'Rate updated to ₹${rateCtrl.text}/hr'
+                                  : 'Rate set to ₹${rateCtrl.text}/hr — entry locked'),
+                              backgroundColor: Colors.green,
+                            ));
+                          }
+                        } catch (e) {
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                              content: Text('Failed: $e'),
+                              backgroundColor: Colors.red,
+                            ));
+                          }
+                        }
+                      }
+                    : null,
+                child: Text(isSet ? 'Update' : 'Apply & Lock'),
+              ),
+            ],
+          );
         },
       ),
     );
@@ -146,9 +258,16 @@ class _SummaryBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (logs.isEmpty) return const SizedBox();
     double totalHours = 0;
+    double totalBillable = 0;
+    int billableCount = 0;
     for (final l in logs) {
       final h = l['totalHours'];
       if (h != null) totalHours += (h as num).toDouble();
+      if (l['workPurpose'] == 'CUSTOMER_BILLABLE') {
+        billableCount++;
+        final amt = l['totalAmount'];
+        if (amt != null) totalBillable += (amt as num).toDouble();
+      }
     }
     final cs = Theme.of(context).colorScheme;
     return Container(
@@ -164,8 +283,15 @@ class _SummaryBar extends StatelessWidget {
           if (totalHours > 0) ...[
             const Icon(Icons.timer_outlined, size: 18),
             const SizedBox(width: 4),
-            Text('${totalHours.toStringAsFixed(2)} hrs total',
+            Text('${totalHours.toStringAsFixed(2)} hrs',
                 style: const TextStyle(fontWeight: FontWeight.w600)),
+          ],
+          if (billableCount > 0 && totalBillable > 0) ...[
+            const SizedBox(width: 12),
+            Text('₹${_numFmt.format(totalBillable)} billed',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.orange.shade700)),
           ],
         ],
       ),
@@ -179,8 +305,13 @@ class _LogCard extends StatelessWidget {
   final Map<String, dynamic> log;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _LogCard(
-      {required this.log, required this.onEdit, required this.onDelete});
+  final VoidCallback onSetRate;
+  const _LogCard({
+    required this.log,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onSetRate,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -194,7 +325,16 @@ class _LogCard extends StatelessWidget {
     final totalHours = log['totalHours'];
     final notes = (log['notes'] as String?)?.trim() ?? '';
 
+    final workPurpose = (log['workPurpose'] ?? 'INTERNAL') as String;
+    final isBillable = workPurpose == 'CUSTOMER_BILLABLE';
+    final customerName = log['customerName'] as String?;
+    final rateStatus = log['rateStatus'] as String?;
+    final rate = log['rate'];
+    final totalAmount = log['totalAmount'];
+    final isPendingRate = isBillable && rateStatus == 'PENDING';
+
     return Card(
+      color: isPendingRate ? Colors.amber.shade50 : null,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -202,9 +342,9 @@ class _LogCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                // Mode badge
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: modeColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(4),
@@ -215,6 +355,31 @@ class _LogCard extends StatelessWidget {
                           fontWeight: FontWeight.bold,
                           color: modeColor)),
                 ),
+                if (isBillable) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isPendingRate
+                          ? Colors.amber.shade100
+                          : Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: isPendingRate
+                              ? Colors.amber.shade400
+                              : Colors.purple.shade200),
+                    ),
+                    child: Text(
+                      isPendingRate ? 'Rate: Pending' : 'Billable',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isPendingRate
+                              ? Colors.orange.shade900
+                              : Colors.purple.shade700),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -225,15 +390,31 @@ class _LogCard extends StatelessWidget {
                               fontWeight: FontWeight.bold, fontSize: 15)),
                       if (machineType.isNotEmpty)
                         Text(machineType,
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                     ],
                   ),
                 ),
-                if (totalHours != null)
+                // Right side: hours or billable total
+                if (isBillable && totalAmount != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '₹${_numFmt.format((totalAmount as num).toDouble())}',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.purple.shade700,
+                          fontSize: 14),
+                    ),
+                  )
+                else if (totalHours != null)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.green.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
@@ -243,17 +424,22 @@ class _LogCard extends StatelessWidget {
                       style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.green,
-                          fontSize: 15),
+                          fontSize: 14),
                     ),
                   ),
                 PopupMenuButton<String>(
                   onSelected: (v) {
                     if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
+                    if (v == 'set_rate') onSetRate();
                   },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    PopupMenuItem(
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    if (isBillable)
+                      PopupMenuItem(
+                          value: 'set_rate',
+                          child: Text(isPendingRate ? 'Set Rate' : 'Edit Rate')),
+                    const PopupMenuItem(
                         value: 'delete',
                         child: Text('Delete',
                             style: TextStyle(color: Colors.red))),
@@ -261,6 +447,22 @@ class _LogCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (isBillable && customerName != null) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(customerName,
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                if (rate != null && rateStatus == 'SET') ...[
+                  const SizedBox(width: 8),
+                  Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.purple.shade600)),
+                ],
+              ]),
+            ],
             if (desc.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(desc, style: const TextStyle(fontSize: 13)),
@@ -271,18 +473,30 @@ class _LogCard extends StatelessWidget {
                 children: [
                   _Reading(label: 'Opening', value: opening),
                   const SizedBox(width: 16),
-                  const Icon(Icons.arrow_forward,
-                      size: 16, color: Colors.grey),
+                  const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
                   const SizedBox(width: 16),
                   _Reading(label: 'Closing', value: closing),
+                  if (totalHours != null && isBillable) ...[
+                    const SizedBox(width: 16),
+                    _Reading(
+                        label: 'Hours',
+                        value: (totalHours as num).toDouble()),
+                  ],
                 ],
               ),
+            ],
+            if (isPendingRate) ...[
+              const SizedBox(height: 6),
+              Text('Tap ⋮ → Set Rate to lock this entry',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.orange.shade700,
+                      fontStyle: FontStyle.italic)),
             ],
             if (notes.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(notes,
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             ],
           ],
         ),
@@ -301,8 +515,7 @@ class _Reading extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         Text(
           value != null ? (value as num).toStringAsFixed(1) : '—',
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -318,10 +531,11 @@ class _LogForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final DateTime defaultDate;
   final VoidCallback onSaved;
-  const _LogForm(
-      {required this.existing,
-      required this.defaultDate,
-      required this.onSaved});
+  const _LogForm({
+    required this.existing,
+    required this.defaultDate,
+    required this.onSaved,
+  });
 
   @override
   ConsumerState<_LogForm> createState() => _LogFormState();
@@ -330,14 +544,21 @@ class _LogForm extends ConsumerStatefulWidget {
 class _LogFormState extends ConsumerState<_LogForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _date;
-  Long? _machineId;
+  int? _machineId;
   String _mode = 'BUCKET';
   final _descCtrl = TextEditingController();
   final _openCtrl = TextEditingController();
   final _closeCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  final _rateCtrl = TextEditingController();
   bool _saving = false;
   double? _previewHours;
+  double? _previewTotal;
+
+  // Customer Billable
+  String _workPurpose = 'INTERNAL';
+  int? _customerId;
+  bool _rateIsLocked = false;  // true when editing a SET entry
 
   @override
   void initState() {
@@ -355,16 +576,27 @@ class _LogFormState extends ConsumerState<_LogForm> {
       if (open != null) _openCtrl.text = open.toString();
       if (close != null) _closeCtrl.text = close.toString();
       _notesCtrl.text = (e['notes'] as String?) ?? '';
+      _workPurpose = (e['workPurpose'] as String?) ?? 'INTERNAL';
+      _customerId = e['customerId'] as int?;
+      final rate = e['rate'];
+      if (rate != null) _rateCtrl.text = rate.toString();
+      _rateIsLocked = (e['rateStatus'] as String?) == 'SET';
     }
     _openCtrl.addListener(_updatePreview);
     _closeCtrl.addListener(_updatePreview);
+    _rateCtrl.addListener(_updatePreview);
   }
 
   void _updatePreview() {
     final o = double.tryParse(_openCtrl.text);
     final c = double.tryParse(_closeCtrl.text);
+    final r = double.tryParse(_rateCtrl.text);
+    final hours = (o != null && c != null && c >= o) ? c - o : null;
     setState(() {
-      _previewHours = (o != null && c != null && c >= o) ? c - o : null;
+      _previewHours = hours;
+      _previewTotal = (_workPurpose == 'CUSTOMER_BILLABLE' && hours != null && r != null)
+          ? hours * r
+          : null;
     });
   }
 
@@ -374,6 +606,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
     _openCtrl.dispose();
     _closeCtrl.dispose();
     _notesCtrl.dispose();
+    _rateCtrl.dispose();
     super.dispose();
   }
 
@@ -383,33 +616,53 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final body = {
       'logDate': DateFormat('yyyy-MM-dd').format(_date),
       'machineId': _machineId,
-      'workDescription': _descCtrl.text.trim().isEmpty
-          ? null
-          : _descCtrl.text.trim(),
+      'workDescription':
+          _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       'mode': _mode,
       'openingReading': double.tryParse(_openCtrl.text),
       'closingReading': double.tryParse(_closeCtrl.text),
       'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      'workPurpose': _workPurpose,
+      'customerId':
+          _workPurpose == 'CUSTOMER_BILLABLE' ? _customerId : null,
+      'rate': (_workPurpose == 'CUSTOMER_BILLABLE' &&
+              _rateCtrl.text.isNotEmpty &&
+              !_rateIsLocked)
+          ? double.tryParse(_rateCtrl.text)
+          : null,
     };
     final api = ref.read(apiClientProvider);
     final e = widget.existing;
-    if (e == null) {
-      await api.post('/api/machine-work', data: body);
-    } else {
-      await api.put('/api/machine-work/${e['id']}', data: body);
+    try {
+      if (e == null) {
+        await api.post('/api/machine-work', data: body);
+      } else {
+        await api.put('/api/machine-work/${e['id']}', data: body);
+      }
+      widget.onSaved();
+      if (mounted) Navigator.pop(context);
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Save failed: $err'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    widget.onSaved();
-    if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final machines = ref.watch(_machinesProvider);
+    final vendors = ref.watch(_vendorsProvider);
     final isEdit = widget.existing != null;
+    final isBillable = _workPurpose == 'CUSTOMER_BILLABLE';
 
     return AppDialog(
       title: isEdit ? 'Edit Machine Work Entry' : 'Add Machine Work',
-      maxWidth: 460,
+      maxWidth: 480,
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
@@ -418,7 +671,10 @@ class _LogFormState extends ConsumerState<_LogForm> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save'),
         ),
       ],
@@ -428,11 +684,57 @@ class _LogFormState extends ConsumerState<_LogForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DateField(label: 'Date', date: _date, required: true,
+            // Work Purpose toggle
+            const SectionLabel('Work Purpose'),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                    value: 'INTERNAL',
+                    label: Text('Internal'),
+                    icon: Icon(Icons.factory_outlined)),
+                ButtonSegment(
+                    value: 'CUSTOMER_BILLABLE',
+                    label: Text('Customer Billable'),
+                    icon: Icon(Icons.receipt_outlined)),
+              ],
+              selected: {_workPurpose},
+              onSelectionChanged: (s) =>
+                  setState(() { _workPurpose = s.first; _updatePreview(); }),
+            ),
+            const SizedBox(height: 14),
+
+            // Customer picker (billable only)
+            if (isBillable) ...[
+              vendors.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('Error loading customers: $e'),
+                data: (list) {
+                  final active =
+                      list.where((v) => v['status'] == 'ACTIVE').toList();
+                  return SearchablePicker(
+                    items: active,
+                    itemLabel: (v) => v['name'] as String,
+                    fieldLabel: 'Customer *',
+                    value: _customerId,
+                    onChanged: (v) => setState(() => _customerId = v),
+                    validator: (v) =>
+                        v == null ? 'Select a customer' : null,
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            DateField(
+              label: 'Date',
+              date: _date,
+              required: true,
               onTap: () async {
                 final d = await showDatePicker(
-                  context: context, initialDate: _date,
-                  firstDate: DateTime(2020), lastDate: DateTime(2030),
+                  context: context,
+                  initialDate: _date,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
                 );
                 if (d != null) setState(() => _date = d);
               },
@@ -442,7 +744,8 @@ class _LogFormState extends ConsumerState<_LogForm> {
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
               data: (list) {
-                final active = list.where((m) => m['status'] == 'ACTIVE').toList();
+                final active =
+                    list.where((m) => m['status'] == 'ACTIVE').toList();
                 return SearchablePicker(
                   items: active,
                   itemLabel: (m) => m['name'] as String,
@@ -456,11 +759,18 @@ class _LogFormState extends ConsumerState<_LogForm> {
             const SectionLabel('Mode'),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'BUCKET', label: Text('Bucket'), icon: Icon(Icons.crop_square)),
-                ButtonSegment(value: 'BREAKER', label: Text('Breaker'), icon: Icon(Icons.hardware)),
+                ButtonSegment(
+                    value: 'BUCKET',
+                    label: Text('Bucket'),
+                    icon: Icon(Icons.crop_square)),
+                ButtonSegment(
+                    value: 'BREAKER',
+                    label: Text('Breaker'),
+                    icon: Icon(Icons.hardware)),
               ],
               selected: {_mode},
-              onSelectionChanged: (s) => setState(() => _mode = s.first),
+              onSelectionChanged: (s) =>
+                  setState(() => _mode = s.first),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -476,14 +786,18 @@ class _LogFormState extends ConsumerState<_LogForm> {
               children: [
                 Expanded(child: TextFormField(
                   controller: _openCtrl,
-                  decoration: const InputDecoration(labelText: 'Opening Reading'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration:
+                      const InputDecoration(labelText: 'Opening Reading'),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                 )),
                 const SizedBox(width: 12),
                 Expanded(child: TextFormField(
                   controller: _closeCtrl,
-                  decoration: const InputDecoration(labelText: 'Closing Reading'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration:
+                      const InputDecoration(labelText: 'Closing Reading'),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
                     final c = double.tryParse(v);
@@ -499,7 +813,8 @@ class _LogFormState extends ConsumerState<_LogForm> {
             if (_previewHours != null) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -507,15 +822,64 @@ class _LogFormState extends ConsumerState<_LogForm> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.timer, size: 16, color: Colors.green),
                   const SizedBox(width: 6),
-                  Text('Total: ${_previewHours!.toStringAsFixed(2)} hours',
-                      style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  Text(
+                      'Hours: ${_previewHours!.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold)),
+                  if (_previewTotal != null) ...[
+                    const SizedBox(width: 12),
+                    const Text('·  Total: ',
+                        style: TextStyle(color: Colors.green)),
+                    Text(
+                        '₹${_numFmt.format(_previewTotal!)}',
+                        style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15)),
+                  ],
                 ]),
               ),
             ],
+
+            // Rate field (billable only, hidden if rate is locked)
+            if (isBillable) ...[
+              const SectionLabel('Rate'),
+              if (_rateIsLocked)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.lock_outline, size: 16,
+                        color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Text(
+                        'Rate locked: ₹${_rateCtrl.text}/hr',
+                        style: const TextStyle(color: Colors.grey)),
+                  ]),
+                )
+              else
+                TextFormField(
+                  controller: _rateCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Rate ₹/hr (leave blank to decide later)',
+                    prefixText: '₹',
+                    helperText:
+                        'If left blank, entry is saved as Rate: Pending',
+                  ),
+                ),
+            ],
+
             const SizedBox(height: 12),
             TextFormField(
               controller: _notesCtrl,
-              decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              decoration:
+                  const InputDecoration(labelText: 'Notes (optional)'),
               maxLines: 2,
             ),
           ],
@@ -524,5 +888,3 @@ class _LogFormState extends ConsumerState<_LogForm> {
     );
   }
 }
-
-typedef Long = int;

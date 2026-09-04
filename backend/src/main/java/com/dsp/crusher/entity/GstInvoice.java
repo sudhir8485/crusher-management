@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+// gst_status values (not an enum to stay schema-light): "PENDING" | "SET"
+
 @Entity
 @Table(name = "gst_invoices")
 @Getter @Setter
@@ -60,8 +62,26 @@ public class GstInvoice {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    /** PENDING = GST rate was 0/unconfigured when raised; explicit Recalculate required.
+     *  SET = rate is locked — no automatic changes, ever. */
+    @Column(name = "gst_status", nullable = false, length = 10)
+    private String gstStatus = "SET";
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    // ── Recalculate-GST audit (mirrors createdByName/updatedByName on Trip) ──
+    @Column(name = "gst_recalculated_by", length = 100)
+    private String gstRecalculatedBy;
+
+    @Column(name = "gst_recalculated_at")
+    private LocalDateTime gstRecalculatedAt;
+
+    @Column(name = "gst_prev_sgst_rate", precision = 5, scale = 2)
+    private BigDecimal gstPrevSgstRate;
+
+    @Column(name = "gst_prev_cgst_rate", precision = 5, scale = 2)
+    private BigDecimal gstPrevCgstRate;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")

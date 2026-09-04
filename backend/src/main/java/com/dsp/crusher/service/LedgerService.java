@@ -5,10 +5,14 @@ import com.dsp.crusher.dto.VendorLedgerResponse.DetailLine;
 import com.dsp.crusher.dto.VendorLedgerResponse.LedgerEntry;
 import com.dsp.crusher.entity.GstInvoice;
 import com.dsp.crusher.entity.GstInvoiceItem;
+import com.dsp.crusher.entity.Machine;
+import com.dsp.crusher.entity.MachineWorkLog;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.MachineRepository;
+import com.dsp.crusher.repository.MachineWorkLogRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,26 +24,31 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class LedgerService {
 
-    private final VendorRepository vendorRepo;
-    private final GstInvoiceRepository invoiceRepo;
-    private final VendorPaymentRepository paymentRepo;
+    private final VendorRepository         vendorRepo;
+    private final GstInvoiceRepository     invoiceRepo;
+    private final VendorPaymentRepository  paymentRepo;
+    private final MachineWorkLogRepository machineWorkRepo;
+    private final MachineRepository        machineRepo;
 
     public VendorLedgerResponse vendorLedger(Long vendorId, LocalDate from, LocalDate to) {
 
         Vendor vendor = vendorRepo.findById(vendorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vendor not found: " + vendorId));
 
-        // ── Opening balance: invoices - payments before 'from' date ─────────
+        // ── Opening balance: (invoices + machine work SET) − payments before 'from' ─
         BigDecimal openingDebit  = invoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
+        BigDecimal openingMw     = machineWorkRepo.sumTotalAmountByCustomerBefore(vendorId, from);
         BigDecimal openingCredit = paymentRepo.sumAmountByVendorBefore(vendorId, from);
-        BigDecimal openingBalance = openingDebit.subtract(openingCredit);
+        BigDecimal openingBalance = openingDebit.add(openingMw).subtract(openingCredit);
 
-        // ── Invoices within range (with items eagerly loaded) ────────────────
+        // ── Invoices within range ────────────────────────────────────────────
         List<GstInvoice> invoices = invoiceRepo.findWithItemsByVendorAndDateRange(vendorId, from, to);
 
         // ── Payments within range ────────────────────────────────────────────
@@ -47,8 +56,20 @@ public class LedgerService {
                 .findByVendorIdAndPaymentDateBetweenAndStatusOrderByPaymentDateAscIdAsc(
                         vendorId, from, to, "ACTIVE");
 
+        // ── Customer Billable machine work within range ──────────────────────
+        List<MachineWorkLog> machineWork =
+                machineWorkRepo.findBillableByCustomerAndDateRange(vendorId, from, to);
+
+        // Load machine names for machine work entries
+        List<Long> machineIds = machineWork.stream()
+                .map(MachineWorkLog::getMachineId).distinct().collect(Collectors.toList());
+        Map<Long, Machine> machineMap = machineIds.isEmpty() ? Map.of() :
+                machineRepo.findAllById(machineIds).stream()
+                        .collect(Collectors.toMap(Machine::getId, m -> m));
+
         List<LedgerEntry> entries = new ArrayList<>();
 
+        // ── Build invoice entries ────────────────────────────────────────────
         for (GstInvoice inv : invoices) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(inv.getInvoiceDate());
@@ -57,40 +78,62 @@ public class LedgerService {
             e.setInvoiceNo(inv.getInvoiceNo());
             e.setDebit(inv.getGrandTotal());
             e.setSourceId(inv.getId());
+            e.setGstStatus(inv.getGstStatus());
 
-            // Build breakdown detail lines
             List<DetailLine> details = new ArrayList<>();
+            boolean isPending = "PENDING".equals(inv.getGstStatus());
+            boolean hasTax    = inv.getSgstAmount().compareTo(BigDecimal.ZERO) != 0
+                             || inv.getCgstAmount().compareTo(BigDecimal.ZERO) != 0;
+
             for (GstInvoiceItem item : inv.getItems()) {
-                DetailLine d = new DetailLine();
-                d.setLabel(item.getDescription());
-                d.setAmount(item.getAmount());
-                details.add(d);
+                if (hasTax && !isPending) {
+                    DetailLine ref = new DetailLine();
+                    ref.setLabel(item.getDescription());
+                    ref.setAmount(null);
+                    details.add(ref);
+                    DetailLine sales = new DetailLine();
+                    sales.setLabel("Sales");
+                    sales.setAmount(item.getAmount());
+                    details.add(sales);
+                } else {
+                    DetailLine d = new DetailLine();
+                    d.setLabel(item.getDescription());
+                    d.setAmount(item.getAmount());
+                    details.add(d);
+                }
             }
-            // SGST / CGST lines
-            if (inv.getSgstAmount().compareTo(BigDecimal.ZERO) != 0) {
-                DetailLine sgst = new DetailLine();
-                sgst.setLabel("SGST " + inv.getSgstRate().stripTrailingZeros().toPlainString() + "%");
-                sgst.setAmount(inv.getSgstAmount());
-                details.add(sgst);
+
+            if (isPending) {
+                DetailLine pending = new DetailLine();
+                pending.setLabel("GST: Pending — use Recalculate GST to apply current rate");
+                pending.setAmount(null);
+                details.add(pending);
+            } else {
+                if (inv.getSgstAmount().compareTo(BigDecimal.ZERO) != 0) {
+                    DetailLine sgst = new DetailLine();
+                    sgst.setLabel("SGST " + inv.getSgstRate().stripTrailingZeros().toPlainString() + "%");
+                    sgst.setAmount(inv.getSgstAmount());
+                    details.add(sgst);
+                }
+                if (inv.getCgstAmount().compareTo(BigDecimal.ZERO) != 0) {
+                    DetailLine cgst = new DetailLine();
+                    cgst.setLabel("CGST " + inv.getCgstRate().stripTrailingZeros().toPlainString() + "%");
+                    cgst.setAmount(inv.getCgstAmount());
+                    details.add(cgst);
+                }
+                BigDecimal computed = inv.getSubtotal().add(inv.getSgstAmount()).add(inv.getCgstAmount());
+                BigDecimal roundOff = inv.getGrandTotal().subtract(computed).setScale(2, RoundingMode.HALF_UP);
+                DetailLine ro = new DetailLine();
+                ro.setLabel("Round Off");
+                ro.setAmount(roundOff);
+                details.add(ro);
             }
-            if (inv.getCgstAmount().compareTo(BigDecimal.ZERO) != 0) {
-                DetailLine cgst = new DetailLine();
-                cgst.setLabel("CGST " + inv.getCgstRate().stripTrailingZeros().toPlainString() + "%");
-                cgst.setAmount(inv.getCgstAmount());
-                details.add(cgst);
-            }
-            // Round Off = grandTotal - subtotal - sgst - cgst
-            BigDecimal computed = inv.getSubtotal().add(inv.getSgstAmount()).add(inv.getCgstAmount());
-            BigDecimal roundOff = inv.getGrandTotal().subtract(computed).setScale(2, RoundingMode.HALF_UP);
-            DetailLine ro = new DetailLine();
-            ro.setLabel("Round Off");
-            ro.setAmount(roundOff);
-            details.add(ro);
 
             e.setDetails(details);
             entries.add(e);
         }
 
+        // ── Build payment entries ────────────────────────────────────────────
         for (VendorPayment pmt : payments) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(pmt.getPaymentDate());
@@ -106,23 +149,59 @@ public class LedgerService {
             entries.add(e);
         }
 
-        // Sort: date asc, then invoices before payments on same date
+        // ── Build machine work entries ───────────────────────────────────────
+        for (MachineWorkLog mwl : machineWork) {
+            LedgerEntry e = new LedgerEntry();
+            e.setDate(mwl.getLogDate());
+            e.setVoucherType("MachineWork");
+            e.setSourceId(mwl.getId());
+            e.setGstStatus(mwl.getRateStatus());  // PENDING | SET
+            e.setTotalHours(mwl.getTotalHours());
+
+            Machine machine = machineMap.get(mwl.getMachineId());
+            String machineName = machine != null ? machine.getName() : "Machine";
+            String desc = mwl.getWorkDescription();
+            e.setParticulars(machineName + (desc != null && !desc.isBlank() ? " — " + desc : ""));
+
+            // Only SET entries carry a debit amount; PENDING entries show with null debit
+            if ("SET".equals(mwl.getRateStatus()) && mwl.getTotalAmount() != null) {
+                e.setDebit(mwl.getTotalAmount());
+            }
+
+            List<DetailLine> details = new ArrayList<>();
+            if ("PENDING".equals(mwl.getRateStatus())) {
+                DetailLine pd = new DetailLine();
+                pd.setLabel("Rate: Pending — tap to set rate");
+                pd.setAmount(null);
+                details.add(pd);
+            } else if (mwl.getRate() != null && mwl.getTotalHours() != null) {
+                DetailLine rd = new DetailLine();
+                rd.setLabel("₹" + mwl.getRate().stripTrailingZeros().toPlainString()
+                        + "/hr × " + mwl.getTotalHours().stripTrailingZeros().toPlainString() + " hrs");
+                rd.setAmount(mwl.getTotalAmount());
+                details.add(rd);
+            }
+            e.setDetails(details);
+            entries.add(e);
+        }
+
+        // Sort: date asc, receipts last on same date
         entries.sort(Comparator
                 .comparing(LedgerEntry::getDate)
                 .thenComparing(e -> "Receipt".equals(e.getVoucherType()) ? 1 : 0));
 
-        // ── Calculate running balance ─────────────────────────────────────────
-        BigDecimal running = openingBalance;
+        // ── Running balance ──────────────────────────────────────────────────
+        BigDecimal running     = openingBalance;
         BigDecimal totalDebit  = BigDecimal.ZERO;
         BigDecimal totalCredit = BigDecimal.ZERO;
 
         for (LedgerEntry e : entries) {
             if (e.getDebit() != null) {
-                running = running.add(e.getDebit());
+                running    = running.add(e.getDebit());
                 totalDebit = totalDebit.add(e.getDebit());
             }
             if (e.getCredit() != null) {
-                running = running.subtract(e.getCredit());
+                running     = running.subtract(e.getCredit());
                 totalCredit = totalCredit.add(e.getCredit());
             }
             e.setRunningBalance(running);

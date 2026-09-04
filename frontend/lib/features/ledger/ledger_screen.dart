@@ -470,12 +470,15 @@ class _LedgerView extends StatelessWidget {
     bool alt = false;
     for (final e in entries) {
       final isInvoice = e['voucherType'] == 'Sales';
+      final isPending = e['gstStatus'] == 'PENDING';
       final debit    = (e['debit']          as num?)?.toDouble();
       final credit   = (e['credit']         as num?)?.toDouble();
       final balance  = (e['runningBalance'] as num?)?.toDouble() ?? 0;
       final date     = DateTime.parse(e['date'] as String);
       final details  = e['details'] as List? ?? [];
-      final rowDecor = alt ? altDecor : const BoxDecoration(color: Colors.white);
+      final rowDecor = isPending
+          ? BoxDecoration(color: Colors.amber.shade50)
+          : alt ? altDecor : const BoxDecoration(color: Colors.white);
       alt = !alt;
 
       // Main transaction row
@@ -483,8 +486,32 @@ class _LedgerView extends StatelessWidget {
         decoration: rowDecor,
         children: [
           _TD(_dateFmt.format(date)),
-          _TD(e['particulars'] as String? ?? '—',
-              bold: true, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          // Particulars + optional amber "GST Pending" chip
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(e['particulars'] as String? ?? '—',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                if (isPending)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.amber.shade400),
+                    ),
+                    child: Text('GST: Pending',
+                        style: TextStyle(fontSize: 10, color: Colors.orange.shade900,
+                            fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+          ),
           _TD(e['voucherType'] as String? ?? '—',
               color: isInvoice ? Colors.red.shade700 : Colors.green.shade700),
           _TD(debit != null ? _fmtAmt(debit) : '—',
@@ -502,8 +529,8 @@ class _LedgerView extends StatelessWidget {
 
       // Detail sub-rows (invoice breakdown)
       for (final d in details) {
-        final label  = d['label']  as String? ?? '';
-        final amount = (d['amount'] as num?)?.toDouble() ?? 0;
+        final label     = d['label']  as String? ?? '';
+        final amountRaw = d['amount'] as num?;   // null = reference line (no monetary value)
         rows.add(TableRow(
           decoration: subDecor,
           children: [
@@ -517,7 +544,7 @@ class _LedgerView extends StatelessWidget {
             const _TD(''),
             Padding(
               padding: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
-              child: Text(_fmtAmt(amount),
+              child: Text(amountRaw != null ? _fmtAmt(amountRaw.toDouble()) : '',
                   textAlign: TextAlign.right,
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
             ),
@@ -528,15 +555,18 @@ class _LedgerView extends StatelessWidget {
       }
     }
 
-    // Totals row
+    // Totals row — include opening balance in the appropriate column so that
+    // TOTALS Credit − TOTALS Debit = TOTALS Balance exactly.
+    final totalsDebit  = _totalDebit  + (_openingBal > 0.005 ? _openingBal  : 0);
+    final totalsCredit = _totalCredit + (_openingBal < -0.005 ? -_openingBal : 0);
     rows.add(TableRow(
       decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.07)),
       children: [
         const _TD('', bold: true),
         const _TD('TOTALS', bold: true),
         const _TD('', bold: true),
-        _TD(_fmtAmt(_totalDebit), right: true, bold: true, color: Colors.red.shade700),
-        _TD(_fmtAmt(_totalCredit), right: true, bold: true, color: Colors.green.shade700),
+        _TD(_fmtAmt(totalsDebit),  right: true, bold: true, color: Colors.red.shade700),
+        _TD(_fmtAmt(totalsCredit), right: true, bold: true, color: Colors.green.shade700),
         _TD(
             _closingBal < -0.005 ? 'Adv ${_fmtAmt(_closingBal.abs())}' : _fmtAmt(_closingBal),
             right: true, bold: true,
@@ -566,162 +596,349 @@ class _LedgerView extends StatelessWidget {
 
   // ── Print (opens browser print dialog with same PDF layout) ──────────────
 
-  void _print(BuildContext context) async {
-    final bytes = await _buildPdf();
-    await Printing.layoutPdf(
-      onLayout: (_) => bytes,
-      name: 'Ledger_${vendorName.replaceAll(' ', '_')}.pdf',
-    );
+  Future<void> _print(BuildContext context) async {
+    try {
+      final bytes = await _buildPdf();
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: 'Ledger_${vendorName.replaceAll(' ', '_')}.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Print failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   // ── PDF Export ────────────────────────────────────────────────────────────
 
-  void _exportPdf(BuildContext context) async {
-    final bytes = await _buildPdf();
-    await Printing.sharePdf(
-      bytes: bytes,
-      filename: 'Ledger_${vendorName.replaceAll(' ', '_')}_'
-          '${DateFormat('yyyyMMdd').format(from)}_${DateFormat('yyyyMMdd').format(to)}.pdf',
-    );
+  Future<void> _exportPdf(BuildContext context) async {
+    try {
+      final bytes = await _buildPdf();
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'Ledger_${vendorName.replaceAll(' ', '_')}_'
+            '${DateFormat('yyyyMMdd').format(from)}_${DateFormat('yyyyMMdd').format(to)}.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF export failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Future<Uint8List> _buildPdf() async {
+    // Noto Sans — fixes ₹ (U+20B9) rendering; Helvetica lacks the glyph.
+    final font     = await PdfGoogleFonts.notoSansRegular();
+    final fontBold = await PdfGoogleFonts.notoSansBold();
+
     final entries  = _entries;
     final dateStr  = '${_longFmt.format(from)} to ${_longFmt.format(to)}';
+    final genDate  = DateFormat('d MMM yyyy, HH:mm').format(DateTime.now());
 
-    final pdf = pw.Document();
+    // ── Column layout ─────────────────────────────────────────────────────────
+    const colWidths = <int, pw.TableColumnWidth>{
+      0: pw.FixedColumnWidth(52),   // Date
+      1: pw.FlexColumnWidth(2.6),   // Particulars
+      2: pw.FixedColumnWidth(46),   // Voucher Type
+      3: pw.FixedColumnWidth(66),   // Debit
+      4: pw.FixedColumnWidth(66),   // Credit
+      5: pw.FixedColumnWidth(70),   // Balance
+    };
 
-    // Build all rows (data rows for pdf.MultiPage)
-    List<List<String>> tableData = [];
+    // ── Helper: single table row ──────────────────────────────────────────────
+    pw.Widget cell(String text, {
+      bool bold = false,
+      bool right = false,
+      bool italic = false,
+      PdfColor? color,
+    }) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3.5),
+          child: pw.Text(
+            text,
+            textAlign: right ? pw.TextAlign.right : pw.TextAlign.left,
+            style: pw.TextStyle(
+              font:       bold ? fontBold : font,
+              fontSize:   8,
+              fontStyle:  italic ? pw.FontStyle.italic : pw.FontStyle.normal,
+              color:      color,
+            ),
+          ),
+        );
 
+    // Header row (repeated on every page via header() callback)
+    pw.TableRow headerRow() => pw.TableRow(
+      decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+      children: [
+        cell('Date',        bold: true),
+        cell('Particulars', bold: true),
+        cell('Voucher Type',bold: true),
+        cell('Debit (₹)',   bold: true, right: true),
+        cell('Credit (₹)',  bold: true, right: true),
+        cell('Balance (₹)', bold: true, right: true),
+      ],
+    );
+
+    // ── Build table rows ──────────────────────────────────────────────────────
+    final List<pw.TableRow> rows = [headerRow()];
+
+    // Opening balance row
     if (_openingBal != 0) {
-      tableData.add(['—', 'Balance brought forward', 'Opening', '', '', _fmtAmt(_openingBal)]);
+      rows.add(pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.amber50),
+        children: [
+          cell('—', italic: true),
+          cell('Balance brought forward', italic: true),
+          cell('Opening', italic: true),
+          cell('', right: true),
+          cell('', right: true),
+          cell(
+            _openingBal < -0.005
+                ? 'Adv ${_fmtAmt(-_openingBal)}'
+                : _fmtAmt(_openingBal),
+            italic: true, right: true,
+          ),
+        ],
+      ));
     }
 
+    bool altRow = false;
     for (final e in entries) {
+      final isInvoice = e['voucherType'] == 'Sales';
+      final isPending = e['gstStatus'] == 'PENDING';
       final debit   = (e['debit']          as num?)?.toDouble();
       final credit  = (e['credit']         as num?)?.toDouble();
       final balance = (e['runningBalance'] as num?)?.toDouble() ?? 0;
       final date    = DateTime.parse(e['date'] as String);
       final details = e['details'] as List? ?? [];
+      // PENDING invoices get a subtle amber tint on their main row
+      final bgColor = isPending
+          ? PdfColors.amber50
+          : altRow ? PdfColors.grey50 : PdfColors.white;
+      altRow = !altRow;
 
-      tableData.add([
-        _dateFmt.format(date),
-        e['particulars'] as String? ?? '—',
-        e['voucherType'] as String? ?? '—',
-        debit  != null ? _fmtAmt(debit)  : '—',
-        credit != null ? _fmtAmt(credit) : '—',
-        balance < -0.005 ? 'Adv ${_fmtAmt(balance.abs())}' : _fmtAmt(balance),
-      ]);
+      // Main transaction row
+      rows.add(pw.TableRow(
+        decoration: pw.BoxDecoration(color: bgColor),
+        children: [
+          cell(_dateFmt.format(date)),
+          cell(e['particulars'] as String? ?? '—', bold: true),
+          cell(
+            e['voucherType'] as String? ?? '—',
+            color: isInvoice ? PdfColors.red700 : PdfColors.green700,
+          ),
+          cell(debit  != null ? _fmtAmt(debit)  : '—',
+              right: true, color: PdfColors.red700),
+          cell(credit != null ? _fmtAmt(credit) : '—',
+              right: true, color: PdfColors.green700),
+          cell(
+            balance < -0.005
+                ? 'Adv ${_fmtAmt(-balance)}'
+                : _fmtAmt(balance),
+            right: true, bold: true,
+            color: balance < -0.005 ? PdfColors.blue700
+                : balance > 0.005 ? PdfColors.orange900
+                : PdfColors.green700,
+          ),
+        ],
+      ));
 
+      // Detail sub-rows
       for (final d in details) {
-        final label  = d['label']  as String? ?? '';
-        final amount = (d['amount'] as num?)?.toDouble() ?? 0;
-        tableData.add(['', '    $label', '', _fmtAmt(amount), '', '']);
+        final label     = d['label']  as String? ?? '';
+        final amountRaw = d['amount'] as num?;
+        final isMeta = amountRaw == null;                     // reference or pending line
+        final isGstPending = isMeta && label.contains('GST: Pending');
+        rows.add(pw.TableRow(
+          decoration: pw.BoxDecoration(color: bgColor),
+          children: [
+            cell(''),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(left: 18, top: 2, bottom: 2, right: 4),
+              child: pw.Text(
+                label,
+                style: pw.TextStyle(
+                  font:      isGstPending ? fontBold : font,
+                  fontSize:  7.5,
+                  fontStyle: isMeta && !isGstPending
+                      ? pw.FontStyle.italic : pw.FontStyle.normal,
+                  color:     isGstPending ? PdfColors.orange800
+                      : PdfColors.blueGrey600,
+                ),
+              ),
+            ),
+            cell(''),
+            cell(
+              amountRaw != null ? _fmtAmt(amountRaw.toDouble()) : '',
+              right: true,
+              color: PdfColors.blueGrey600,
+            ),
+            cell(''),
+            cell(''),
+          ],
+        ));
       }
     }
 
-    // Totals
-    tableData.add(['', 'TOTALS', '', _fmtAmt(_totalDebit), _fmtAmt(_totalCredit),
-        _closingBal < -0.005 ? 'Adv ${_fmtAmt(_closingBal.abs())}' : _fmtAmt(_closingBal)]);
+    // TOTALS row — include opening balance so Credit − Debit = Balance
+    final pdfTotalsDebit  = _totalDebit  + (_openingBal > 0.005 ? _openingBal  : 0);
+    final pdfTotalsCredit = _totalCredit + (_openingBal < -0.005 ? -_openingBal : 0);
+    rows.add(pw.TableRow(
+      decoration: const pw.BoxDecoration(
+        color: PdfColors.blueGrey50,
+        border: pw.Border(top: pw.BorderSide(color: PdfColors.blueGrey300, width: 0.8)),
+      ),
+      children: [
+        cell(''),
+        cell('TOTALS', bold: true),
+        cell(''),
+        cell(_fmtAmt(pdfTotalsDebit),  bold: true, right: true, color: PdfColors.red700),
+        cell(_fmtAmt(pdfTotalsCredit), bold: true, right: true, color: PdfColors.green700),
+        cell(
+          _closingBal < -0.005
+              ? 'Adv ${_fmtAmt(_closingBal.abs())}'
+              : _fmtAmt(_closingBal),
+          bold: true, right: true,
+          color: _closingBal < -0.005 ? PdfColors.blue700
+              : _closingBal > 0.005 ? PdfColors.orange900
+              : PdfColors.green700,
+        ),
+      ],
+    ));
+
+    // ── Summary box ───────────────────────────────────────────────────────────
+    pw.Widget summaryBox() {
+      final isAdv = _closingBal < -0.005;
+      return pw.Align(
+        alignment: pw.Alignment.centerRight,
+        child: pw.Container(
+          width: 210,
+          margin: const pw.EdgeInsets.only(top: 16),
+          padding: const pw.EdgeInsets.all(10),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColors.blueGrey200, width: 0.6),
+            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+            color: PdfColors.blueGrey50,
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _pdfRow('Opening Balance',  _fmtAmt(_openingBal.abs()),   font, fontBold),
+              _pdfRow('Total Invoiced',   _fmtAmt(_totalDebit),          font, fontBold),
+              _pdfRow('Total Received',   _fmtAmt(_totalCredit),         font, fontBold),
+              pw.Divider(thickness: 0.4, color: PdfColors.blueGrey300),
+              _pdfRow(
+                isAdv ? 'Advance' : 'Outstanding',
+                _fmtAmt(_closingBal.abs()),
+                fontBold, fontBold,
+                valueColor: isAdv ? PdfColors.blue700 : PdfColors.orange900,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ── Build PDF ─────────────────────────────────────────────────────────────
+    final pdf = pw.Document(
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold));
 
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 24),
+      margin: const pw.EdgeInsets.fromLTRB(24, 28, 24, 24),
       header: (ctx) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          pw.Text(vendorName,
-              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-          pw.Text('Ledger Account',
-              style: const pw.TextStyle(fontSize: 11)),
-          pw.Text(dateStr,
-              style: const pw.TextStyle(fontSize: 9)),
-          pw.SizedBox(height: 4),
-          pw.Divider(thickness: 0.5),
-          pw.SizedBox(height: 2),
-        ],
-      ),
-      footer: (ctx) => pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(
-              'Generated: ${DateFormat('d MMM yyyy, HH:mm').format(DateTime.now())}',
-              style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
-          pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-              style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
-        ],
-      ),
-      build: (ctx) => [
-        pw.TableHelper.fromTextArray(
-          headers: ['Date', 'Particulars', 'Voucher Type', 'Debit (₹)', 'Credit (₹)', 'Balance (₹)'],
-          headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
-          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-          cellStyle: const pw.TextStyle(fontSize: 7.5),
-          cellAlignments: {
-            3: pw.Alignment.centerRight,
-            4: pw.Alignment.centerRight,
-            5: pw.Alignment.centerRight,
-          },
-          columnWidths: {
-            0: const pw.FixedColumnWidth(55),
-            1: const pw.FlexColumnWidth(2.5),
-            2: const pw.FixedColumnWidth(52),
-            3: const pw.FixedColumnWidth(68),
-            4: const pw.FixedColumnWidth(68),
-            5: const pw.FixedColumnWidth(72),
-          },
-          data: tableData,
-          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
-          rowDecoration: const pw.BoxDecoration(color: PdfColors.white),
-          oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey50),
-        ),
-        pw.SizedBox(height: 16),
-        // Summary box at bottom of last page
-        pw.Align(
-          alignment: pw.Alignment.centerRight,
-          child: pw.Container(
-            width: 260,
-            padding: const pw.EdgeInsets.all(10),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
-              color: PdfColors.grey50,
+          // Business header block — separated visually from the table
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(bottom: pw.BorderSide(color: PdfColors.blueGrey200, width: 0.8)),
             ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                _pdfSumRow('Opening Balance :', _fmtAmt(_openingBal)),
-                _pdfSumRow('Total Invoiced :', _fmtAmt(_totalDebit)),
-                _pdfSumRow('Total Paid :', _fmtAmt(_totalCredit)),
-                pw.Divider(thickness: 0.5),
-                _pdfSumRow(
-                    _closingBal < -0.005 ? 'Advance :' : 'Outstanding :',
-                    _fmtAmt(_closingBal.abs()),
-                    bold: true),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Party Ledger Account',
+                        style: pw.TextStyle(font: fontBold, fontSize: 13,
+                            fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey900)),
+                    pw.SizedBox(height: 2),
+                    pw.Text(vendorName,
+                        style: pw.TextStyle(font: font, fontSize: 10,
+                            color: PdfColors.blueGrey700)),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(dateStr,
+                        style: pw.TextStyle(font: fontBold, fontSize: 9,
+                            fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey700)),
+                    if (ctx.pageNumber > 1)
+                      pw.Text('(continued)',
+                          style: pw.TextStyle(font: font, fontSize: 7,
+                              color: PdfColors.grey500)),
+                  ],
+                ),
               ],
             ),
           ),
+          pw.SizedBox(height: 8),
+          // Column header row — repeat on every page
+          pw.Table(
+            columnWidths: colWidths,
+            children: [headerRow()],
+            border: pw.TableBorder.all(color: PdfColors.blueGrey200, width: 0.4),
+          ),
+        ],
+      ),
+      footer: (ctx) => pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 6),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text('Generated: $genDate',
+                style: pw.TextStyle(font: font, fontSize: 7,
+                    color: PdfColors.blueGrey400)),
+            pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                style: pw.TextStyle(font: font, fontSize: 7,
+                    color: PdfColors.blueGrey400)),
+          ],
         ),
+      ),
+      build: (ctx) => [
+        pw.Table(
+          columnWidths: colWidths,
+          // Skip the header row we already rendered via header() above
+          children: rows.skip(1).toList(),
+          border: pw.TableBorder.all(color: PdfColors.blueGrey100, width: 0.3),
+        ),
+        summaryBox(),
       ],
     ));
 
     return pdf.save();
   }
 
-  pw.Widget _pdfSumRow(String label, String value, {bool bold = false}) =>
+  // Shared helper for summary-box rows
+  pw.Widget _pdfRow(String label, String value, pw.Font f, pw.Font fb,
+      {PdfColor? valueColor}) =>
       pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
         child: pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text(label,
-                style: pw.TextStyle(
-                    fontSize: 8.5,
-                    fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
-            pw.Text(value,
-                style: pw.TextStyle(
-                    fontSize: 8.5,
-                    fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+            pw.Text(label, style: pw.TextStyle(font: f, fontSize: 8.5)),
+            pw.Text(value, style: pw.TextStyle(font: fb, fontSize: 8.5,
+                fontWeight: pw.FontWeight.bold, color: valueColor)),
           ],
         ),
       );
@@ -760,7 +977,9 @@ class _LedgerView extends StatelessWidget {
       setTxt(row, 2, 'Opening');
       setTxt(row, 3, '');
       setTxt(row, 4, '');
-      setTxt(row, 5, _fmtAmt(_openingBal));
+      setTxt(row, 5, _openingBal < -0.005
+          ? 'Adv ${_fmtAmt(-_openingBal)}'
+          : _fmtAmt(_openingBal));
       row++;
     }
 
@@ -777,32 +996,40 @@ class _LedgerView extends StatelessWidget {
       setTxt(row, 2, e['voucherType'] as String? ?? '—');
       setTxt(row, 3, debit  != null ? _fmtAmt(debit)  : '—');
       setTxt(row, 4, credit != null ? _fmtAmt(credit) : '—');
-      setTxt(row, 5, _fmtAmt(balance));
+      setTxt(row, 5, balance < -0.005 ? 'Adv ${_fmtAmt(-balance)}' : _fmtAmt(balance));
       row++;
 
       for (final d in details) {
-        final label  = d['label']  as String? ?? '';
-        final amount = (d['amount'] as num?)?.toDouble() ?? 0;
+        final label     = d['label']  as String? ?? '';
+        final amountRaw = d['amount'] as num?;   // null = reference line (no monetary value)
         setTxt(row, 0, '');
         setTxt(row, 1, '    $label');
         setTxt(row, 2, '');
-        setTxt(row, 3, _fmtAmt(amount));
+        setTxt(row, 3, amountRaw != null ? _fmtAmt(amountRaw.toDouble()) : '');
         setTxt(row, 4, '');
         setTxt(row, 5, '');
         row++;
       }
     }
 
-    // ── Totals row ────────────────────────────────────────────────────────
+    // ── Totals row — include opening balance so TOTALS Credit − TOTALS Debit = Balance ──
+    final xlTotalsDebit  = _totalDebit  + (_openingBal > 0.005 ? _openingBal  : 0);
+    final xlTotalsCredit = _totalCredit + (_openingBal < -0.005 ? -_openingBal : 0);
     row++;
     setTxt(row, 1, 'TOTALS', bold: true, bg: '#E8E8E8');
-    setTxt(row, 3, _fmtAmt(_totalDebit),  bold: true, bg: '#E8E8E8');
-    setTxt(row, 4, _fmtAmt(_totalCredit), bold: true, bg: '#E8E8E8');
-    setTxt(row, 5, _fmtAmt(_closingBal),  bold: true, bg: '#E8E8E8');
+    setTxt(row, 3, _fmtAmt(xlTotalsDebit),  bold: true, bg: '#E8E8E8');
+    setTxt(row, 4, _fmtAmt(xlTotalsCredit), bold: true, bg: '#E8E8E8');
+    setTxt(row, 5, _closingBal < -0.005
+        ? 'Adv ${_fmtAmt(_closingBal.abs())}'
+        : _fmtAmt(_closingBal),
+        bold: true, bg: '#E8E8E8');
     row += 2;
 
     // ── Summary block ─────────────────────────────────────────────────────
-    setTxt(row,     0, 'Opening Balance:'); setTxt(row,     1, _fmtAmt(_openingBal));
+    setTxt(row,     0, 'Opening Balance:');
+    setTxt(row,     1, _openingBal < -0.005
+        ? 'Adv ${_fmtAmt(-_openingBal)}'
+        : _fmtAmt(_openingBal));
     setTxt(row + 1, 0, 'Total Invoiced:');  setTxt(row + 1, 1, _fmtAmt(_totalDebit));
     setTxt(row + 2, 0, 'Total Paid:');      setTxt(row + 2, 1, _fmtAmt(_totalCredit));
     setTxt(row + 3, 0, _closingBal < -0.005 ? 'Advance:' : 'Outstanding:', bold: true);

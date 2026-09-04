@@ -20,4 +20,7 @@ public class GstInvoiceItemRequest {
 
     @NotNull
     private BigDecimal amount;
+
+    /** Optional — links this line item to a Material Master record for Recalculate GST. */
+    private Long materialId;
 }
