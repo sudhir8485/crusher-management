@@ -30,17 +30,26 @@ public class SiteService {
     public Site create(SiteRequest req) {
         Site s = new Site();
         s.setTenantId(TenantContext.get());
-        s.setName(req.getName());
-        s.setLocation(req.getLocation());
+        apply(s, req);
         return repo.save(s);
     }
 
     @Transactional
     public Site update(Long id, SiteRequest req) {
         Site s = getById(id);
+        apply(s, req);
+        return repo.save(s);
+    }
+
+    private void apply(Site s, SiteRequest req) {
         s.setName(req.getName());
         s.setLocation(req.getLocation());
-        return repo.save(s);
+        if (req.getSiteType() != null) s.setSiteType(req.getSiteType());
+        if ("CLIENT_SITE".equals(s.getSiteType())) {
+            s.setLinkedPartyId(req.getLinkedPartyId());
+        } else {
+            s.setLinkedPartyId(null);
+        }
     }
 
     @Transactional

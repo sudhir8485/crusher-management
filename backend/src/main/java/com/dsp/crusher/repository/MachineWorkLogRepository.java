@@ -45,9 +45,11 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     // ── Customer Billable — used by LedgerService ────────────────────────────
 
-    @Query("SELECT m FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' ORDER BY m.logDate ASC, m.id ASC")
+    // Only returns entries without a linked GST invoice — those with gstInvoiceId appear
+    // in the ledger via the GstInvoice directly and must not be double-counted.
+    @Query("SELECT m FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.gstInvoiceId IS NULL AND m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' ORDER BY m.logDate ASC, m.id ASC")
     List<MachineWorkLog> findBillableByCustomerAndDateRange(@Param("customerId") Long customerId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.logDate < :before AND m.status = 'ACTIVE'")
+    @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.gstInvoiceId IS NULL AND m.logDate < :before AND m.status = 'ACTIVE'")
     java.math.BigDecimal sumTotalAmountByCustomerBefore(@Param("customerId") Long customerId, @Param("before") LocalDate before);
 }

@@ -30,6 +30,8 @@ class MasterShell extends StatelessWidget {
     '/invoices', '/accounts', '/ledger',
     '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
+    '/services',           // 20 — Master Data: Services
+    '/job-work-invoices',  // 21 — Finance: Job-Work Invoices
   ];
 
   int _indexFor(String location) {
@@ -77,9 +79,9 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
         return index != 13;
       default:
         // SITE_STAFF or null (loading): operations only
-        // Hides: Finance (8,9,10), Users (13), Employees (14),
-        //        Parties (15), Vehicles (16), Machines (17), Materials (18), Sites (19)
-        return !const {8, 9, 10, 13, 14, 15, 16, 17, 18, 19}.contains(index);
+        // Hides: Finance (8,9,10,21), Users (13), Employees (14),
+        //        Parties (15), Vehicles (16), Machines (17), Materials (18), Sites (19), Services (20)
+        return !const {8, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21}.contains(index);
     }
   }
 
@@ -94,7 +96,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final showFinance = _visible(8) || _visible(9) || _visible(10);
+    final showFinance = _visible(8) || _visible(9) || _visible(10) || _visible(21);
     final showAdmin   = _visible(13);
 
     return Container(
@@ -162,6 +164,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                   const SizedBox(height: 4),
                   _NavSection('Finance'),
                   _item(Icons.receipt_long_outlined, Icons.receipt_long, 'Invoices', 8),
+                  _item(Icons.build_circle_outlined, Icons.build_circle, 'Job-Work', 21),
                   _item(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Accounts', 9),
                 ],
 
@@ -181,6 +184,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                 _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 17),
                 _item(Icons.category_outlined, Icons.category, 'Materials', 18),
                 _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 19),
+                _item(Icons.handyman_outlined, Icons.handyman, 'Services', 20),
 
                 if (showAdmin) ...[
                   const SizedBox(height: 4),
@@ -251,6 +255,8 @@ class _NavItem extends StatelessWidget {
     '/invoices', '/accounts', '/ledger',
     '/attendance', '/vehicle-daily-log',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
+    '/services',           // 20 — Master Data: Services
+    '/job-work-invoices',  // 21 — Finance: Job-Work Invoices
   ];
 
   @override

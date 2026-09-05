@@ -7,6 +7,8 @@ import '../../features/master_data/vehicles/vehicles_screen.dart';
 import '../../features/master_data/machines/machines_screen.dart';
 import '../../features/master_data/materials/materials_screen.dart';
 import '../../features/master_data/sites/sites_screen.dart';
+import '../../features/master_data/services/services_screen.dart';
+import '../../features/job_work/job_work_invoices_screen.dart';
 import '../../features/trips/trips_screen.dart';
 import '../../features/trips/daily_report_screen.dart';
 import '../../features/dabar/dabar_screen.dart';
@@ -62,8 +64,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/parties',      builder: (ctx, st) => const VendorsScreen()),
           GoRoute(path: '/vehicles',     builder: (ctx, st) => const VehiclesScreen()),
           GoRoute(path: '/machines',     builder: (ctx, st) => const MachinesScreen()),
-          GoRoute(path: '/materials',    builder: (ctx, st) => const MaterialsScreen()),
-          GoRoute(path: '/sites',        builder: (ctx, st) => const SitesScreen()),
+          GoRoute(path: '/materials',          builder: (ctx, st) => const MaterialsScreen()),
+          GoRoute(path: '/sites',              builder: (ctx, st) => const SitesScreen()),
+          GoRoute(path: '/services',           builder: (ctx, st) => const ServicesScreen()),
+          GoRoute(path: '/job-work-invoices',  builder: (ctx, st) => const JobWorkInvoicesScreen()),
         ],
       ),
     ],

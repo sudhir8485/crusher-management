@@ -251,16 +251,18 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
       final details  = List<Map<String, dynamic>>.from(
           (e['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
 
-      if (isSales && debit != null) {
+      final isJobWorkEntry = (e['voucherType'] as String?) == 'JobWork';
+      if ((isSales || isJobWorkEntry) && debit != null) {
         totalDebit += debit;
         final mainLabel = invoiceNo.isNotEmpty
             ? 'To (as per details)  [$invoiceNo]'
             : 'To (as per details)';
+        final voucherLabel = isSales ? 'Sales' : 'Job Work';
 
         setCell(row, 0, dateStr,       mainRowStyle(debit: true));
         setCell(row, 1, mainLabel,     mainRowStyle(debit: true));
         setCell(row, 2, '',            mainRowStyle(debit: true));
-        setCell(row, 3, 'Sales',       mainRowStyle(debit: true));
+        setCell(row, 3, voucherLabel,  mainRowStyle(debit: true));
         setCell(row, 4, debit,         mainRowStyle(debit: true));
         setCell(row, 5, '',            mainRowStyle(debit: true));
         setCell(row, 6, balXl(runBal), mainRowStyle(debit: true));
@@ -305,7 +307,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             row++;
           }
         }
-      } else if (!isSales && credit != null) {
+      } else if (!isSales && !isJobWorkEntry && credit != null) {
         totalCredit += credit;
         setCell(row, 0, dateStr,       mainRowStyle(debit: false));
         setCell(row, 1, particulars,   mainRowStyle(debit: false));
@@ -478,9 +480,10 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
       final details  = List<Map<String, dynamic>>.from(
           (e['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
 
-      if (isSales && debit != null) {
+      final isJobWorkPdf = (e['voucherType'] as String?) == 'JobWork';
+      if ((isSales || isJobWorkPdf) && debit != null) {
         rows.add(pw.TableRow(
-          decoration: const pw.BoxDecoration(color: PdfColors.orange50),
+          decoration: pw.BoxDecoration(color: isJobWorkPdf ? PdfColors.purple50 : PdfColors.orange50),
           children: [
             c(dateStr),
             pw.Padding(
@@ -491,7 +494,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
                   pw.Text(invoiceNo, style: small(color: PdfColors.blueGrey600)),
               ])),
             c(''),
-            c('Sales', b: true),
+            c(isJobWorkPdf ? 'Job\nWork' : 'Sales', b: true),
             c(n(debit), b: true, a: pw.TextAlign.right),
             c(''),
             bal(runBal),
@@ -718,6 +721,96 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     }
   }
 
+  Future<void> _showSetJobWorkGstDialog(BuildContext ctx, int invoiceId, String invoiceNo) async {
+    final rateCtrl = TextEditingController();
+    double? previewRate;
+
+    final confirmed = await showDialog<String>(
+      context: ctx,
+      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
+        void updatePreview(String v) {
+          final d = double.tryParse(v);
+          setS(() => previewRate = (d != null && d >= 0 && d <= 28) ? d : null);
+        }
+
+        return AlertDialog(
+          title: Text('Set GST Rate — $invoiceNo'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Enter total GST % (SGST + CGST combined)',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, children: [
+              for (final r in [0, 5, 12, 18, 28])
+                ActionChip(
+                  label: Text('$r%'),
+                  onPressed: () {
+                    rateCtrl.text = r.toString();
+                    updatePreview(r.toString());
+                  },
+                ),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+              controller: rateCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Total GST %', suffixText: '%',
+                border: OutlineInputBorder(), isDense: true,
+              ),
+              onChanged: updatePreview,
+            ),
+            if (previewRate != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                  Text('SGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('+'),
+                  Text('CGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('='),
+                  Text('$previewRate%', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                ]),
+              ),
+            ],
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: previewRate != null ? () => Navigator.pop(dctx, rateCtrl.text) : null,
+              child: const Text('Apply & Lock'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (confirmed == null || !mounted) return;
+    final rate = double.tryParse(confirmed);
+    if (rate == null) return;
+
+    try {
+      await ref.read(apiClientProvider).post(
+        '/api/job-work-invoices/$invoiceId/set-gst-rate',
+        data: null,
+        params: {'rate': rate.toString()},
+      );
+      if (mounted) {
+        ref.invalidate(_ledgerProvider(_key));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('GST set to $rate% on $invoiceNo — invoice locked'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed: $e'), backgroundColor: Colors.red));
+    }
+  }
+
   Future<void> _showSetMachineRateDialog(
       BuildContext ctx, int machineWorkId, double? totalHours, double? currentRate) async {
     final rateCtrl = TextEditingController(text: currentRate?.toString() ?? '');
@@ -845,6 +938,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
               printing: _printing,
               onExport: () => _showExportOptions(data),
               onSetGst: _showSetGstDialog,
+              onSetJobWorkGst: _showSetJobWorkGstDialog,
               onSetMachineRate: _showSetMachineRateDialog,
               onRecordPayment: () => showRecordPaymentDialog(
                 context, ref,
@@ -927,12 +1021,14 @@ class _LedgerBody extends StatelessWidget {
   final VoidCallback onExport;
   final VoidCallback onRecordPayment;
   final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
   final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
 
   const _LedgerBody({
     required this.data, required this.printing,
     required this.onExport, required this.onRecordPayment,
-    required this.onSetGst, required this.onSetMachineRate,
+    required this.onSetGst, required this.onSetJobWorkGst,
+    required this.onSetMachineRate,
   });
 
   @override
@@ -998,7 +1094,7 @@ class _LedgerBody extends StatelessWidget {
                 hint: 'Try a wider date range or create a GST invoice for this party',
               )
             : _EntryList(entries: displayEntries, onSetGst: onSetGst,
-                onSetMachineRate: onSetMachineRate),
+                onSetJobWorkGst: onSetJobWorkGst, onSetMachineRate: onSetMachineRate),
       ),
     ]);
   }
@@ -1009,10 +1105,11 @@ class _LedgerBody extends StatelessWidget {
 class _EntryList extends StatelessWidget {
   final List<Map<String, dynamic>> entries;
   final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
   final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
   const _EntryList({
     required this.entries, required this.onSetGst,
-    required this.onSetMachineRate,
+    required this.onSetJobWorkGst, required this.onSetMachineRate,
   });
 
   @override
@@ -1042,7 +1139,8 @@ class _EntryList extends StatelessWidget {
           ),
           const Divider(height: 1),
           ...dayEntries.map((e) => _EntryCard(
-              entry: e, onSetGst: onSetGst, onSetMachineRate: onSetMachineRate)),
+              entry: e, onSetGst: onSetGst, onSetJobWorkGst: onSetJobWorkGst,
+              onSetMachineRate: onSetMachineRate)),
         ]);
       },
     );
@@ -1054,17 +1152,19 @@ class _EntryList extends StatelessWidget {
 class _EntryCard extends StatelessWidget {
   final Map<String, dynamic> entry;
   final Future<void> Function(BuildContext, int, String) onSetGst;
+  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
   final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
   const _EntryCard({
     required this.entry, required this.onSetGst,
-    required this.onSetMachineRate,
+    required this.onSetJobWorkGst, required this.onSetMachineRate,
   });
 
   @override
   Widget build(BuildContext context) {
-    final voucherType  = (entry['voucherType'] as String?) ?? '';
-    final isSales      = voucherType == 'Sales';
+    final voucherType   = (entry['voucherType'] as String?) ?? '';
+    final isSales       = voucherType == 'Sales';
     final isMachineWork = voucherType == 'MachineWork';
+    final isJobWork     = voucherType == 'JobWork';
     final debit     = (entry['debit']  as num?)?.toDouble();
     final credit    = (entry['credit'] as num?)?.toDouble();
     final balance   = (entry['runningBalance'] as num?)?.toDouble() ?? 0;
@@ -1089,12 +1189,15 @@ class _EntryCard extends StatelessWidget {
         ? Colors.amber.shade50
         : isSales ? Colors.white
         : isMachineWork ? Colors.lightBlue.shade50
+        : isJobWork ? Colors.purple.shade50
         : Colors.green.shade50;
 
     VoidCallback? onTap;
     if (sourceId != null) {
       if (isSales && isPending) {
         onTap = () => onSetGst(context, sourceId, invoiceNo);
+      } else if (isJobWork && isPending) {
+        onTap = () => onSetJobWorkGst(context, sourceId, invoiceNo);
       } else if (isMachineWork) {
         final currentRate = (debit != null && totalHours != null && totalHours > 0)
             ? debit / totalHours : null;
@@ -1122,10 +1225,15 @@ class _EntryCard extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 6),
                     child: Icon(Icons.construction_outlined, size: 14,
                         color: Colors.blueGrey.shade600)),
+                if (isJobWork)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.build_circle_outlined, size: 14,
+                        color: Colors.purple.shade600)),
                 Expanded(
                   child: Text(
-                    isSales
-                        ? (invoiceNo.isNotEmpty ? invoiceNo : 'Sales Invoice')
+                    (isSales || isJobWork)
+                        ? (invoiceNo.isNotEmpty ? invoiceNo : (isSales ? 'Sales Invoice' : 'Job-Work Invoice'))
                         : particulars,
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                   ),
@@ -1140,7 +1248,7 @@ class _EntryCard extends StatelessWidget {
                       border: Border.all(color: Colors.amber.shade400),
                     ),
                     child: Text(
-                      isSales ? 'GST: Pending' : 'Rate: Pending',
+                      (isSales || isJobWork) ? 'GST: Pending' : 'Rate: Pending',
                       style: TextStyle(fontSize: 10, color: Colors.orange.shade900,
                           fontWeight: FontWeight.w600)),
                   ),
@@ -1155,23 +1263,26 @@ class _EntryCard extends StatelessWidget {
               Text(
                 isSales ? 'Billed'
                     : isMachineWork ? 'Machine Work'
+                    : isJobWork ? 'Job Work'
                     : 'Received',
                 style: TextStyle(fontSize: 10,
                     color: isSales ? Colors.orange.shade700
                         : isMachineWork ? Colors.blueGrey.shade600
+                        : isJobWork ? Colors.purple.shade600
                         : Colors.green.shade700),
               ),
               const SizedBox(height: 2),
               Text(
-                isMachineWork
+                (isMachineWork)
                     ? (debit != null ? fmtCurr(debit) : '—')
-                    : isSales
+                    : (isSales || isJobWork)
                         ? fmtCurr(debit ?? 0)
                         : fmtCurr(credit ?? 0),
                 style: TextStyle(
                   fontSize: 14, fontWeight: FontWeight.bold,
                   color: isSales ? Colors.orange.shade800
                       : isMachineWork ? Colors.blueGrey.shade700
+                      : isJobWork ? Colors.purple.shade700
                       : Colors.green.shade700,
                 ),
               ),
@@ -1180,7 +1291,7 @@ class _EntryCard extends StatelessWidget {
         ),
 
         // Sub-rows: GST breakdown (Sales) or rate info (MachineWork)
-        if ((isSales || isMachineWork) && !isPending && details.isNotEmpty)
+        if ((isSales || isMachineWork || isJobWork) && !isPending && details.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
             child: Column(
@@ -1202,11 +1313,11 @@ class _EntryCard extends StatelessWidget {
             ),
           ),
 
-        if ((isSales || isMachineWork) && isPending)
+        if ((isSales || isMachineWork || isJobWork) && isPending)
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
             child: Text(
-              isSales ? 'Tap to set GST rate' : 'Tap to set rate',
+              (isSales || isJobWork) ? 'Tap to set GST rate' : 'Tap to set rate',
               style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
                   fontStyle: FontStyle.italic),
             ),

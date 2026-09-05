@@ -1,18 +1,36 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
+
+String _apiError(dynamic err) {
+  if (err is DioException) {
+    final data = err.response?.data;
+    if (data is Map && data.isNotEmpty) {
+      final msg = data['error'] ?? data.values.first;
+      return msg?.toString() ?? 'HTTP ${err.response?.statusCode}';
+    }
+    return 'HTTP ${err.response?.statusCode ?? '?'}';
+  }
+  return err.toString();
+}
 
 // ── providers ────────────────────────────────────────────────────────────────
 
 final _dateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 
+// Key is "date|siteId" so the provider refires when either changes.
 final _logsProvider = FutureProvider.autoDispose
-    .family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final res = await ref
-      .read(apiClientProvider)
-      .get('/api/machine-work', params: {'from': date, 'to': date});
+    .family<List<Map<String, dynamic>>, String>((ref, key) async {
+  final parts  = key.split('|');
+  final date   = parts[0];
+  final siteId = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
+  final params = <String, dynamic>{'from': date, 'to': date};
+  if (siteId != null) params['siteId'] = siteId;
+  final res = await ref.read(apiClientProvider).get('/api/machine-work', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -38,8 +56,10 @@ class MachineWorkScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(_dateProvider);
+    final siteId      = ref.watch(selectedSiteIdProvider);
     final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final logs = ref.watch(_logsProvider(dateKey));
+    final logsKey = '$dateKey|${siteId ?? ''}';
+    final logs = ref.watch(_logsProvider(logsKey));
 
     return Scaffold(
       appBar: AppBar(
@@ -47,12 +67,12 @@ class MachineWorkScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_logsProvider(dateKey)),
+            onPressed: () => ref.invalidate(_logsProvider(logsKey)),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate),
+        onPressed: () => _showForm(context, ref, null, selectedDate, siteId),
         icon: const Icon(Icons.add),
         label: const Text('Add Entry'),
       ),
@@ -62,6 +82,22 @@ class MachineWorkScreen extends ConsumerWidget {
             selectedDate: selectedDate,
             onPick: (d) => ref.read(_dateProvider.notifier).state = d,
           ),
+          // Remind admin users to pick a site before creating entries
+          if (siteId == null)
+            Material(
+              color: Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Select a site from the sidebar to add new entries',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                  )),
+                ]),
+              ),
+            ),
           logs.when(
             loading: () => const SizedBox(),
             error: (_, s) => const SizedBox(),
@@ -85,9 +121,9 @@ class MachineWorkScreen extends ConsumerWidget {
                   separatorBuilder: (_, idx) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
-                    onEdit: () => _showForm(context, ref, data[i], selectedDate),
-                    onDelete: () => _confirmDelete(context, ref, data[i], dateKey),
-                    onSetRate: () => _showSetRateDialog(context, ref, data[i], dateKey),
+                    onEdit: () => _showForm(context, ref, data[i], selectedDate, siteId),
+                    onDelete: () => _confirmDelete(context, ref, data[i], logsKey),
+                    onSetRate: () => _showSetRateDialog(context, ref, data[i], logsKey),
                   ),
                 );
               },
@@ -99,17 +135,16 @@ class MachineWorkScreen extends ConsumerWidget {
   }
 
   void _showForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic>? log,
-      DateTime date) {
+      DateTime date, int? siteId) {
+    final logsKey = '${DateFormat('yyyy-MM-dd').format(date)}|${siteId ?? ''}';
     showDialog(
       context: ctx,
       barrierDismissible: false,
       builder: (_) => _LogForm(
         existing: log,
         defaultDate: date,
-        onSaved: () {
-          final dateKey = DateFormat('yyyy-MM-dd').format(date);
-          ref.invalidate(_logsProvider(dateKey));
-        },
+        siteId: siteId,
+        onSaved: () => ref.invalidate(_logsProvider(logsKey)),
       ),
     );
   }
@@ -202,7 +237,7 @@ class MachineWorkScreen extends ConsumerWidget {
                         } catch (e) {
                           if (ctx.mounted) {
                             ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                              content: Text('Failed: $e'),
+                              content: Text('Failed: ${_apiError(e)}'),
                               backgroundColor: Colors.red,
                             ));
                           }
@@ -332,9 +367,14 @@ class _LogCard extends StatelessWidget {
     final rate = log['rate'];
     final totalAmount = log['totalAmount'];
     final isPendingRate = isBillable && rateStatus == 'PENDING';
+    final gstInvoiceId = log['gstInvoiceId'];
+    final gstInvoiceStatus = log['gstInvoiceStatus'] as String?;
+    final hasGstInvoice = gstInvoiceId != null;
+    final isGstPending = hasGstInvoice && gstInvoiceStatus == 'PENDING';
+    final isGstSet = hasGstInvoice && gstInvoiceStatus == 'SET';
 
     return Card(
-      color: isPendingRate ? Colors.amber.shade50 : null,
+      color: (isPendingRate || isGstPending) ? Colors.amber.shade50 : null,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -357,27 +397,10 @@ class _LogCard extends StatelessWidget {
                 ),
                 if (isBillable) ...[
                   const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isPendingRate
-                          ? Colors.amber.shade100
-                          : Colors.purple.shade50,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                          color: isPendingRate
-                              ? Colors.amber.shade400
-                              : Colors.purple.shade200),
-                    ),
-                    child: Text(
-                      isPendingRate ? 'Rate: Pending' : 'Billable',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isPendingRate
-                              ? Colors.orange.shade900
-                              : Colors.purple.shade700),
-                    ),
+                  _BillableBadge(
+                    isPendingRate: isPendingRate,
+                    isGstPending: isGstPending,
+                    isGstSet: isGstSet,
                   ),
                 ],
                 const SizedBox(width: 8),
@@ -492,6 +515,13 @@ class _LogCard extends StatelessWidget {
                       fontSize: 11,
                       color: Colors.orange.shade700,
                       fontStyle: FontStyle.italic)),
+            ] else if (isGstPending) ...[
+              const SizedBox(height: 6),
+              Text('GST rate not set — open party account to confirm GST',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.orange.shade700,
+                      fontStyle: FontStyle.italic)),
             ],
             if (notes.isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -501,6 +531,61 @@ class _LogCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── billable badge ────────────────────────────────────────────────────────────
+
+class _BillableBadge extends StatelessWidget {
+  final bool isPendingRate;
+  final bool isGstPending;
+  final bool isGstSet;
+  const _BillableBadge({
+    required this.isPendingRate,
+    required this.isGstPending,
+    required this.isGstSet,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg;
+    final Color border;
+    final Color text;
+    final String label;
+
+    if (isPendingRate) {
+      bg = Colors.amber.shade100;
+      border = Colors.amber.shade400;
+      text = Colors.orange.shade900;
+      label = 'Rate: Pending';
+    } else if (isGstPending) {
+      bg = Colors.amber.shade100;
+      border = Colors.amber.shade400;
+      text = Colors.orange.shade900;
+      label = 'GST: Pending';
+    } else if (isGstSet) {
+      bg = Colors.teal.shade50;
+      border = Colors.teal.shade200;
+      text = Colors.teal.shade800;
+      label = 'Tax Invoice';
+    } else {
+      bg = Colors.purple.shade50;
+      border = Colors.purple.shade200;
+      text = Colors.purple.shade700;
+      label = 'Billable';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: border),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.bold, color: text)),
     );
   }
 }
@@ -530,10 +615,12 @@ class _Reading extends StatelessWidget {
 class _LogForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final DateTime defaultDate;
+  final int? siteId;
   final VoidCallback onSaved;
   const _LogForm({
     required this.existing,
     required this.defaultDate,
+    required this.siteId,
     required this.onSaved,
   });
 
@@ -612,6 +699,16 @@ class _LogFormState extends ConsumerState<_LogForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    // For new entries, a site must be selected — SITE_STAFF get it from JWT,
+    // but OWNER_ADMIN/OFFICE_ACCOUNTANT must choose one in the sidebar first.
+    if (widget.existing == null && widget.siteId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Select a site from the sidebar before adding entries'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 4),
+      ));
+      return;
+    }
     setState(() => _saving = true);
     final body = {
       'logDate': DateFormat('yyyy-MM-dd').format(_date),
@@ -635,7 +732,12 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final e = widget.existing;
     try {
       if (e == null) {
-        await api.post('/api/machine-work', data: body);
+        // Pass siteId so the backend can assign the entry to the correct site.
+        // Required for OWNER_ADMIN/OFFICE_ACCOUNTANT — SITE_STAFF gets it from JWT.
+        final params = widget.siteId != null
+            ? <String, dynamic>{'siteId': '${widget.siteId}'}
+            : null;
+        await api.post('/api/machine-work', data: body, params: params);
       } else {
         await api.put('/api/machine-work/${e['id']}', data: body);
       }
@@ -644,7 +746,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
     } catch (err) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Save failed: $err'),
+          content: Text('Save failed: ${_apiError(err)}'),
           backgroundColor: Colors.red,
         ));
       }

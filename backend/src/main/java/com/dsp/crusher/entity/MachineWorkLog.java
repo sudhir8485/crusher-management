@@ -77,4 +77,8 @@ public class MachineWorkLog {
 
     @Column(name = "rate_prev", precision = 12, scale = 2)
     private BigDecimal ratePrev;
+
+    /** FK to the auto-generated GST invoice for this entry (null for INTERNAL or non-GST parties). */
+    @Column(name = "gst_invoice_id")
+    private Long gstInvoiceId;
 }

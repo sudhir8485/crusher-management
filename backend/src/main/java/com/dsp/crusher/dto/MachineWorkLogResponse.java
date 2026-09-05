@@ -32,4 +32,8 @@ public class MachineWorkLogResponse {
     private BigDecimal totalAmount;
     private String rateSetBy;
     private LocalDateTime rateSetAt;
+
+    /** Set when a GST invoice was auto-generated for this entry (GST-registered party only). */
+    private Long gstInvoiceId;
+    private String gstInvoiceStatus;  // PENDING | SET | null
 }

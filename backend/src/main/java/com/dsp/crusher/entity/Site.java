@@ -23,6 +23,14 @@ public class Site {
     @Column(columnDefinition = "TEXT")
     private String location;
 
+    /** OWN = DSP's own site (internal). CLIENT_SITE = operated for a client party. */
+    @Column(name = "site_type", nullable = false, length = 20)
+    private String siteType = "OWN";
+
+    /** For CLIENT_SITE only: the vendor/party that owns or contracted this site. */
+    @Column(name = "linked_party_id")
+    private Long linkedPartyId;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

@@ -8,4 +8,8 @@ import lombok.Setter;
 public class SiteRequest {
     @NotBlank private String name;
     private String location;
+    /** OWN (default) | CLIENT_SITE */
+    private String siteType;
+    /** Required when siteType = CLIENT_SITE; ignored for OWN sites. */
+    private Long linkedPartyId;
 }
