@@ -23,4 +23,7 @@ public class GstInvoiceItemRequest {
 
     /** Optional — links this line item to a Material Master record for Recalculate GST. */
     private Long materialId;
+
+    /** Optional — links this line item to a Service Master record (service/job-work lines). */
+    private Long serviceId;
 }

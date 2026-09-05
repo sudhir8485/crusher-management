@@ -37,4 +37,9 @@ public class GstInvoiceItem {
      *  known material, enabling the Recalculate GST action to pull the current rate. */
     @Column(name = "material_id")
     private Long materialId;
+
+    /** Optional link to Service Master — present when the item is a service/job-work line.
+     *  Mutually exclusive with materialId per item, but both can appear on the same invoice. */
+    @Column(name = "service_id")
+    private Long serviceId;
 }

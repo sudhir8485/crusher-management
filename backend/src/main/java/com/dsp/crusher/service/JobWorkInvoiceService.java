@@ -15,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +29,7 @@ public class JobWorkInvoiceService {
     private final VendorRepository         vendorRepo;
     private final ServiceRepository        serviceRepo;
     private final UserRepository           userRepo;
+    private final InvoiceNumberingService  numbering;
 
     public PageResponse<JobWorkInvoiceResponse> list(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -58,7 +58,7 @@ public class JobWorkInvoiceService {
         inv.setTenantId(TenantContext.get());
         inv.setSiteId(site.getId());
         inv.setVendorId(site.getLinkedPartyId());
-        inv.setInvoiceNo(nextInvoiceNo(req.getInvoiceDate()));
+        inv.setInvoiceNo(numbering.nextInvoiceNo(req.getInvoiceDate()));
         apply(inv, req);
         return enrich(List.of(invoiceRepo.save(inv))).get(0);
     }
@@ -217,13 +217,6 @@ public class JobWorkInvoiceService {
         inv.setCgstAmount(cgstAmt);
         inv.setSgstAmount(sgstAmt);
         inv.setGrandTotal(subtotal.add(cgstAmt).add(sgstAmt));
-    }
-
-    private String nextInvoiceNo(LocalDate date) {
-        int year = date.getMonthValue() >= 4 ? date.getYear() : date.getYear() - 1;
-        String fy = year + "-" + String.format("%02d", (year + 1) % 100);
-        long count = invoiceRepo.countByTenantIdAndInvoiceNoStartingWith(TenantContext.get(), "JW/" + fy + "/");
-        return "JW/" + fy + "/" + (count + 1);
     }
 
     private String currentUserName() {

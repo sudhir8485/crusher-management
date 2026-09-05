@@ -4,75 +4,28 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 
-// ── paginated invoices state + notifier ───────────────────────────────────────
+// ── Combined state: both GST invoices and Job-Work invoices merged ─────────────
 
-class _InvoicesState {
-  final List<Map<String, dynamic>> items;
-  final bool hasMore;
-  final bool loadingMore;
-  final int nextPage;
-  final int totalElements;
-  const _InvoicesState({
-    required this.items,
-    required this.hasMore,
-    required this.loadingMore,
-    required this.nextPage,
-    required this.totalElements,
+final _allInvoicesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final api = ref.read(apiClientProvider);
+  final results = await Future.wait([
+    api.get('/api/invoices', params: {'page': '0', 'size': '500'}),
+    api.get('/api/job-work-invoices', params: {'page': '0', 'size': '500'}),
+  ]);
+
+  final gst = List<Map<String, dynamic>>.from(results[0].data['content'] as List)
+      .map((m) => {...m, '_src': 'gst'}).toList();
+  final jw = List<Map<String, dynamic>>.from(results[1].data['content'] as List)
+      .map((m) => {...m, '_src': 'jw'}).toList();
+
+  final all = [...gst, ...jw];
+  all.sort((a, b) {
+    final d = (b['invoiceDate'] as String).compareTo(a['invoiceDate'] as String);
+    return d != 0 ? d : (b['id'] as int).compareTo(a['id'] as int);
   });
-  _InvoicesState copyWith({bool? loadingMore}) => _InvoicesState(
-        items: items, hasMore: hasMore, nextPage: nextPage,
-        totalElements: totalElements,
-        loadingMore: loadingMore ?? this.loadingMore,
-      );
-}
-
-class _InvoicesNotifier
-    extends StateNotifier<AsyncValue<_InvoicesState>> {
-  final ApiClient _api;
-  static const _pageSize = 25;
-
-  _InvoicesNotifier(this._api) : super(const AsyncValue.loading()) {
-    _load(0, []);
-  }
-
-  Future<void> _load(int page, List<Map<String, dynamic>> existing) async {
-    try {
-      final res = await _api.get('/api/invoices',
-          params: {'page': '$page', 'size': '$_pageSize'});
-      final d = res.data as Map<String, dynamic>;
-      final content =
-          List<Map<String, dynamic>>.from(d['content'] as List);
-      final last = d['last'] as bool;
-      final total = (d['totalElements'] as num).toInt();
-      state = AsyncValue.data(_InvoicesState(
-        items: [...existing, ...content],
-        hasMore: !last,
-        loadingMore: false,
-        nextPage: page + 1,
-        totalElements: total,
-      ));
-    } catch (e, st) {
-      if (page == 0) state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> loadMore() async {
-    final s = state.valueOrNull;
-    if (s == null || !s.hasMore || s.loadingMore) return;
-    state = AsyncValue.data(s.copyWith(loadingMore: true));
-    await _load(s.nextPage, s.items);
-  }
-
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    await _load(0, []);
-  }
-}
-
-final _invoicesNotifierProvider = StateNotifierProvider.autoDispose<
-    _InvoicesNotifier, AsyncValue<_InvoicesState>>(
-  (ref) => _InvoicesNotifier(ref.read(apiClientProvider)),
-);
+  return all;
+});
 
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -89,69 +42,85 @@ final _invoiceMaterialsProvider =
       .toList();
 });
 
+final _invoiceServicesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/services');
+  return (res.data as List)
+      .map((e) => Map<String, dynamic>.from(e as Map))
+      .where((s) => s['status'] == 'ACTIVE')
+      .toList();
+});
+
+final _invoiceSitesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/sites');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
 final _invoicePaymentsProvider =
     FutureProvider.autoDispose.family<List<Map<String, dynamic>>, int>(
         (ref, invoiceId) async {
-  final res = await ref.read(apiClientProvider)
-      .get('/api/invoices/$invoiceId/payments');
+  final res =
+      await ref.read(apiClientProvider).get('/api/invoices/$invoiceId/payments');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
 final _dateFmt = DateFormat('d MMM yyyy');
 
-// ── payment status config ─────────────────────────────────────────────────────
+// ── Status helpers ─────────────────────────────────────────────────────────────
 
-Color _statusColor(String? s) => switch (s) {
+Color _payStatusColor(String? s) => switch (s) {
       'PAID'    => Colors.green,
       'PARTIAL' => Colors.orange,
       _         => Colors.red,
     };
 
-String _statusLabel(String? s) => switch (s) {
+String _payStatusLabel(String? s) => switch (s) {
       'PAID'    => 'PAID',
       'PARTIAL' => 'PARTIAL',
       _         => 'UNPAID',
     };
 
-// ── screen ───────────────────────────────────────────────────────────────────
+// ── Screen ─────────────────────────────────────────────────────────────────────
 
 class InvoicesScreen extends ConsumerWidget {
   const InvoicesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncState = ref.watch(_invoicesNotifierProvider);
-    final notifier = ref.read(_invoicesNotifierProvider.notifier);
+    final asyncItems = ref.watch(_allInvoicesProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('GST Invoices'),
+        title: const Text('Invoices'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: notifier.refresh,
+            onPressed: () => ref.invalidate(_allInvoicesProvider),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null),
+        onPressed: () => _showNewForm(context, ref),
         icon: const Icon(Icons.add),
         label: const Text('New Invoice'),
       ),
-      body: asyncState.when(
+      body: asyncItems.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (state) {
-          if (state.items.isEmpty) {
+        data: (items) {
+          if (items.isEmpty) {
             return const AppEmptyState(
               icon: Icons.receipt_long_outlined,
               message: 'No invoices yet',
-              hint: 'Tap + to create your first GST invoice',
+              hint: 'Tap + to create your first invoice',
             );
           }
-          final unpaid  = state.items.where((i) => i['paymentStatus'] == 'UNPAID').length;
-          final partial = state.items.where((i) => i['paymentStatus'] == 'PARTIAL').length;
-          final paid    = state.items.where((i) => i['paymentStatus'] == 'PAID').length;
+          final gstItems = items.where((i) => i['_src'] == 'gst').toList();
+          final unpaid   = gstItems.where((i) => i['paymentStatus'] == 'UNPAID').length;
+          final partial  = gstItems.where((i) => i['paymentStatus'] == 'PARTIAL').length;
+          final paid     = gstItems.where((i) => i['paymentStatus'] == 'PAID').length;
+          final pending  = items.where((i) => i['gstStatus'] == 'PENDING').length;
 
           return Column(
             children: [
@@ -160,41 +129,37 @@ class InvoicesScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
-                    _SummaryPill('Unpaid', unpaid, Colors.red),
-                    const SizedBox(width: 12),
-                    _SummaryPill('Partial', partial, Colors.orange),
-                    const SizedBox(width: 12),
-                    _SummaryPill('Paid', paid, Colors.green),
+                    _Pill('Unpaid', unpaid, Colors.red),
+                    const SizedBox(width: 8),
+                    _Pill('Partial', partial, Colors.orange),
+                    const SizedBox(width: 8),
+                    _Pill('Paid', paid, Colors.green),
+                    if (pending > 0) ...[
+                      const SizedBox(width: 8),
+                      _Pill('GST Pending', pending, Colors.amber.shade800),
+                    ],
                     const Spacer(),
-                    Text(
-                      state.totalElements == state.items.length
-                          ? '${state.items.length} invoices'
-                          : '${state.items.length} of ${state.totalElements}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
+                    Text('${items.length} invoices',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                   ],
                 ),
               ),
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
-                  itemCount: state.items.length + (state.hasMore ? 1 : 0),
+                  itemCount: items.length,
                   itemBuilder: (_, i) {
-                    if (i == state.items.length) {
-                      return _LoadMoreButton(
-                        loading: state.loadingMore,
-                        onTap: notifier.loadMore,
-                      );
-                    }
+                    final inv = items[i];
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: _InvoiceCard(
-                        invoice: state.items[i],
-                        onTap: () => _showDetail(context, ref, state.items[i]),
-                        onEdit: () => _showForm(context, ref, state.items[i]),
-                        onDelete: () => _confirmDelete(context, ref, state.items[i]),
-                        onRecordPayment: () =>
-                            _showPaymentForm(context, ref, state.items[i]),
+                        invoice: inv,
+                        onTap: () => _showDetail(context, ref, inv),
+                        onEdit: () => _showEdit(context, ref, inv),
+                        onDelete: () => _confirmDelete(context, ref, inv),
+                        onRecordPayment: inv['_src'] == 'gst'
+                            ? () => _showPaymentForm(context, ref, inv)
+                            : null,
                       ),
                     );
                   },
@@ -207,41 +172,76 @@ class InvoicesScreen extends ConsumerWidget {
     );
   }
 
-  void _showForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic>? inv) {
+  void _showNewForm(BuildContext ctx, WidgetRef ref) {
     showDialog(
       context: ctx,
       barrierDismissible: false,
-      builder: (_) => _InvoiceForm(
-        existing: inv,
-        onSaved: () => ref.read(_invoicesNotifierProvider.notifier).refresh(),
+      builder: (_) => _UnifiedInvoiceForm(
+        existing: null,
+        onSaved: () => ref.invalidate(_allInvoicesProvider),
       ),
     );
   }
 
   void _showDetail(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
-    showDialog(
-      context: ctx,
-      builder: (_) => _InvoiceDetailDialog(invoice: inv),
-    );
+    if (inv['_src'] == 'gst') {
+      showDialog(
+        context: ctx,
+        builder: (_) => _InvoiceDetailDialog(
+          invoice: inv,
+          onRefresh: () => ref.invalidate(_allInvoicesProvider),
+        ),
+      );
+    } else {
+      showDialog(
+        context: ctx,
+        builder: (_) => _JwDetailDialog(
+          invoice: inv,
+          onRefresh: () => ref.invalidate(_allInvoicesProvider),
+        ),
+      );
+    }
   }
 
-  void _showPaymentForm(
-      BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
+  void _showEdit(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
+    if (inv['_src'] == 'gst') {
+      showDialog(
+        context: ctx,
+        barrierDismissible: false,
+        builder: (_) => _UnifiedInvoiceForm(
+          existing: inv,
+          onSaved: () => ref.invalidate(_allInvoicesProvider),
+        ),
+      );
+    } else {
+      // Old JW invoices keep their original edit form
+      showDialog(
+        context: ctx,
+        barrierDismissible: false,
+        builder: (_) => _JwForm(
+          existing: inv,
+          onSaved: () => ref.invalidate(_allInvoicesProvider),
+        ),
+      );
+    }
+  }
+
+  void _showPaymentForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
     showDialog(
       context: ctx,
       barrierDismissible: false,
       builder: (_) => _QuickPaymentDialog(
         invoice: inv,
         onSaved: () {
-          ref.read(_invoicesNotifierProvider.notifier).refresh();
+          ref.invalidate(_allInvoicesProvider);
           ref.invalidate(_invoicePaymentsProvider(inv['id'] as int));
         },
       ),
     );
   }
 
-  void _confirmDelete(
-      BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
+  void _confirmDelete(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
+    final isJw = inv['_src'] == 'jw';
     showDialog(
       context: ctx,
       builder: (_) => AlertDialog(
@@ -254,8 +254,11 @@ class InvoicesScreen extends ConsumerWidget {
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(ctx);
-              await ref.read(apiClientProvider).delete('/api/invoices/${inv['id']}');
-              ref.read(_invoicesNotifierProvider.notifier).refresh();
+              final endpoint = isJw
+                  ? '/api/job-work-invoices/${inv['id']}'
+                  : '/api/invoices/${inv['id']}';
+              await ref.read(apiClientProvider).delete(endpoint);
+              ref.invalidate(_allInvoicesProvider);
             },
             child: const Text('Cancel Invoice'),
           ),
@@ -265,37 +268,13 @@ class InvoicesScreen extends ConsumerWidget {
   }
 }
 
-// ── load more button ──────────────────────────────────────────────────────────
+// ── Pill (summary bar) ────────────────────────────────────────────────────────
 
-class _LoadMoreButton extends StatelessWidget {
-  final bool loading;
-  final VoidCallback onTap;
-  const _LoadMoreButton({required this.loading, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Center(
-          child: loading
-              ? const SizedBox(
-                  width: 24, height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : OutlinedButton(
-                  onPressed: onTap,
-                  child: const Text('Load more'),
-                ),
-        ),
-      );
-}
-
-// ── summary pill ──────────────────────────────────────────────────────────────
-
-class _SummaryPill extends StatelessWidget {
+class _Pill extends StatelessWidget {
   final String label;
   final int count;
   final Color color;
-  const _SummaryPill(this.label, this.count, this.color);
+  const _Pill(this.label, this.count, this.color);
 
   @override
   Widget build(BuildContext context) => Container(
@@ -311,33 +290,38 @@ class _SummaryPill extends StatelessWidget {
       );
 }
 
-// ── invoice card ─────────────────────────────────────────────────────────────
+// ── Invoice card (handles both GST and JW invoices) ───────────────────────────
 
 class _InvoiceCard extends StatelessWidget {
   final Map<String, dynamic> invoice;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback onRecordPayment;
+  final VoidCallback? onRecordPayment; // null for JW invoices
   const _InvoiceCard({
     required this.invoice,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
-    required this.onRecordPayment,
+    this.onRecordPayment,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs           = Theme.of(context).colorScheme;
-    final grandTotal   = invoice['grandTotal'] as num? ?? 0;
-    final totalPaid    = invoice['totalPaid'] as num? ?? 0;
-    final outstanding  = invoice['outstandingAmount'] as num? ?? 0;
-    final status       = invoice['paymentStatus'] as String? ?? 'UNPAID';
-    final statusColor  = _statusColor(status);
-    final invoiceDate  = DateTime.parse(invoice['invoiceDate'] as String);
+    final cs         = Theme.of(context).colorScheme;
+    final isJw       = invoice['_src'] == 'jw';
+    final grandTotal = invoice['grandTotal'] as num? ?? 0;
+    final gstStatus  = invoice['gstStatus'] as String? ?? 'SET';
+    final isPending  = gstStatus == 'PENDING';
+    final date       = DateTime.parse(invoice['invoiceDate'] as String);
+
+    // Payment info (GST invoices only)
+    final payStatus = invoice['paymentStatus'] as String?;
+    final totalPaid = invoice['totalPaid'] as num? ?? 0;
+    final outstanding = invoice['outstandingAmount'] as num? ?? 0;
 
     return Card(
+      color: isPending ? Colors.amber.shade50 : null,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -345,30 +329,52 @@ class _InvoiceCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              // Left: icon + status
+              // Icon + status badge
               Column(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: cs.primary.withValues(alpha: 0.1),
+                      color: isPending
+                          ? Colors.orange.withValues(alpha: 0.12)
+                          : cs.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(Icons.receipt_long, color: cs.primary, size: 22),
+                    child: Icon(
+                      isJw ? Icons.build_circle_outlined : Icons.receipt_long,
+                      color: isPending ? Colors.orange : cs.primary,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(4),
+                  if (!isJw && payStatus != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _payStatusColor(payStatus).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(_payStatusLabel(payStatus),
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: _payStatusColor(payStatus))),
                     ),
-                    child: Text(_statusLabel(status),
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: statusColor)),
-                  ),
+                  if (isPending)
+                    Container(
+                      margin: const EdgeInsets.only(top: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.amber.shade400),
+                      ),
+                      child: Text('GST Pending',
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange.shade900)),
+                    ),
                 ],
               ),
               const SizedBox(width: 12),
@@ -384,8 +390,14 @@ class _InvoiceCard extends StatelessWidget {
                     Text(invoice['vendorName'] as String? ?? '—',
                         style: TextStyle(color: Colors.grey[600], fontSize: 13),
                         overflow: TextOverflow.ellipsis),
-                    Text(_dateFmt.format(invoiceDate),
-                        style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                    Text(
+                      [
+                        if (isJw && invoice['siteName'] != null)
+                          invoice['siteName'] as String,
+                        _dateFmt.format(date),
+                      ].join('  ·  '),
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
                   ],
                 ),
               ),
@@ -399,29 +411,28 @@ class _InvoiceCard extends StatelessWidget {
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
                           color: cs.primary)),
-                  if (totalPaid > 0) ...[
+                  if (!isJw && totalPaid > 0)
                     Text('Paid: ${fmtCurr(totalPaid)}',
                         style: TextStyle(
                             fontSize: 11, color: Colors.green.shade700)),
-                  ],
-                  if (status != 'PAID')
+                  if (!isJw && payStatus != 'PAID')
                     Text('Due: ${fmtCurr(outstanding)}',
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: statusColor)),
+                            color: _payStatusColor(payStatus))),
                 ],
               ),
               // Menu
               PopupMenuButton<String>(
                 onSelected: (v) {
                   if (v == 'edit') onEdit();
-                  if (v == 'pay')  onRecordPayment();
+                  if (v == 'pay') onRecordPayment?.call();
                   if (v == 'delete') onDelete();
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  if (invoice['paymentStatus'] != 'PAID')
+                  if (onRecordPayment != null && invoice['paymentStatus'] != 'PAID')
                     const PopupMenuItem(
                         value: 'pay',
                         child: Text('Record Payment',
@@ -440,19 +451,19 @@ class _InvoiceCard extends StatelessWidget {
   }
 }
 
-// ── invoice detail dialog ─────────────────────────────────────────────────────
+// ── GST Invoice detail dialog ─────────────────────────────────────────────────
 
 class _InvoiceDetailDialog extends ConsumerStatefulWidget {
   final Map<String, dynamic> invoice;
-  const _InvoiceDetailDialog({required this.invoice});
+  final VoidCallback onRefresh;
+  const _InvoiceDetailDialog({required this.invoice, required this.onRefresh});
 
   @override
   ConsumerState<_InvoiceDetailDialog> createState() =>
       _InvoiceDetailDialogState();
 }
 
-class _InvoiceDetailDialogState
-    extends ConsumerState<_InvoiceDetailDialog>
+class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
@@ -470,24 +481,23 @@ class _InvoiceDetailDialogState
 
   @override
   Widget build(BuildContext context) {
-    final inv        = widget.invoice;
-    final invoiceId  = inv['id'] as int;
-    final items      = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
-    final cgstRate   = inv['cgstRate'] as num? ?? 9;
-    final sgstRate   = inv['sgstRate'] as num? ?? 9;
-    final subtotal   = inv['subtotal'] as num? ?? 0;
-    final cgstAmt    = inv['cgstAmount'] as num? ?? 0;
-    final sgstAmt    = inv['sgstAmount'] as num? ?? 0;
-    final grandTotal  = inv['grandTotal'] as num? ?? 0;
-    final totalPaid   = inv['totalPaid'] as num? ?? 0;
-    final outstanding = inv['outstandingAmount'] as num? ?? 0;
-    final status      = inv['paymentStatus'] as String? ?? 'UNPAID';
-    final statusColor = _statusColor(status);
-    final gstStatus   = inv['gstStatus'] as String? ?? 'SET';
-    final isPending   = gstStatus == 'PENDING';
-    // Audit trail for display after recalculation
-    final prevSgst    = inv['gstPrevSgstRate'] as num?;
-    final recalcBy    = inv['gstRecalculatedBy'] as String?;
+    final inv       = widget.invoice;
+    final invoiceId = inv['id'] as int;
+    final items     = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
+    final cgstRate  = inv['cgstRate'] as num? ?? 9;
+    final sgstRate  = inv['sgstRate'] as num? ?? 9;
+    final subtotal  = inv['subtotal'] as num? ?? 0;
+    final cgstAmt   = inv['cgstAmount'] as num? ?? 0;
+    final sgstAmt   = inv['sgstAmount'] as num? ?? 0;
+    final grandTotal    = inv['grandTotal'] as num? ?? 0;
+    final totalPaid     = inv['totalPaid'] as num? ?? 0;
+    final outstanding   = inv['outstandingAmount'] as num? ?? 0;
+    final status        = inv['paymentStatus'] as String? ?? 'UNPAID';
+    final statusColor   = _payStatusColor(status);
+    final gstStatus     = inv['gstStatus'] as String? ?? 'SET';
+    final isPending     = gstStatus == 'PENDING';
+    final prevSgst      = inv['gstPrevSgstRate'] as num?;
+    final recalcBy      = inv['gstRecalculatedBy'] as String?;
 
     final payments = ref.watch(_invoicePaymentsProvider(invoiceId));
 
@@ -496,13 +506,12 @@ class _InvoiceDetailDialogState
       maxWidth: 600,
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close')),
+            onPressed: () => Navigator.pop(context), child: const Text('Close')),
       ],
       body: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Header info block
+          // Header
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -524,12 +533,11 @@ class _InvoiceDetailDialogState
                       const SizedBox(height: 2),
                       Text(
                           'Date: ${_dateFmt.format(DateTime.parse(inv['invoiceDate'] as String))}',
-                          style:
-                              TextStyle(fontSize: 12, color: Colors.grey[600])),
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                       if (inv['poNo'] != null)
                         Text('PO: ${inv['poNo']}',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
+                            style:
+                                TextStyle(fontSize: 12, color: Colors.grey[600])),
                     ],
                   ),
                 ),
@@ -537,15 +545,13 @@ class _InvoiceDetailDialogState
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                            color: statusColor.withValues(alpha: 0.4)),
+                        border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                       ),
-                      child: Text(_statusLabel(status),
+                      child: Text(_payStatusLabel(status),
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -570,7 +576,7 @@ class _InvoiceDetailDialogState
               ],
             ),
           ),
-          // GST Pending banner + Recalculate action
+          // GST Pending banner + Recalculate
           if (isPending) ...[
             const SizedBox(height: 10),
             Container(
@@ -582,18 +588,22 @@ class _InvoiceDetailDialogState
               ),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 18),
+                  Icon(Icons.warning_amber_rounded,
+                      color: Colors.orange.shade700, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('GST: Pending',
-                            style: TextStyle(fontWeight: FontWeight.bold,
-                                fontSize: 13, color: Colors.orange.shade900)),
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Colors.orange.shade900)),
                         Text('GST rate was not configured when this invoice was raised. '
-                            'Set the rate in Material Master, then tap Recalculate.',
-                            style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
+                            'Set the rate in the master, then tap Recalculate.',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.orange.shade800)),
                       ],
                     ),
                   ),
@@ -608,12 +618,11 @@ class _InvoiceDetailDialogState
                         final res = await api.post('/api/invoices/$invoiceId/recalculate-gst');
                         if (!context.mounted) return;
                         Navigator.pop(context);
-                        ref.read(_invoicesNotifierProvider.notifier).refresh();
+                        widget.onRefresh();
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text('GST recalculated — '
                               'SGST ${res.data['sgstRate']}% / '
-                              'CGST ${res.data['cgstRate']}% applied. '
-                              'Invoice locked as SET.'),
+                              'CGST ${res.data['cgstRate']}% applied.'),
                           backgroundColor: Colors.green,
                         ));
                       } catch (err) {
@@ -629,7 +638,7 @@ class _InvoiceDetailDialogState
               ),
             ),
           ],
-          // Audit log line shown after a recalculation (gstStatus=SET + prevRate present)
+          // Audit log after recalculation
           if (!isPending && prevSgst != null && recalcBy != null) ...[
             const SizedBox(height: 6),
             Container(
@@ -641,12 +650,13 @@ class _InvoiceDetailDialogState
               ),
               child: Row(
                 children: [
-                  Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 16),
+                  Icon(Icons.check_circle_outline,
+                      color: Colors.green.shade700, size: 16),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       'GST recalculated by $recalcBy — '
-                      'prev rate ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
+                      'prev ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
                       style: TextStyle(fontSize: 11, color: Colors.green.shade800),
                     ),
                   ),
@@ -658,10 +668,7 @@ class _InvoiceDetailDialogState
           // Tabs
           TabBar(
             controller: _tabs,
-            tabs: const [
-              Tab(text: 'Line Items'),
-              Tab(text: 'Payments'),
-            ],
+            tabs: const [Tab(text: 'Line Items'), Tab(text: 'Payments')],
           ),
           SizedBox(
             height: 300,
@@ -686,7 +693,7 @@ class _InvoiceDetailDialogState
                             decoration: BoxDecoration(color: Colors.grey[100]),
                             children: const [
                               _TH('Description'),
-                              _TH('Qty (B)'),
+                              _TH('Qty'),
                               _TH('Rate'),
                               _TH('Amount'),
                             ],
@@ -706,8 +713,11 @@ class _InvoiceDetailDialogState
                       ),
                       const Divider(height: 20),
                       _TotalRow('Subtotal', subtotal),
-                      _TotalRow('CGST ($cgstRate%)', cgstAmt),
-                      _TotalRow('SGST ($sgstRate%)', sgstAmt),
+                      if (!isPending) ...[
+                        _TotalRow('CGST ($cgstRate%)', cgstAmt),
+                        _TotalRow('SGST ($sgstRate%)', sgstAmt),
+                      ] else
+                        _TotalRow('GST (Pending)', 0, dim: true),
                       const Divider(),
                       _TotalRow('Grand Total', grandTotal, bold: true),
                     ],
@@ -721,9 +731,8 @@ class _InvoiceDetailDialogState
                   data: (list) => list.isEmpty
                       ? const AppEmptyState(
                           icon: Icons.payment_outlined,
-                          message: 'No payments recorded for this invoice',
-                          hint:
-                              'Use "Record Payment" from the invoice menu',
+                          message: 'No payments recorded',
+                          hint: 'Use "Record Payment" from the invoice menu',
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.only(top: 8),
@@ -743,6 +752,161 @@ class _InvoiceDetailDialogState
   }
 }
 
+// ── Job-Work invoice detail dialog (for historical JW invoices) ───────────────
+
+class _JwDetailDialog extends ConsumerWidget {
+  final Map<String, dynamic> invoice;
+  final VoidCallback onRefresh;
+  const _JwDetailDialog({required this.invoice, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final inv        = invoice;
+    final invoiceId  = inv['id'] as int;
+    final items      = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
+    final cgstRate   = inv['cgstRate'] as num? ?? 0;
+    final sgstRate   = inv['sgstRate'] as num? ?? 0;
+    final subtotal   = inv['subtotal'] as num? ?? 0;
+    final cgstAmt    = inv['cgstAmount'] as num? ?? 0;
+    final sgstAmt    = inv['sgstAmount'] as num? ?? 0;
+    final grandTotal = inv['grandTotal'] as num? ?? 0;
+    final gstStatus  = inv['gstStatus'] as String? ?? 'SET';
+    final isPending  = gstStatus == 'PENDING';
+    final prevSgst   = inv['gstPrevSgstRate'] as num?;
+    final recalcBy   = inv['gstRecalculatedBy'] as String?;
+
+    return AppDialog(
+      title: inv['invoiceNo'] as String? ?? 'Invoice',
+      maxWidth: 560,
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+      ],
+      body: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(inv['vendorName'] as String? ?? '—',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              if (inv['siteName'] != null)
+                Text('Site: ${inv['siteName']}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text('Date: ${_dateFmt.format(DateTime.parse(inv['invoiceDate'] as String))}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ])),
+            Text(fmtCurr(grandTotal),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ]),
+        ),
+
+        if (isPending) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Row(children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('GST: Pending',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
+                        color: Colors.orange.shade900)),
+                Text('Set the rate in Service Master, then tap Recalculate.',
+                    style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
+              ])),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                    backgroundColor: Colors.orange.shade100,
+                    foregroundColor: Colors.orange.shade900),
+                onPressed: () async {
+                  final api = ref.read(apiClientProvider);
+                  try {
+                    final res = await api.post('/api/job-work-invoices/$invoiceId/recalculate-gst');
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    onRefresh();
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('GST recalculated — SGST ${res.data['sgstRate']}% / CGST ${res.data['cgstRate']}% applied.'),
+                      backgroundColor: Colors.green,
+                    ));
+                  } catch (err) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Error: $err'), backgroundColor: Colors.red));
+                  }
+                },
+                child: const Text('Recalculate GST'),
+              ),
+            ]),
+          ),
+        ],
+
+        if (!isPending && prevSgst != null && recalcBy != null) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50, borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(children: [
+              Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 16),
+              const SizedBox(width: 6),
+              Expanded(child: Text(
+                'GST recalculated by $recalcBy — prev ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
+                style: TextStyle(fontSize: 11, color: Colors.green.shade800),
+              )),
+            ]),
+          ),
+        ],
+
+        const SizedBox(height: 12),
+
+        Table(
+          columnWidths: const {
+            0: FlexColumnWidth(3),
+            1: FlexColumnWidth(1.2),
+            2: FlexColumnWidth(1.5),
+            3: FlexColumnWidth(1.8),
+          },
+          border: TableBorder.all(color: Colors.grey.shade200),
+          children: [
+            TableRow(
+              decoration: BoxDecoration(color: Colors.grey[100]),
+              children: const [_TH('Description'), _TH('Qty'), _TH('Rate'), _TH('Amount')],
+            ),
+            ...items.map((item) => TableRow(children: [
+              _TD(item['description'] as String? ?? '—'),
+              _TD(item['quantity'] != null ? (item['quantity'] as num).toStringAsFixed(2) : '—'),
+              _TD(item['rate'] != null ? fmtCurr(item['rate']) : '—'),
+              _TD(fmtCurr(item['amount'] as num? ?? 0)),
+            ])),
+          ],
+        ),
+        const Divider(height: 20),
+        _TotalRow('Subtotal', subtotal),
+        if (!isPending) ...[
+          _TotalRow('CGST ($cgstRate%)', cgstAmt),
+          _TotalRow('SGST ($sgstRate%)', sgstAmt),
+        ] else
+          _TotalRow('GST (Pending)', 0, dim: true),
+        const Divider(),
+        _TotalRow('Grand Total', grandTotal, bold: true),
+      ]),
+    );
+  }
+}
+
+// ── Payment tile ──────────────────────────────────────────────────────────────
+
 class _PaymentTile extends StatelessWidget {
   final Map<String, dynamic> payment;
   const _PaymentTile({required this.payment});
@@ -756,11 +920,11 @@ class _PaymentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mode      = payment['paymentMode'] as String? ?? 'CASH';
-    final color     = _modeColors[mode] ?? Colors.grey;
-    final amount    = payment['amount'] as num? ?? 0;
-    final date      = DateTime.parse(payment['paymentDate'] as String);
-    final ref       = (payment['referenceNo'] as String?)?.trim() ?? '';
+    final mode   = payment['paymentMode'] as String? ?? 'CASH';
+    final color  = _modeColors[mode] ?? Colors.grey;
+    final amount = payment['amount'] as num? ?? 0;
+    final date   = DateTime.parse(payment['paymentDate'] as String);
+    final ref2   = (payment['referenceNo'] as String?)?.trim() ?? '';
     return ListTile(
       dense: true,
       leading: Container(
@@ -776,29 +940,26 @@ class _PaymentTile extends StatelessWidget {
       title: Text(fmtCurr(amount),
           style: const TextStyle(fontWeight: FontWeight.bold)),
       subtitle: Text(
-          [_dateFmt.format(date), if (ref.isNotEmpty) ref].join('  ·  '),
+          [_dateFmt.format(date), if (ref2.isNotEmpty) ref2].join('  ·  '),
           style: const TextStyle(fontSize: 12)),
-      trailing: Icon(Icons.check_circle,
-          color: Colors.green.shade600, size: 18),
+      trailing: Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
     );
   }
 }
 
-// ── quick payment dialog ──────────────────────────────────────────────────────
+// ── Quick payment dialog ──────────────────────────────────────────────────────
 
 class _QuickPaymentDialog extends ConsumerStatefulWidget {
   final Map<String, dynamic> invoice;
   final VoidCallback onSaved;
-  const _QuickPaymentDialog(
-      {required this.invoice, required this.onSaved});
+  const _QuickPaymentDialog({required this.invoice, required this.onSaved});
 
   @override
   ConsumerState<_QuickPaymentDialog> createState() =>
       _QuickPaymentDialogState();
 }
 
-class _QuickPaymentDialogState
-    extends ConsumerState<_QuickPaymentDialog> {
+class _QuickPaymentDialogState extends ConsumerState<_QuickPaymentDialog> {
   final _formKey  = GlobalKey<FormState>();
   final _amtCtrl  = TextEditingController();
   final _refCtrl  = TextEditingController();
@@ -811,18 +972,13 @@ class _QuickPaymentDialogState
   void initState() {
     super.initState();
     _date = DateTime.now();
-    // Pre-fill with outstanding amount
     final outstanding = widget.invoice['outstandingAmount'] as num? ?? 0;
-    if (outstanding > 0) {
-      _amtCtrl.text = outstanding.toStringAsFixed(2);
-    }
+    if (outstanding > 0) _amtCtrl.text = outstanding.toStringAsFixed(2);
   }
 
   @override
   void dispose() {
-    _amtCtrl.dispose();
-    _refCtrl.dispose();
-    _noteCtrl.dispose();
+    _amtCtrl.dispose(); _refCtrl.dispose(); _noteCtrl.dispose();
     super.dispose();
   }
 
@@ -830,13 +986,13 @@ class _QuickPaymentDialogState
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     final body = {
-      'vendorId':   widget.invoice['vendorId'],
-      'invoiceId':  widget.invoice['id'],
+      'vendorId':    widget.invoice['vendorId'],
+      'invoiceId':   widget.invoice['id'],
       'paymentDate': DateFormat('yyyy-MM-dd').format(_date),
-      'amount':     double.parse(_amtCtrl.text.trim()),
+      'amount':      double.parse(_amtCtrl.text.trim()),
       'paymentMode': _mode,
       'referenceNo': _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
-      'notes':      _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+      'notes':       _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
     };
     try {
       await ref.read(apiClientProvider).post('/api/party-payments', data: body);
@@ -862,15 +1018,12 @@ class _QuickPaymentDialogState
       title: 'Record Payment',
       maxWidth: 420,
       actions: [
-        TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context),
             child: const Text('Cancel')),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
+              ? const SizedBox(width: 18, height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Save Payment'),
         ),
@@ -881,7 +1034,6 @@ class _QuickPaymentDialogState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Invoice summary
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -891,34 +1043,22 @@ class _QuickPaymentDialogState
               ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(inv['invoiceNo'] as String? ?? '—',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text(inv['vendorName'] as String? ?? '—',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey[600])),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Total: ${fmtCurr(grandTotal)}',
-                          style: const TextStyle(fontSize: 12)),
-                      if (totalPaid > 0)
-                        Text('Paid: ${fmtCurr(totalPaid)}',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.green.shade700)),
-                      Text('Due: ${fmtCurr(outstanding)}',
-                          style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange.shade800)),
-                    ],
-                  ),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(inv['invoiceNo'] as String? ?? '—',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(inv['vendorName'] as String? ?? '—',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  ])),
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text('Total: ${fmtCurr(grandTotal)}',
+                        style: const TextStyle(fontSize: 12)),
+                    if (totalPaid > 0)
+                      Text('Paid: ${fmtCurr(totalPaid)}',
+                          style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
+                    Text('Due: ${fmtCurr(outstanding)}',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade800)),
+                  ]),
                 ],
               ),
             ),
@@ -929,8 +1069,7 @@ class _QuickPaymentDialogState
               required: true,
               onTap: () async {
                 final d = await showDatePicker(
-                    context: context,
-                    initialDate: _date,
+                    context: context, initialDate: _date,
                     firstDate: DateTime(2020),
                     lastDate: DateTime.now().add(const Duration(days: 1)));
                 if (d != null) setState(() => _date = d);
@@ -939,10 +1078,8 @@ class _QuickPaymentDialogState
             const SizedBox(height: 12),
             TextFormField(
               controller: _amtCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'Amount *', prefixText: '₹ '),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Amount *', prefixText: '₹ '),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               validator: (v) {
                 if (v == null || v.isEmpty) return 'Required';
                 if (double.tryParse(v) == null) return 'Invalid number';
@@ -963,14 +1100,12 @@ class _QuickPaymentDialogState
             const SizedBox(height: 12),
             TextFormField(
               controller: _refCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'Reference No. / Cheque No.'),
+              decoration: const InputDecoration(labelText: 'Reference No. / Cheque No.'),
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _noteCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Notes (optional)'),
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
               maxLines: 2,
             ),
           ],
@@ -980,65 +1115,84 @@ class _QuickPaymentDialogState
   }
 }
 
-// ── invoice form ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIFIED INVOICE FORM — handles Material + Service lines, optional Client Site
+// ══════════════════════════════════════════════════════════════════════════════
 
-class _ItemRow {
+class _UnifiedItemRow {
+  bool isService = false;
+
+  // Material
+  int?    materialId;
+  String? materialName;
+  bool    materialGstConfigured = true;
+
+  // Service
+  int?    serviceId;
+  String? serviceName;
+  bool    serviceGstConfigured = true;
+
+  // Common
   final descCtrl = TextEditingController();
-  final hsnCtrl  = TextEditingController();
+  final codeCtrl = TextEditingController(); // HSN for material, SAC for service
   final qtyCtrl  = TextEditingController();
   final rateCtrl = TextEditingController();
   final amtCtrl  = TextEditingController();
 
-  // Material picker state
-  int?    materialId;
-  String? materialName;
-  bool    materialGstConfigured = true;   // false → will create PENDING invoice
-
-  _ItemRow({Map<String, dynamic>? data}) {
+  _UnifiedItemRow({Map<String, dynamic>? data}) {
     if (data != null) {
+      isService = (data['serviceId'] != null);
       descCtrl.text = data['description'] as String? ?? '';
-      hsnCtrl.text  = data['hsn'] as String? ?? '';
+      codeCtrl.text = data['hsn'] as String? ?? '';
       final qty  = data['quantityBrass'];
-      if (qty != null)  qtyCtrl.text  = qty.toString();
+      if (qty  != null) qtyCtrl.text  = qty.toString();
       final rate = data['rate'];
       if (rate != null) rateCtrl.text = rate.toString();
-      amtCtrl.text = (data['amount'] as num? ?? 0).toString();
-      materialId   = data['materialId'] as int?;
+      amtCtrl.text  = (data['amount'] as num? ?? 0).toString();
+      materialId    = data['materialId'] as int?;
+      serviceId     = data['serviceId']  as int?;
     }
   }
 
+  bool get gstPending =>
+      isService ? (serviceId != null && !serviceGstConfigured)
+                : (materialId != null && !materialGstConfigured);
+
   void dispose() {
-    descCtrl.dispose(); hsnCtrl.dispose(); qtyCtrl.dispose();
+    descCtrl.dispose(); codeCtrl.dispose(); qtyCtrl.dispose();
     rateCtrl.dispose(); amtCtrl.dispose();
   }
 
   Map<String, dynamic> toJson() => {
-        'description':   descCtrl.text.trim(),
-        'hsn':           hsnCtrl.text.trim().isEmpty ? null : hsnCtrl.text.trim(),
+        if (!isService && materialId != null) 'materialId': materialId,
+        if (isService  && serviceId  != null) 'serviceId':  serviceId,
+        'description':  descCtrl.text.trim(),
+        'hsn': codeCtrl.text.trim().isEmpty ? null : codeCtrl.text.trim(),
         'quantityBrass': double.tryParse(qtyCtrl.text),
         'rate':          double.tryParse(rateCtrl.text),
         'amount':        double.tryParse(amtCtrl.text) ?? 0.0,
-        'materialId':    materialId,
       };
 }
 
-class _InvoiceForm extends ConsumerStatefulWidget {
+class _UnifiedInvoiceForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final VoidCallback onSaved;
-  const _InvoiceForm({required this.existing, required this.onSaved});
+  const _UnifiedInvoiceForm({required this.existing, required this.onSaved});
 
   @override
-  ConsumerState<_InvoiceForm> createState() => _InvoiceFormState();
+  ConsumerState<_UnifiedInvoiceForm> createState() => _UnifiedInvoiceFormState();
 }
 
-class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
-  final _formKey  = GlobalKey<FormState>();
-  int? _vendorId;
+class _UnifiedInvoiceFormState extends ConsumerState<_UnifiedInvoiceForm> {
+  final _formKey    = GlobalKey<FormState>();
+  int?    _vendorId;
+  int?    _siteId;
+  String? _sitePartyName;
   late DateTime _invoiceDate;
   DateTime? _supplyDate;
   final _poCtrl    = TextEditingController();
   final _notesCtrl = TextEditingController();
-  final List<_ItemRow> _items = [];
+  final List<_UnifiedItemRow> _items = [];
   bool _saving = false;
 
   @override
@@ -1046,7 +1200,8 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
     super.initState();
     final e = widget.existing;
     _invoiceDate = e != null
-        ? DateTime.parse(e['invoiceDate'] as String) : DateTime.now();
+        ? DateTime.parse(e['invoiceDate'] as String)
+        : DateTime.now();
     if (e != null) {
       _vendorId = e['vendorId'] as int?;
       if (e['supplyDate'] != null) {
@@ -1055,17 +1210,19 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
       _poCtrl.text    = e['poNo'] as String? ?? '';
       _notesCtrl.text = e['notes'] as String? ?? '';
       for (final item in (e['items'] as List? ?? [])) {
-        _items.add(_ItemRow(data: item as Map<String, dynamic>));
+        _items.add(_UnifiedItemRow(data: item as Map<String, dynamic>));
       }
     }
-    if (_items.isEmpty) _items.add(_ItemRow());
-    for (final row in _items) {
-      row.qtyCtrl.addListener(() => _autoCalc(row));
-      row.rateCtrl.addListener(() => _autoCalc(row));
-    }
+    if (_items.isEmpty) _items.add(_UnifiedItemRow());
+    for (final row in _items) _attachListeners(row);
   }
 
-  void _autoCalc(_ItemRow row) {
+  void _attachListeners(_UnifiedItemRow row) {
+    row.qtyCtrl.addListener(() => _autoCalc(row));
+    row.rateCtrl.addListener(() => _autoCalc(row));
+  }
+
+  void _autoCalc(_UnifiedItemRow row) {
     final qty  = double.tryParse(row.qtyCtrl.text);
     final rate = double.tryParse(row.rateCtrl.text);
     if (qty != null && rate != null) {
@@ -1083,9 +1240,8 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
   }
 
   void _addItem() {
-    final row = _ItemRow();
-    row.qtyCtrl.addListener(() => _autoCalc(row));
-    row.rateCtrl.addListener(() => _autoCalc(row));
+    final row = _UnifiedItemRow();
+    _attachListeners(row);
     setState(() => _items.add(row));
   }
 
@@ -1094,16 +1250,28 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
     setState(() => _items.removeAt(index));
   }
 
+  void _onSiteSelected(Map<String, dynamic>? site) {
+    if (site == null) {
+      setState(() { _siteId = null; _sitePartyName = null; _vendorId = null; });
+      return;
+    }
+    final partyId   = site['linkedPartyId'] as int?;
+    final partyName = site['linkedPartyName'] as String? ?? 'Party #$partyId';
+    setState(() {
+      _siteId       = site['id'] as int?;
+      _sitePartyName = partyName;
+      _vendorId     = partyId;
+    });
+  }
+
   double get _subtotal =>
       _items.fold(0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
 
   Future<void> _pickDate(bool isInvoice) async {
-    final init = isInvoice ? _invoiceDate : (_supplyDate ?? _invoiceDate);
+    final init   = isInvoice ? _invoiceDate : (_supplyDate ?? _invoiceDate);
     final picked = await showDatePicker(
-      context: context,
-      initialDate: init,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      context: context, initialDate: init,
+      firstDate: DateTime(2020), lastDate: DateTime(2030),
     );
     if (picked != null) {
       setState(() => isInvoice ? _invoiceDate = picked : _supplyDate = picked);
@@ -1112,16 +1280,23 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_vendorId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a party'),
+              backgroundColor: Colors.red));
+      return;
+    }
     if (_items.isEmpty) return;
     setState(() => _saving = true);
     final body = {
-      'vendorId':   _vendorId,
+      'vendorId':    _vendorId,
       'invoiceDate': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-      'supplyDate': _supplyDate != null
-          ? DateFormat('yyyy-MM-dd').format(_supplyDate!) : null,
-      'poNo':   _poCtrl.text.trim().isEmpty ? null : _poCtrl.text.trim(),
-      'notes':  _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      'items':  _items.map((r) => r.toJson()).toList(),
+      'supplyDate':  _supplyDate != null
+          ? DateFormat('yyyy-MM-dd').format(_supplyDate!)
+          : null,
+      'poNo':  _poCtrl.text.trim().isEmpty  ? null : _poCtrl.text.trim(),
+      'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      'items': _items.map((r) => r.toJson()).toList(),
     };
     final api = ref.read(apiClientProvider);
     try {
@@ -1143,16 +1318,18 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
 
   @override
   Widget build(BuildContext context) {
-    final vendors  = ref.watch(_vendorsProvider);
-    final sub  = _subtotal;
-    final cgst = sub * 0.09;
-    final sgst = sub * 0.09;
+    final vendors    = ref.watch(_vendorsProvider);
+    final sites      = ref.watch(_invoiceSitesProvider);
+    final sub   = _subtotal;
+    final cgst  = sub * 0.09;
+    final sgst  = sub * 0.09;
     final grand = sub + cgst + sgst;
     final isEdit = widget.existing != null;
+    final hasSite = _siteId != null;
 
     return AppDialog(
-      title: isEdit ? 'Edit Invoice' : 'New GST Invoice',
-      maxWidth: 560,
+      title: isEdit ? 'Edit Invoice' : 'New Invoice',
+      maxWidth: 580,
       actions: [
         TextButton(
             onPressed: _saving ? null : () => Navigator.pop(context),
@@ -1160,8 +1337,7 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(
-                  width: 18, height: 18,
+              ? const SizedBox(width: 18, height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save Invoice'),
         ),
@@ -1173,22 +1349,72 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SectionLabel('Invoice Details'),
-            vendors.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('$e'),
-              data: (list) {
-                final active =
-                    list.where((v) => v['status'] == 'ACTIVE').toList();
-                return SearchablePicker(
-                  items: active,
-                  itemLabel: (v) => v['name'] as String,
-                  fieldLabel: 'Party *',
-                  value: _vendorId,
-                  onChanged: (v) => setState(() => _vendorId = v),
-                  validator: (v) => v == null ? 'Select party' : null,
-                );
+
+            // Optional Client Site picker → auto-locks party
+            sites.when(
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (allSites) {
+                final clientSites = allSites
+                    .where((s) => s['siteType'] == 'CLIENT_SITE')
+                    .toList();
+                if (clientSites.isEmpty) return const SizedBox.shrink();
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SearchablePicker(
+                    items: clientSites,
+                    itemLabel: (s) => s['name'] as String,
+                    fieldLabel: 'Client Site (optional)',
+                    value: _siteId,
+                    onChanged: (id) {
+                      if (id == null) { _onSiteSelected(null); return; }
+                      final site = clientSites.firstWhere(
+                          (s) => s['id'] == id, orElse: () => <String, dynamic>{});
+                      if (site.isNotEmpty) _onSiteSelected(site);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ]);
               },
             ),
+
+            // Party — auto-locked when site selected, free picker otherwise
+            if (hasSite && _sitePartyName != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(children: [
+                  Icon(Icons.person_outlined, size: 16, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Party (auto-filled from site)',
+                        style: TextStyle(fontSize: 10, color: Colors.blue.shade600)),
+                    Text(_sitePartyName!,
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                            color: Colors.blue.shade800)),
+                  ])),
+                  Icon(Icons.lock_outline, size: 14, color: Colors.blue.shade400),
+                ]),
+              )
+            else
+              vendors.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('$e'),
+                data: (list) {
+                  final active = list.where((v) => v['status'] == 'ACTIVE').toList();
+                  return SearchablePicker(
+                    items: active,
+                    itemLabel: (v) => v['name'] as String,
+                    fieldLabel: 'Party *',
+                    value: _vendorId,
+                    onChanged: (v) => setState(() => _vendorId = v),
+                    validator: (v) => v == null ? 'Select party' : null,
+                  );
+                },
+              ),
+
             const SizedBox(height: 12),
             Row(children: [
               Expanded(child: DateField(
@@ -1203,8 +1429,9 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
             TextFormField(
                 controller: _poCtrl,
                 decoration: const InputDecoration(labelText: 'PO No.')),
+
             const SectionLabel('Line Items'),
-            ..._items.asMap().entries.map((e) => _ItemRowWidget(
+            ..._items.asMap().entries.map((e) => _UnifiedItemRowWidget(
                   row: e.value, index: e.key,
                   canRemove: _items.length > 1,
                   onRemove: () => _removeItem(e.key),
@@ -1215,19 +1442,23 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
                 onPressed: _addItem,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Line Item')),
+
             if (sub > 0) ...[
               const Divider(height: 20),
               _PreviewRow('Subtotal', sub),
               _PreviewRow('CGST 9%', cgst),
               _PreviewRow('SGST 9%', sgst),
               const Divider(height: 8),
-              _PreviewRow('Grand Total', grand, bold: true),
+              _PreviewRow('Grand Total (approx.)', grand, bold: true),
+              const SizedBox(height: 4),
+              Text('Final GST computed from master rates on save',
+                  style: TextStyle(fontSize: 10, color: Colors.grey[500])),
             ],
+
             const SectionLabel('Notes'),
             TextFormField(
                 controller: _notesCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Notes (optional)'),
+                decoration: const InputDecoration(labelText: 'Notes (optional)'),
                 maxLines: 2),
           ],
         ),
@@ -1236,26 +1467,25 @@ class _InvoiceFormState extends ConsumerState<_InvoiceForm> {
   }
 }
 
-// ── item row widget ───────────────────────────────────────────────────────────
+// ── Unified item row widget ───────────────────────────────────────────────────
 
-class _ItemRowWidget extends ConsumerStatefulWidget {
-  final _ItemRow row;
+class _UnifiedItemRowWidget extends ConsumerStatefulWidget {
+  final _UnifiedItemRow row;
   final int index;
   final bool canRemove;
   final VoidCallback onRemove;
   final VoidCallback onChanged;
-  const _ItemRowWidget({
+  const _UnifiedItemRowWidget({
     required this.row, required this.index, required this.canRemove,
     required this.onRemove, required this.onChanged,
   });
 
   @override
-  ConsumerState<_ItemRowWidget> createState() => _ItemRowWidgetState();
+  ConsumerState<_UnifiedItemRowWidget> createState() =>
+      _UnifiedItemRowWidgetState();
 }
 
-class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
-  /// Opens the shared material search dialog (reuses the same pattern as the
-  /// trips form: SearchablePicker embedded in a compact dialog).
+class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
   Future<void> _pickMaterial(List<Map<String, dynamic>> materials) async {
     final picked = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -1263,15 +1493,42 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
     );
     if (picked == null) return;
     setState(() {
+      widget.row.isService             = false;
       widget.row.materialId            = picked['id'] as int?;
       widget.row.materialName          = picked['name'] as String?;
       widget.row.materialGstConfigured = picked['gstRateConfigured'] as bool? ?? true;
-      // Auto-fill HSN from material
+      widget.row.serviceId             = null;
+      widget.row.serviceName           = null;
       final hsn = picked['hsnCode'] as String?;
-      if (hsn != null && hsn.isNotEmpty) widget.row.hsnCtrl.text = hsn;
-      // Auto-fill description if blank
+      if (hsn != null && hsn.isNotEmpty) widget.row.codeCtrl.text = hsn;
       if (widget.row.descCtrl.text.trim().isEmpty) {
         widget.row.descCtrl.text = 'Trip — ${picked['name']}';
+      }
+    });
+    widget.onChanged();
+  }
+
+  Future<void> _pickService(List<Map<String, dynamic>> services) async {
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _ServicePickerDialog(services: services),
+    );
+    if (picked == null) return;
+    setState(() {
+      widget.row.isService             = true;
+      widget.row.serviceId             = picked['id'] as int?;
+      widget.row.serviceName           = picked['name'] as String?;
+      widget.row.serviceGstConfigured  = picked['gstRateConfigured'] as bool? ?? false;
+      widget.row.materialId            = null;
+      widget.row.materialName          = null;
+      final sac = picked['sacCode'] as String?;
+      if (sac != null && sac.isNotEmpty) widget.row.codeCtrl.text = sac;
+      if (widget.row.descCtrl.text.trim().isEmpty) {
+        widget.row.descCtrl.text = picked['name'] as String? ?? '';
+      }
+      final defaultRate = picked['defaultRate'];
+      if (defaultRate != null && widget.row.rateCtrl.text.trim().isEmpty) {
+        widget.row.rateCtrl.text = defaultRate.toString();
       }
     });
     widget.onChanged();
@@ -1280,9 +1537,11 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
   @override
   Widget build(BuildContext context) {
     final materialsAsync = ref.watch(_invoiceMaterialsProvider);
-    final row = widget.row;
-    final hasMaterial   = row.materialId != null;
-    final gstPending    = hasMaterial && !row.materialGstConfigured;
+    final servicesAsync  = ref.watch(_invoiceServicesProvider);
+    final row            = widget.row;
+    final gstPending     = row.gstPending;
+    final hasPicked      = row.materialId != null || row.serviceId != null;
+    final pickedLabel    = row.isService ? row.serviceName : row.materialName;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1296,57 +1555,88 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header row ─────────────────────────────────────────────────────
+          // Header row: item label + pickers + remove
           Row(children: [
             Text('Item ${widget.index + 1}',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
             const Spacer(),
-            // Material picker button — reuses the same compact dialog as Trips
+            // Material picker button
             materialsAsync.when(
               loading: () => const SizedBox(width: 16, height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2)),
               error: (_, __) => const SizedBox.shrink(),
-              data: (mats) => InkWell(
-                onTap: () => _pickMaterial(mats),
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: hasMaterial
-                        ? (gstPending
-                            ? Colors.amber.shade100
-                            : Colors.blue.shade50)
-                        : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                        color: hasMaterial
-                            ? (gstPending
-                                ? Colors.amber.shade400
-                                : Colors.blue.shade300)
-                            : Colors.grey.shade300),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.category_outlined,
-                        size: 14,
-                        color: hasMaterial
-                            ? (gstPending
-                                ? Colors.orange.shade700
-                                : Colors.blue.shade700)
-                            : Colors.grey.shade600),
-                    const SizedBox(width: 4),
-                    Text(
-                      hasMaterial ? row.materialName! : 'Select Material',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: hasMaterial
-                              ? (gstPending
-                                  ? Colors.orange.shade800
-                                  : Colors.blue.shade700)
-                              : Colors.grey.shade600),
+              data: (mats) {
+                final active = !row.isService && hasPicked;
+                return InkWell(
+                  onTap: () => _pickMaterial(mats),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? (gstPending ? Colors.amber.shade100 : Colors.blue.shade50)
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: active
+                          ? (gstPending ? Colors.amber.shade400 : Colors.blue.shade300)
+                          : Colors.grey.shade300),
                     ),
-                  ]),
-                ),
-              ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.category_outlined, size: 14,
+                          color: active
+                              ? (gstPending ? Colors.orange.shade700 : Colors.blue.shade700)
+                              : Colors.grey.shade600),
+                      const SizedBox(width: 4),
+                      Text(!row.isService && hasPicked
+                          ? pickedLabel!
+                          : 'Select Material',
+                          style: TextStyle(fontSize: 11,
+                              color: active
+                                  ? (gstPending ? Colors.orange.shade800 : Colors.blue.shade700)
+                                  : Colors.grey.shade600)),
+                    ]),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(width: 6),
+            // Service picker button
+            servicesAsync.when(
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (svcs) {
+                final active = row.isService && hasPicked;
+                return InkWell(
+                  onTap: () => _pickService(svcs),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? (gstPending ? Colors.amber.shade100 : Colors.teal.shade50)
+                          : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: active
+                          ? (gstPending ? Colors.amber.shade400 : Colors.teal.shade300)
+                          : Colors.grey.shade300),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.handyman_outlined, size: 14,
+                          color: active
+                              ? (gstPending ? Colors.orange.shade700 : Colors.teal.shade700)
+                              : Colors.grey.shade600),
+                      const SizedBox(width: 4),
+                      Text(row.isService && hasPicked
+                          ? pickedLabel!
+                          : 'Select Service',
+                          style: TextStyle(fontSize: 11,
+                              color: active
+                                  ? (gstPending ? Colors.orange.shade800 : Colors.teal.shade700)
+                                  : Colors.grey.shade600)),
+                    ]),
+                  ),
+                );
+              },
             ),
             const SizedBox(width: 8),
             if (widget.canRemove)
@@ -1355,16 +1645,16 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
                   child: const Icon(Icons.close, size: 18, color: Colors.red)),
           ]),
 
-          // GST-pending warning chip
+          // GST-pending warning
           if (gstPending) ...[
             const SizedBox(height: 6),
             Row(children: [
               Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
               const SizedBox(width: 4),
-              Text(
-                'GST rate not set for ${row.materialName} — invoice will be PENDING',
+              Flexible(child: Text(
+                'GST rate not set for ${pickedLabel ?? 'this item'} — invoice will be PENDING',
                 style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
-              ),
+              )),
             ]),
           ],
 
@@ -1379,17 +1669,18 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: TextFormField(
-              controller: row.hsnCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'HSN Code', isDense: true),
+              controller: row.codeCtrl,
+              decoration: InputDecoration(
+                  labelText: row.isService ? 'SAC Code' : 'HSN Code',
+                  isDense: true),
             )),
             const SizedBox(width: 8),
             Expanded(child: TextFormField(
               controller: row.qtyCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'Qty (Brass)', isDense: true),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                  labelText: row.isService ? 'Quantity' : 'Qty (Brass)',
+                  isDense: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             )),
           ]),
           const SizedBox(height: 8),
@@ -1398,16 +1689,14 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
               controller: row.rateCtrl,
               decoration: const InputDecoration(
                   labelText: 'Rate', isDense: true, prefixText: '₹'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
             )),
             const SizedBox(width: 8),
             Expanded(child: TextFormField(
               controller: row.amtCtrl,
               decoration: const InputDecoration(
                   labelText: 'Amount *', isDense: true, prefixText: '₹'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               validator: (v) =>
                   (v == null || double.tryParse(v) == null) ? 'Required' : null,
             )),
@@ -1418,7 +1707,7 @@ class _ItemRowWidgetState extends ConsumerState<_ItemRowWidget> {
   }
 }
 
-// ── Material picker dialog (compact, searchable — same pattern as Trips) ──────
+// ── Material picker dialog ────────────────────────────────────────────────────
 
 class _MaterialPickerDialog extends StatefulWidget {
   final List<Map<String, dynamic>> materials;
@@ -1447,78 +1736,536 @@ class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400, maxHeight: 480),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(children: [
-                const Expanded(child: Text('Select Material',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold))),
-                IconButton(icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => Navigator.pop(context)),
-              ]),
-            ),
-            // Search field
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: TextField(
-                controller: _search,
-                autofocus: true,
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Search by name or code…',
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                onChanged: (v) => setState(() => _q = v.toLowerCase()),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(children: [
+              const Expanded(child: Text('Select Material',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold))),
+              IconButton(icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => Navigator.pop(context)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _search, autofocus: true,
+              decoration: InputDecoration(
+                isDense: true, hintText: 'Search by name or code…',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               ),
+              onChanged: (v) => setState(() => _q = v.toLowerCase()),
             ),
-            // List
-            Expanded(
-              child: ListView.separated(
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) =>
-                    const Divider(height: 1, indent: 16),
-                itemBuilder: (_, i) {
-                  final m = filtered[i];
-                  final gstRate     = m['gstRate'] as num? ?? 0;
-                  final configured  = m['gstRateConfigured'] as bool? ?? false;
-                  final isPending   = gstRate == 0 && !configured;
-                  return ListTile(
-                    dense: true,
-                    title: Text(m['name'] as String? ?? '—'),
-                    subtitle: Text(
-                      isPending
-                          ? 'GST: not configured — invoice will be PENDING'
-                          : gstRate > 0
-                              ? 'GST ${gstRate}%  ·  HSN ${m['hsnCode'] ?? '—'}'
-                              : 'GST 0% (zero-rated)  ·  HSN ${m['hsnCode'] ?? '—'}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: isPending
-                              ? Colors.orange.shade700
-                              : Colors.grey.shade600),
-                    ),
-                    trailing: isPending
-                        ? Icon(Icons.warning_amber_rounded,
-                            size: 16, color: Colors.orange.shade600)
-                        : null,
-                    onTap: () => Navigator.pop(context, m),
-                  );
-                },
-              ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+              itemBuilder: (_, i) {
+                final m           = filtered[i];
+                final gstRate     = m['gstRate'] as num? ?? 0;
+                final configured  = m['gstRateConfigured'] as bool? ?? false;
+                final isPending   = gstRate == 0 && !configured;
+                return ListTile(
+                  dense: true,
+                  title: Text(m['name'] as String? ?? '—'),
+                  subtitle: Text(
+                    isPending
+                        ? 'GST: not configured — invoice will be PENDING'
+                        : gstRate > 0
+                            ? 'GST ${gstRate}%  ·  HSN ${m['hsnCode'] ?? '—'}'
+                            : 'GST 0% (zero-rated)  ·  HSN ${m['hsnCode'] ?? '—'}',
+                    style: TextStyle(fontSize: 11,
+                        color: isPending ? Colors.orange.shade700 : Colors.grey.shade600),
+                  ),
+                  trailing: isPending
+                      ? Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade600)
+                      : null,
+                  onTap: () => Navigator.pop(context, m),
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
 }
 
-// ── shared table cells ────────────────────────────────────────────────────────
+// ── Service picker dialog ─────────────────────────────────────────────────────
+
+class _ServicePickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> services;
+  const _ServicePickerDialog({required this.services});
+
+  @override
+  State<_ServicePickerDialog> createState() => _ServicePickerDialogState();
+}
+
+class _ServicePickerDialogState extends State<_ServicePickerDialog> {
+  final _search = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() { _search.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.services.where((s) {
+      final name = (s['name'] as String? ?? '').toLowerCase();
+      final code = (s['code'] as String? ?? '').toLowerCase();
+      return _q.isEmpty || name.contains(_q) || code.contains(_q);
+    }).toList();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 480),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(children: [
+              const Expanded(child: Text('Select Service',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold))),
+              IconButton(icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => Navigator.pop(context)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _search, autofocus: true,
+              decoration: InputDecoration(
+                isDense: true, hintText: 'Search…',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onChanged: (v) => setState(() => _q = v.toLowerCase()),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+              itemBuilder: (_, i) {
+                final s          = filtered[i];
+                final configured = s['gstRateConfigured'] as bool? ?? false;
+                final gstRate    = s['gstRate'] as num? ?? 0;
+                final isPending  = !configured;
+                final unit       = s['defaultUnit'] as String? ?? 'TON';
+                final rate       = s['defaultRate'];
+                return ListTile(
+                  dense: true,
+                  title: Text(s['name'] as String? ?? '—'),
+                  subtitle: Text(
+                    [
+                      if (rate != null) '₹$rate/$unit',
+                      isPending
+                          ? 'GST: not configured — invoice will be PENDING'
+                          : gstRate > 0 ? 'GST $gstRate%' : 'GST 0%',
+                    ].join('  ·  '),
+                    style: TextStyle(fontSize: 11,
+                        color: isPending ? Colors.orange.shade700 : Colors.grey.shade600),
+                  ),
+                  trailing: isPending
+                      ? Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade600)
+                      : null,
+                  onTap: () => Navigator.pop(context, s),
+                );
+              },
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// JW FORM — kept for editing historical Job-Work invoices only
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _ServiceRow {
+  final descCtrl = TextEditingController();
+  final sacCtrl  = TextEditingController();
+  final qtyCtrl  = TextEditingController();
+  final rateCtrl = TextEditingController();
+  final amtCtrl  = TextEditingController();
+  int?    serviceId;
+  String? serviceName;
+  bool    serviceGstConfigured = true;
+
+  _ServiceRow({Map<String, dynamic>? data}) {
+    if (data != null) {
+      descCtrl.text = data['description'] as String? ?? '';
+      sacCtrl.text  = data['sacCode']     as String? ?? '';
+      final qty  = data['quantity'];
+      if (qty  != null) qtyCtrl.text  = qty.toString();
+      final rate = data['rate'];
+      if (rate != null) rateCtrl.text = rate.toString();
+      amtCtrl.text = (data['amount'] as num? ?? 0).toString();
+      serviceId    = data['serviceId'] as int?;
+    }
+  }
+
+  void dispose() {
+    descCtrl.dispose(); sacCtrl.dispose(); qtyCtrl.dispose();
+    rateCtrl.dispose(); amtCtrl.dispose();
+  }
+
+  Map<String, dynamic> toJson() => {
+    'serviceId':   serviceId,
+    'description': descCtrl.text.trim(),
+    'sacCode':     sacCtrl.text.trim().isEmpty ? null : sacCtrl.text.trim(),
+    'quantity':    double.tryParse(qtyCtrl.text),
+    'rate':        double.tryParse(rateCtrl.text),
+    'amount':      double.tryParse(amtCtrl.text) ?? 0.0,
+  };
+}
+
+class _JwForm extends ConsumerStatefulWidget {
+  final Map<String, dynamic>? existing;
+  final VoidCallback onSaved;
+  const _JwForm({required this.existing, required this.onSaved});
+
+  @override
+  ConsumerState<_JwForm> createState() => _JwFormState();
+}
+
+class _JwFormState extends ConsumerState<_JwForm> {
+  final _formKey   = GlobalKey<FormState>();
+  int?    _siteId;
+  String? _partyName;
+  late DateTime _date;
+  final _notesCtrl = TextEditingController();
+  final List<_ServiceRow> _items = [];
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _date = e != null ? DateTime.parse(e['invoiceDate'] as String) : DateTime.now();
+    if (e != null) {
+      _siteId    = e['siteId'] as int?;
+      _partyName = e['vendorName'] as String?;
+      _notesCtrl.text = e['notes'] as String? ?? '';
+      for (final item in (e['items'] as List? ?? [])) {
+        _items.add(_ServiceRow(data: item as Map<String, dynamic>));
+      }
+    }
+    if (_items.isEmpty) _items.add(_ServiceRow());
+    for (final row in _items) {
+      row.qtyCtrl.addListener(() => _autoCalc(row));
+      row.rateCtrl.addListener(() => _autoCalc(row));
+    }
+  }
+
+  void _autoCalc(_ServiceRow row) {
+    final qty  = double.tryParse(row.qtyCtrl.text);
+    final rate = double.tryParse(row.rateCtrl.text);
+    if (qty != null && rate != null) {
+      final formatted = (qty * rate).toStringAsFixed(2);
+      if (row.amtCtrl.text != formatted) row.amtCtrl.text = formatted;
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    for (final r in _items) r.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  double get _subtotal =>
+      _items.fold(0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_siteId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a client site'),
+              backgroundColor: Colors.red));
+      return;
+    }
+    setState(() => _saving = true);
+    final body = {
+      'siteId':      _siteId,
+      'invoiceDate': DateFormat('yyyy-MM-dd').format(_date),
+      'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      'items': _items.map((r) => r.toJson()).toList(),
+    };
+    final api = ref.read(apiClientProvider);
+    try {
+      if (widget.existing == null) {
+        await api.post('/api/job-work-invoices', data: body);
+      } else {
+        await api.put('/api/job-work-invoices/${widget.existing!['id']}', data: body);
+      }
+      widget.onSaved();
+      if (mounted) Navigator.pop(context);
+    } catch (err) {
+      setState(() => _saving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $err'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sitesAsync = ref.watch(_invoiceSitesProvider);
+    final sub   = _subtotal;
+
+    return AppDialog(
+      title: widget.existing != null ? 'Edit Job-Work Invoice' : 'New Job-Work Invoice',
+      maxWidth: 560,
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Text(widget.existing != null ? 'Update' : 'Save Invoice'),
+        ),
+      ],
+      body: Form(
+        key: _formKey,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+          const SectionLabel('Invoice Details'),
+          sitesAsync.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (e, _) => Text('$e'),
+            data: (allSites) {
+              final clientSites = allSites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SearchablePicker(
+                  items: clientSites, itemLabel: (s) => s['name'] as String,
+                  fieldLabel: 'Client Site *', value: _siteId,
+                  onChanged: (id) {
+                    if (id == null) { setState(() { _siteId = null; _partyName = null; }); return; }
+                    final site = clientSites.firstWhere((s) => s['id'] == id,
+                        orElse: () => <String, dynamic>{});
+                    if (site.isNotEmpty) {
+                      final partyId = site['linkedPartyId'] as int?;
+                      setState(() {
+                        _siteId    = site['id'] as int?;
+                        _partyName = site['linkedPartyName'] as String? ?? 'Party #$partyId';
+                      });
+                    }
+                  },
+                  validator: (v) => v == null ? 'Select a client site' : null,
+                ),
+                if (_partyName != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.person_outlined, size: 16, color: Colors.blue.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Party (auto-filled)', style: TextStyle(fontSize: 10, color: Colors.blue.shade600)),
+                        Text(_partyName!, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                            color: Colors.blue.shade800)),
+                      ])),
+                      Icon(Icons.lock_outline, size: 14, color: Colors.blue.shade400),
+                    ]),
+                  ),
+                ],
+              ]);
+            },
+          ),
+          const SizedBox(height: 12),
+          DateField(
+            label: 'Invoice Date', date: _date, required: true,
+            onTap: () async {
+              final d = await showDatePicker(
+                  context: context, initialDate: _date,
+                  firstDate: DateTime(2020), lastDate: DateTime(2030));
+              if (d != null) setState(() => _date = d);
+            },
+          ),
+          const SectionLabel('Line Items'),
+          ..._items.asMap().entries.map((e) => _JwServiceRowWidget(
+            row: e.value, index: e.key,
+            canRemove: _items.length > 1,
+            onRemove: () { _items[e.key].dispose(); setState(() => _items.removeAt(e.key)); },
+            onChanged: () => setState(() {}),
+          )),
+          const SizedBox(height: 4),
+          TextButton.icon(
+            onPressed: () {
+              final row = _ServiceRow();
+              row.qtyCtrl.addListener(() => _autoCalc(row));
+              row.rateCtrl.addListener(() => _autoCalc(row));
+              setState(() => _items.add(row));
+            },
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Add Line Item'),
+          ),
+          if (sub > 0) ...[
+            const Divider(height: 20),
+            _PreviewRow('Subtotal', sub),
+            _PreviewRow('GST', 0, note: 'computed on save based on Service GST rate'),
+            const Divider(height: 8),
+            _PreviewRow('Grand Total (approx.)', sub, bold: true),
+          ],
+          const SectionLabel('Notes'),
+          TextFormField(
+            controller: _notesCtrl,
+            decoration: const InputDecoration(labelText: 'Notes (optional)'),
+            maxLines: 2,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _JwServiceRowWidget extends ConsumerStatefulWidget {
+  final _ServiceRow row;
+  final int index;
+  final bool canRemove;
+  final VoidCallback onRemove, onChanged;
+  const _JwServiceRowWidget({
+    required this.row, required this.index, required this.canRemove,
+    required this.onRemove, required this.onChanged,
+  });
+  @override
+  ConsumerState<_JwServiceRowWidget> createState() => _JwServiceRowWidgetState();
+}
+
+class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
+  Future<void> _pickService(List<Map<String, dynamic>> services) async {
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context, builder: (_) => _ServicePickerDialog(services: services),
+    );
+    if (picked == null) return;
+    setState(() {
+      widget.row.serviceId            = picked['id'] as int?;
+      widget.row.serviceName          = picked['name'] as String?;
+      widget.row.serviceGstConfigured = picked['gstRateConfigured'] as bool? ?? false;
+      final sac = picked['sacCode'] as String?;
+      if (sac != null && sac.isNotEmpty) widget.row.sacCtrl.text = sac;
+      if (widget.row.descCtrl.text.trim().isEmpty) {
+        widget.row.descCtrl.text = picked['name'] as String? ?? '';
+      }
+      final defaultRate = picked['defaultRate'];
+      if (defaultRate != null && widget.row.rateCtrl.text.trim().isEmpty) {
+        widget.row.rateCtrl.text = defaultRate.toString();
+      }
+    });
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final servicesAsync = ref.watch(_invoiceServicesProvider);
+    final row           = widget.row;
+    final hasService    = row.serviceId != null;
+    final gstPending    = hasService && !row.serviceGstConfigured;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: gstPending ? Colors.amber.shade50 : Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: gstPending ? Colors.amber.shade300 : Colors.grey[200]!),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text('Item ${widget.index + 1}',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          const Spacer(),
+          servicesAsync.when(
+            loading: () => const SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            error: (_, __) => const SizedBox.shrink(),
+            data: (svcs) => InkWell(
+              onTap: () => _pickService(svcs),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: hasService ? (gstPending ? Colors.amber.shade100 : Colors.blue.shade50) : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: hasService ? (gstPending ? Colors.amber.shade400 : Colors.blue.shade300) : Colors.grey.shade300),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.handyman_outlined, size: 14,
+                      color: hasService ? (gstPending ? Colors.orange.shade700 : Colors.blue.shade700) : Colors.grey.shade600),
+                  const SizedBox(width: 4),
+                  Text(hasService ? row.serviceName! : 'Select Service',
+                      style: TextStyle(fontSize: 11,
+                          color: hasService ? (gstPending ? Colors.orange.shade800 : Colors.blue.shade700) : Colors.grey.shade600)),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (widget.canRemove)
+            GestureDetector(onTap: widget.onRemove, child: const Icon(Icons.close, size: 18, color: Colors.red)),
+        ]),
+        if (gstPending) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
+            const SizedBox(width: 4),
+            Text('GST rate not set for ${row.serviceName} — invoice will be PENDING',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
+          ]),
+        ],
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: row.descCtrl,
+          decoration: const InputDecoration(labelText: 'Description *', isDense: true),
+          validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: TextFormField(
+            controller: row.sacCtrl,
+            decoration: const InputDecoration(labelText: 'SAC Code', isDense: true),
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: TextFormField(
+            controller: row.qtyCtrl,
+            decoration: const InputDecoration(labelText: 'Quantity', isDense: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          )),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: TextFormField(
+            controller: row.rateCtrl,
+            decoration: const InputDecoration(labelText: 'Rate', isDense: true, prefixText: '₹'),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: TextFormField(
+            controller: row.amtCtrl,
+            decoration: const InputDecoration(labelText: 'Amount *', isDense: true, prefixText: '₹'),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (v) => (v == null || double.tryParse(v) == null) ? 'Required' : null,
+          )),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Shared table helpers ──────────────────────────────────────────────────────
 
 class _TH extends StatelessWidget {
   final String text;
@@ -1526,9 +2273,7 @@ class _TH extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Text(text,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 12)),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
       );
 }
 
@@ -1538,9 +2283,7 @@ class _TD extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Text(text,
-            style: const TextStyle(fontSize: 12),
-            overflow: TextOverflow.ellipsis),
+        child: Text(text, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
       );
 }
 
@@ -1548,27 +2291,22 @@ class _TotalRow extends StatelessWidget {
   final String label;
   final num value;
   final bool bold;
-  const _TotalRow(this.label, this.value, {this.bold = false});
+  final bool dim;
+  const _TotalRow(this.label, this.value, {this.bold = false, this.dim = false});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: TextStyle(
-                    fontWeight:
-                        bold ? FontWeight.bold : FontWeight.normal,
-                    fontSize: bold ? 15 : 13)),
-            Text(fmtCurr(value),
-                style: TextStyle(
-                    fontWeight:
-                        bold ? FontWeight.bold : FontWeight.normal,
-                    fontSize: bold ? 15 : 13,
-                    color: bold
-                        ? Theme.of(context).colorScheme.primary : null)),
-          ],
-        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label, style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: bold ? 15 : 13,
+              color: dim ? Colors.grey[500] : null)),
+          Text(dim ? '—' : fmtCurr(value), style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: bold ? 15 : 13,
+              color: bold ? Theme.of(context).colorScheme.primary
+                  : dim ? Colors.grey[500] : null)),
+        ]),
       );
 }
 
@@ -1576,26 +2314,23 @@ class _PreviewRow extends StatelessWidget {
   final String label;
   final double value;
   final bool bold;
-  const _PreviewRow(this.label, this.value, {this.bold = false});
+  final String? note;
+  const _PreviewRow(this.label, this.value, {this.bold = false, this.note});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: TextStyle(
-                    fontWeight:
-                        bold ? FontWeight.bold : FontWeight.normal,
-                    fontSize: bold ? 14 : 13)),
-            Text(fmtCurr(value),
-                style: TextStyle(
-                    fontWeight:
-                        bold ? FontWeight.bold : FontWeight.normal,
-                    fontSize: bold ? 14 : 13,
-                    color: bold
-                        ? Theme.of(context).colorScheme.primary : null)),
-          ],
-        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: TextStyle(
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                fontSize: bold ? 14 : 13)),
+            if (note != null)
+              Text(note!, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          ]),
+          Text(fmtCurr(value), style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: bold ? 14 : 13,
+              color: bold ? Theme.of(context).colorScheme.primary : null)),
+        ]),
       );
 }
