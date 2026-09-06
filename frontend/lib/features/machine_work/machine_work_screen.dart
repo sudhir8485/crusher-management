@@ -258,21 +258,22 @@ class MachineWorkScreen extends ConsumerWidget {
     final machineName = log['machineName'] ?? 'this entry';
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete Entry'),
         content: Text('Delete work log for $machineName?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(ctx);
-              await ref
-                  .read(apiClientProvider)
-                  .delete('/api/machine-work/${log['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/machine-work/${log['id']}');
+              } catch (_) { return; }
+              if (!ctx.mounted) return;
               ref.invalidate(_logsProvider(dateKey));
             },
             child: const Text('Delete'),

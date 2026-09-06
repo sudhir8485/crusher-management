@@ -6,11 +6,13 @@ import com.dsp.crusher.dto.DailyReportResponse;
 import com.dsp.crusher.dto.TripRequest;
 import com.dsp.crusher.dto.TripResponse;
 import com.dsp.crusher.entity.Material;
+import com.dsp.crusher.entity.Site;
 import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.MaterialRepository;
+import com.dsp.crusher.repository.SiteRepository;
 import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.UserRepository;
 import com.dsp.crusher.repository.VehicleRepository;
@@ -39,6 +41,7 @@ public class TripService {
     private final VendorRepository vendorRepo;
     private final VendorPaymentRepository paymentRepo;
     private final UserRepository userRepo;
+    private final SiteRepository siteRepo;
 
     // ── List queries ──────────────────────────────────────────────────────────
 
@@ -242,11 +245,32 @@ public class TripService {
                 : null;
         computeBilling(t, material);
 
+        // Suppress material amount when the billing party is the CLIENT_SITE owner.
+        // Only applies to REGULAR (linked vendor) trips — ONE_TIME customers never own a site.
+        // Does NOT apply to OWN sites (Policewadi, etc.) or to a different party at the same site.
+        suppressMaterialAmountForSiteOwner(t);
+
         // Snapshot the material's GST rate at creation/update time.
         // Changing the material's GST rate later must not alter existing trips.
         if (material != null && material.getGstRate() != null) {
             t.setGstRate(material.getGstRate());
         }
+    }
+
+    private void suppressMaterialAmountForSiteOwner(Trip t) {
+        if (t.getSiteId() == null) return;
+        if (!"REGULAR".equals(t.getPartyType()) || t.getVendorId() == null) return;
+
+        Site site = siteRepo.findById(t.getSiteId()).orElse(null);
+        if (site == null || !"CLIENT_SITE".equals(site.getSiteType())) return;
+        if (!t.getVendorId().equals(site.getLinkedPartyId())) return;
+
+        // This trip bills the site owner for their own material — suppress the charge.
+        t.setMaterialAmount(BigDecimal.ZERO);
+        BigDecimal transAmt = t.getTransportationCharge() != null
+                ? t.getTransportationCharge() : BigDecimal.ZERO;
+        t.setTotalBill(transAmt);
+        t.setMaterialSuppressed(true);
     }
 
     private void computeBilling(Trip t, Material material) {
@@ -418,6 +442,9 @@ public class TripService {
 
             // GST snapshot
             r.setGstRate(t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO);
+
+            // Material suppression flag — set when trip party is the CLIENT_SITE owner
+            r.setMaterialSuppressed(t.isMaterialSuppressed());
 
             return r;
         }).collect(Collectors.toList());

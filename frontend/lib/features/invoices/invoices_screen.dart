@@ -173,12 +173,55 @@ class InvoicesScreen extends ConsumerWidget {
   }
 
   void _showNewForm(BuildContext ctx, WidgetRef ref) {
-    showDialog(
+    showModalBottomSheet(
       context: ctx,
-      barrierDismissible: false,
-      builder: (_) => _UnifiedInvoiceForm(
-        existing: null,
-        onSaved: () => ref.invalidate(_allInvoicesProvider),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            const Text('New Invoice Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Material Invoice (GST)'),
+              subtitle: const Text('Sale of materials — standard tax invoice'),
+              onTap: () {
+                Navigator.pop(ctx);
+                showDialog(
+                  context: ctx,
+                  barrierDismissible: false,
+                  builder: (_) => _UnifiedInvoiceForm(
+                    existing: null,
+                    onSaved: () => ref.invalidate(_allInvoicesProvider),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.build_circle_outlined),
+              title: const Text('Job-Work Invoice'),
+              subtitle: const Text('Crushing / loading services at a Client Site'),
+              onTap: () {
+                final sites    = ref.read(_invoiceSitesProvider).valueOrNull    ?? const [];
+                final services = ref.read(_invoiceServicesProvider).valueOrNull ?? const [];
+                Navigator.pop(ctx);
+                showDialog(
+                  context: ctx,
+                  barrierDismissible: false,
+                  builder: (_) => _JwForm(
+                    existing: null,
+                    sites: sites,
+                    services: services,
+                    onSaved: () => ref.invalidate(_allInvoicesProvider),
+                  ),
+                );
+              },
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -214,12 +257,15 @@ class InvoicesScreen extends ConsumerWidget {
         ),
       );
     } else {
-      // Old JW invoices keep their original edit form
+      final sites    = ref.read(_invoiceSitesProvider).valueOrNull    ?? const [];
+      final services = ref.read(_invoiceServicesProvider).valueOrNull ?? const [];
       showDialog(
         context: ctx,
         barrierDismissible: false,
         builder: (_) => _JwForm(
           existing: inv,
+          sites: sites,
+          services: services,
           onSaved: () => ref.invalidate(_allInvoicesProvider),
         ),
       );
@@ -244,20 +290,25 @@ class InvoicesScreen extends ConsumerWidget {
     final isJw = inv['_src'] == 'jw';
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Cancel Invoice?'),
         content: Text(
             'Cancel ${inv['invoiceNo']} for ${inv['vendorName']}?\n\nThis cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Keep')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Keep')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(ctx);
+              Navigator.pop(dialogCtx);
               final endpoint = isJw
                   ? '/api/job-work-invoices/${inv['id']}'
                   : '/api/invoices/${inv['id']}';
-              await ref.read(apiClientProvider).delete(endpoint);
+              try {
+                await ref.read(apiClientProvider).delete(endpoint);
+              } catch (_) {
+                return;
+              }
+              if (!ctx.mounted) return;
               ref.invalidate(_allInvoicesProvider);
             },
             child: const Text('Cancel Invoice'),
@@ -1895,6 +1946,17 @@ class _ServiceRow {
   int?    serviceId;
   String? serviceName;
   bool    serviceGstConfigured = true;
+  String  autoCalcSource       = 'NONE';
+  double?                     autoCalcQty;
+  int?                        autoCalcCount;
+  List<Map<String, dynamic>>? autoCalcRecords;
+  bool                        qtyOverridden = false;
+  // Billed-record info from auto-qty response
+  int                         billedCount = 0;
+  double                      billedQty   = 0.0;
+  String?                     billedByInvoiceNo;
+  // Period-overlap warning from auto-qty response (per row)
+  Map<String, dynamic>?       overlapWarning;
 
   _ServiceRow({Map<String, dynamic>? data}) {
     if (data != null) {
@@ -1926,8 +1988,15 @@ class _ServiceRow {
 
 class _JwForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
+  final List<Map<String, dynamic>> sites;
+  final List<Map<String, dynamic>> services;
   final VoidCallback onSaved;
-  const _JwForm({required this.existing, required this.onSaved});
+  const _JwForm({
+    required this.existing,
+    required this.sites,
+    required this.services,
+    required this.onSaved,
+  });
 
   @override
   ConsumerState<_JwForm> createState() => _JwFormState();
@@ -1938,9 +2007,14 @@ class _JwFormState extends ConsumerState<_JwForm> {
   int?    _siteId;
   String? _partyName;
   late DateTime _date;
+  DateTime? _periodFrom;
+  DateTime? _periodTo;
   final _notesCtrl = TextEditingController();
   final List<_ServiceRow> _items = [];
   bool _saving = false;
+
+  static final _isoFmt = DateFormat('yyyy-MM-dd');
+  static final _dispFmt = DateFormat('d MMM yyyy');
 
   @override
   void initState() {
@@ -1951,6 +2025,8 @@ class _JwFormState extends ConsumerState<_JwForm> {
       _siteId    = e['siteId'] as int?;
       _partyName = e['vendorName'] as String?;
       _notesCtrl.text = e['notes'] as String? ?? '';
+      if (e['periodFrom'] != null) _periodFrom = DateTime.parse(e['periodFrom'] as String);
+      if (e['periodTo']   != null) _periodTo   = DateTime.parse(e['periodTo']   as String);
       for (final item in (e['items'] as List? ?? [])) {
         _items.add(_ServiceRow(data: item as Map<String, dynamic>));
       }
@@ -1979,6 +2055,71 @@ class _JwFormState extends ConsumerState<_JwForm> {
     super.dispose();
   }
 
+  Future<void> _fetchAutoQtyForRow(int rowIndex) async {
+    final row = _items[rowIndex];
+    if (row.autoCalcSource == 'NONE' || row.serviceId == null) return;
+    if (_siteId == null || _periodFrom == null || _periodTo == null) return;
+    try {
+      final params = <String, String>{
+        'siteId':    '$_siteId',
+        'serviceId': '${row.serviceId}',
+        'from':      _isoFmt.format(_periodFrom!),
+        'to':        _isoFmt.format(_periodTo!),
+      };
+      if (widget.existing != null) {
+        params['excludeInvoiceId'] = '${widget.existing!['id']}';
+      }
+      final res = await ref.read(apiClientProvider).get(
+        '/api/job-work-invoices/auto-qty',
+        params: params,
+      );
+      if (!mounted) return;
+      // Guard: row may have been removed while the request was in flight
+      if (!_items.contains(row)) return;
+      final data = res.data as Map<String, dynamic>;
+      setState(() {
+        row.autoCalcQty     = (data['quantity'] as num?)?.toDouble();
+        row.autoCalcCount   = (data['count']    as num?)?.toInt() ?? 0;
+        row.autoCalcRecords = List<Map<String, dynamic>>.from(
+            (data['records'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
+        row.qtyOverridden      = false;
+        row.billedCount        = (data['billedCount']   as num?)?.toInt() ?? 0;
+        row.billedQty          = (data['billedQuantity'] as num?)?.toDouble() ?? 0.0;
+        row.billedByInvoiceNo  = data['billedByInvoiceNo'] as String?;
+        final ov = data['overlappingInvoice'] as Map<String, dynamic>?;
+        row.overlapWarning = ov != null ? Map<String, dynamic>.from(ov) : null;
+        if (row.autoCalcQty != null) {
+          row.qtyCtrl.text = row.autoCalcQty!.toStringAsFixed(3);
+        }
+      });
+    } catch (_) {}
+  }
+
+  void _refreshAutoQtyAll() {
+    for (int i = 0; i < _items.length; i++) {
+      _fetchAutoQtyForRow(i);
+    }
+  }
+
+  Future<void> _pickPeriodDate(BuildContext context, bool isFrom) async {
+    final initial = isFrom
+        ? (_periodFrom ?? DateTime.now())
+        : (_periodTo   ?? _periodFrom ?? DateTime.now());
+    final d = await showDatePicker(
+        context: context, initialDate: initial,
+        firstDate: DateTime(2020), lastDate: DateTime(2030));
+    if (d == null) return;
+    if (isFrom) {
+      _periodFrom = d;
+      if (_periodTo != null && _periodTo!.isBefore(d)) _periodTo = d;
+    } else {
+      _periodTo = d;
+      if (_periodFrom != null && _periodFrom!.isAfter(d)) _periodFrom = d;
+    }
+    setState(() {});
+    _refreshAutoQtyAll();
+  }
+
   double get _subtotal =>
       _items.fold(0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
 
@@ -1993,7 +2134,9 @@ class _JwFormState extends ConsumerState<_JwForm> {
     setState(() => _saving = true);
     final body = {
       'siteId':      _siteId,
-      'invoiceDate': DateFormat('yyyy-MM-dd').format(_date),
+      'invoiceDate': _isoFmt.format(_date),
+      if (_periodFrom != null) 'periodFrom': _isoFmt.format(_periodFrom!),
+      if (_periodTo   != null) 'periodTo':   _isoFmt.format(_periodTo!),
       'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       'items': _items.map((r) => r.toJson()).toList(),
     };
@@ -2004,8 +2147,8 @@ class _JwFormState extends ConsumerState<_JwForm> {
       } else {
         await api.put('/api/job-work-invoices/${widget.existing!['id']}', data: body);
       }
-      widget.onSaved();
       if (mounted) Navigator.pop(context);
+      widget.onSaved();
     } catch (err) {
       setState(() => _saving = false);
       if (mounted) {
@@ -2017,8 +2160,9 @@ class _JwFormState extends ConsumerState<_JwForm> {
 
   @override
   Widget build(BuildContext context) {
-    final sitesAsync = ref.watch(_invoiceSitesProvider);
-    final sub   = _subtotal;
+    final clientSites = widget.sites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
+    final services    = widget.services;
+    final sub         = _subtotal;
 
     return AppDialog(
       title: widget.existing != null ? 'Edit Job-Work Invoice' : 'New Job-Work Invoice',
@@ -2039,38 +2183,33 @@ class _JwFormState extends ConsumerState<_JwForm> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
             children: [
           const SectionLabel('Invoice Details'),
-          sitesAsync.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (e, _) => Text('$e'),
-            data: (allSites) {
-              final clientSites = allSites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
-              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SearchablePicker(
-                  items: clientSites, itemLabel: (s) => s['name'] as String,
-                  fieldLabel: 'Client Site *', value: _siteId,
-                  onChanged: (id) {
-                    if (id == null) { setState(() { _siteId = null; _partyName = null; }); return; }
-                    final site = clientSites.firstWhere((s) => s['id'] == id,
-                        orElse: () => <String, dynamic>{});
-                    if (site.isNotEmpty) {
-                      final partyId = site['linkedPartyId'] as int?;
-                      setState(() {
-                        _siteId    = site['id'] as int?;
-                        _partyName = site['linkedPartyName'] as String? ?? 'Party #$partyId';
-                      });
-                    }
-                  },
-                  validator: (v) => v == null ? 'Select a client site' : null,
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SearchablePicker(
+              items: clientSites, itemLabel: (s) => s['name'] as String,
+              fieldLabel: 'Client Site *', value: _siteId,
+              onChanged: (id) {
+                if (id == null) { setState(() { _siteId = null; _partyName = null; }); return; }
+                final site = clientSites.firstWhere((s) => s['id'] == id,
+                    orElse: () => <String, dynamic>{});
+                if (site.isNotEmpty) {
+                  final partyId = site['linkedPartyId'] as int?;
+                  setState(() {
+                    _siteId    = site['id'] as int?;
+                    _partyName = site['linkedPartyName'] as String? ?? 'Party #$partyId';
+                  });
+                }
+              },
+              validator: (v) => v == null ? 'Select a client site' : null,
+            ),
+            if (_partyName != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
-                if (_partyName != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Row(children: [
+                child: Row(children: [
                       Icon(Icons.person_outlined, size: 16, color: Colors.blue.shade700),
                       const SizedBox(width: 8),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2082,9 +2221,7 @@ class _JwFormState extends ConsumerState<_JwForm> {
                     ]),
                   ),
                 ],
-              ]);
-            },
-          ),
+          ]),
           const SizedBox(height: 12),
           DateField(
             label: 'Invoice Date', date: _date, required: true,
@@ -2095,12 +2232,105 @@ class _JwFormState extends ConsumerState<_JwForm> {
               if (d != null) setState(() => _date = d);
             },
           ),
+
+          // Billing period — used for auto-quantity calculation
+          const SizedBox(height: 12),
+          const SectionLabel('Billing Period (optional)'),
+          Row(children: [
+            Expanded(
+              child: InkWell(
+                onTap: () => _pickPeriodDate(context, true),
+                borderRadius: BorderRadius.circular(8),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Period From',
+                    isDense: true,
+                    suffixIcon: const Icon(Icons.calendar_today, size: 16),
+                    helperText: _periodFrom == null ? 'Required for auto-qty' : null,
+                  ),
+                  child: Text(
+                    _periodFrom != null ? _dispFmt.format(_periodFrom!) : '—',
+                    style: TextStyle(color: _periodFrom != null ? null : Colors.grey[500]),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: InkWell(
+                onTap: () => _pickPeriodDate(context, false),
+                borderRadius: BorderRadius.circular(8),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Period To',
+                    isDense: true,
+                    suffixIcon: const Icon(Icons.calendar_today, size: 16),
+                    helperText: _periodTo == null ? 'Required for auto-qty' : null,
+                  ),
+                  child: Text(
+                    _periodTo != null ? _dispFmt.format(_periodTo!) : '—',
+                    style: TextStyle(color: _periodTo != null ? null : Colors.grey[500]),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+          if (_siteId != null && (_periodFrom == null || _periodTo == null))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.blue.shade600),
+                const SizedBox(width: 4),
+                Text('Set both dates to enable auto-quantity calculation on line items',
+                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700)),
+              ]),
+            ),
+
+          // Period overlap warning — shown when any line's auto-qty detects an existing invoice covering this period
+          Builder(builder: (ctx) {
+            final warnings = _items
+                .where((r) => r.overlapWarning != null)
+                .map((r) => r.overlapWarning!)
+                .toList();
+            if (warnings.isEmpty) return const SizedBox.shrink();
+            final w = warnings.first;
+            final invoiceNo = w['invoiceNo'] as String? ?? '';
+            final pFrom = w['periodFrom'] as String? ?? '';
+            final pTo   = w['periodTo']   as String? ?? '';
+            final label = pFrom == pTo ? pFrom : '$pFrom – $pTo';
+            return Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Note: Invoice $invoiceNo already covers $label for this site.',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                  )),
+                ]),
+              ),
+            );
+          }),
+
           const SectionLabel('Line Items'),
           ..._items.asMap().entries.map((e) => _JwServiceRowWidget(
+            key: ObjectKey(e.value),
             row: e.value, index: e.key,
+            services: services,
+            siteId: _siteId,
+            periodFrom: _periodFrom,
+            periodTo: _periodTo,
             canRemove: _items.length > 1,
             onRemove: () { _items[e.key].dispose(); setState(() => _items.removeAt(e.key)); },
             onChanged: () => setState(() {}),
+            onFetchAutoQty: _fetchAutoQtyForRow,
           )),
           const SizedBox(height: 4),
           TextButton.icon(
@@ -2132,20 +2362,31 @@ class _JwFormState extends ConsumerState<_JwForm> {
   }
 }
 
-class _JwServiceRowWidget extends ConsumerStatefulWidget {
+class _JwServiceRowWidget extends StatefulWidget {
   final _ServiceRow row;
   final int index;
+  final List<Map<String, dynamic>> services;
+  final int? siteId;
+  final DateTime? periodFrom;
+  final DateTime? periodTo;
   final bool canRemove;
   final VoidCallback onRemove, onChanged;
+  final Future<void> Function(int rowIndex) onFetchAutoQty;
   const _JwServiceRowWidget({
-    required this.row, required this.index, required this.canRemove,
-    required this.onRemove, required this.onChanged,
+    super.key,
+    required this.row, required this.index,
+    required this.services,
+    required this.siteId, required this.periodFrom, required this.periodTo,
+    required this.canRemove, required this.onRemove, required this.onChanged,
+    required this.onFetchAutoQty,
   });
   @override
-  ConsumerState<_JwServiceRowWidget> createState() => _JwServiceRowWidgetState();
+  State<_JwServiceRowWidget> createState() => _JwServiceRowWidgetState();
 }
 
-class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
+class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
+  static final _numFmt = NumberFormat('#,##,##0.###', 'en_IN');
+
   Future<void> _pickService(List<Map<String, dynamic>> services) async {
     final picked = await showDialog<Map<String, dynamic>>(
       context: context, builder: (_) => _ServicePickerDialog(services: services),
@@ -2155,6 +2396,11 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
       widget.row.serviceId            = picked['id'] as int?;
       widget.row.serviceName          = picked['name'] as String?;
       widget.row.serviceGstConfigured = picked['gstRateConfigured'] as bool? ?? false;
+      widget.row.autoCalcSource       = picked['autoCalcSource']    as String? ?? 'NONE';
+      widget.row.autoCalcQty          = null;
+      widget.row.autoCalcCount        = null;
+      widget.row.autoCalcRecords      = null;
+      widget.row.qtyOverridden        = false;
       final sac = picked['sacCode'] as String?;
       if (sac != null && sac.isNotEmpty) widget.row.sacCtrl.text = sac;
       if (widget.row.descCtrl.text.trim().isEmpty) {
@@ -2166,14 +2412,38 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
       }
     });
     widget.onChanged();
+    if (widget.row.autoCalcSource != 'NONE') {
+      await widget.onFetchAutoQty(widget.index);
+    }
+  }
+
+  void _showDrillDown(BuildContext ctx) {
+    final records = widget.row.autoCalcRecords;
+    if (records == null || records.isEmpty) return;
+    showDialog(
+      context: ctx,
+      builder: (_) => _AutoQtyDrillDown(
+        records: records,
+        source: widget.row.autoCalcSource,
+        total: widget.row.autoCalcQty ?? 0,
+        count: widget.row.autoCalcCount ?? 0,
+      ),
+    );
+  }
+
+  String _sourceLabel(String source) {
+    if (source == 'TRIP_QUANTITIES')  return 'trips';
+    if (source == 'DABAR_QUANTITIES') return 'dabar entries';
+    return 'records';
   }
 
   @override
   Widget build(BuildContext context) {
-    final servicesAsync = ref.watch(_invoiceServicesProvider);
-    final row           = widget.row;
-    final hasService    = row.serviceId != null;
-    final gstPending    = hasService && !row.serviceGstConfigured;
+    final svcs        = widget.services;
+    final row         = widget.row;
+    final hasService  = row.serviceId != null;
+    final gstPending  = hasService && !row.serviceGstConfigured;
+    final hasAutoCalc = row.autoCalcQty != null && row.autoCalcSource != 'NONE';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -2188,12 +2458,8 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
           Text('Item ${widget.index + 1}',
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           const Spacer(),
-          servicesAsync.when(
-            loading: () => const SizedBox(width: 16, height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2)),
-            error: (_, __) => const SizedBox.shrink(),
-            data: (svcs) => InkWell(
-              onTap: () => _pickService(svcs),
+          InkWell(
+              onTap: svcs.isEmpty ? null : () => _pickService(svcs),
               borderRadius: BorderRadius.circular(6),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2212,7 +2478,6 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
                 ]),
               ),
             ),
-          ),
           const SizedBox(width: 8),
           if (widget.canRemove)
             GestureDetector(onTap: widget.onRemove, child: const Icon(Icons.close, size: 18, color: Colors.red)),
@@ -2241,10 +2506,89 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
           const SizedBox(width: 8),
           Expanded(child: TextFormField(
             controller: row.qtyCtrl,
-            decoration: const InputDecoration(labelText: 'Quantity', isDense: true),
+            decoration: InputDecoration(
+              labelText: 'Quantity',
+              isDense: true,
+              suffixIcon: hasAutoCalc
+                  ? Tooltip(
+                      message: row.qtyOverridden ? 'Manually overridden' : 'Auto-calculated',
+                      child: Icon(
+                        row.qtyOverridden ? Icons.edit : Icons.auto_awesome,
+                        size: 16,
+                        color: row.qtyOverridden ? Colors.orange.shade600 : Colors.blue.shade600,
+                      ),
+                    )
+                  : null,
+            ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) {
+              final parsed  = double.tryParse(row.qtyCtrl.text);
+              final autoQty = row.autoCalcQty;
+              if (autoQty != null && parsed != null) {
+                final changed = (parsed - autoQty).abs() > 0.001;
+                if (changed && !row.qtyOverridden) setState(() => row.qtyOverridden = true);
+                if (!changed && row.qtyOverridden) setState(() => row.qtyOverridden = false);
+              }
+            },
           )),
         ]),
+        // "No new trips" notice — shown when auto-calc returned 0 but there are already-billed records
+        if (row.autoCalcSource != 'NONE' && row.autoCalcQty == 0.0 && row.billedCount > 0) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.amber.shade200),
+            ),
+            child: Row(children: [
+              Icon(Icons.block_outlined, size: 13, color: Colors.orange.shade700),
+              const SizedBox(width: 5),
+              Expanded(child: Text(
+                'No new ${_sourceLabel(row.autoCalcSource)} found for this period'
+                '${row.billedByInvoiceNo != null ? ' — already included in ${row.billedByInvoiceNo}' : ''}.',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+              )),
+            ]),
+          ),
+        ],
+        // Auto-calc transparency note
+        if (hasAutoCalc && !(row.autoCalcQty == 0.0 && row.billedCount > 0)) ...[
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: () => _showDrillDown(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: row.qtyOverridden ? Colors.orange.shade50 : Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                    color: row.qtyOverridden ? Colors.orange.shade200 : Colors.blue.shade200),
+              ),
+              child: Row(children: [
+                Icon(
+                  row.qtyOverridden ? Icons.edit_outlined : Icons.info_outline,
+                  size: 13,
+                  color: row.qtyOverridden ? Colors.orange.shade700 : Colors.blue.shade700,
+                ),
+                const SizedBox(width: 5),
+                Expanded(child: Text(
+                  row.qtyOverridden
+                      ? 'Overriding auto-calculated ${_numFmt.format(row.autoCalcQty!)} '
+                        'from ${row.autoCalcCount} ${_sourceLabel(row.autoCalcSource)}'
+                      : 'Auto-calculated from ${row.autoCalcCount} ${_sourceLabel(row.autoCalcSource)} '
+                        '· tap to view',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: row.qtyOverridden ? Colors.orange.shade800 : Colors.blue.shade700),
+                )),
+                if (!row.qtyOverridden)
+                  Icon(Icons.chevron_right, size: 14, color: Colors.blue.shade600),
+              ]),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: TextFormField(
@@ -2261,6 +2605,103 @@ class _JwServiceRowWidgetState extends ConsumerState<_JwServiceRowWidget> {
           )),
         ]),
       ]),
+    );
+  }
+}
+
+// ── Auto-qty drill-down dialog (shared between invoices and job_work screens) ──
+
+class _AutoQtyDrillDown extends StatelessWidget {
+  final List<Map<String, dynamic>> records;
+  final String source;
+  final double total;
+  final int count;
+  const _AutoQtyDrillDown({
+    required this.records, required this.source,
+    required this.total, required this.count,
+  });
+
+  static final _numFmt  = NumberFormat('#,##,##0.###', 'en_IN');
+  static final _dateFmt = DateFormat('d MMM yyyy');
+
+  String get _sourceLabel => source == 'TRIP_QUANTITIES' ? 'Trips' : 'Dabar Entries';
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
+            child: Row(children: [
+              Icon(Icons.list_alt_outlined, size: 18, color: Colors.blue.shade700),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Auto-Calculated from $_sourceLabel',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold))),
+              IconButton(icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => Navigator.pop(context)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('$count $_sourceLabel summed',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade700)),
+                Text('Total: ${_numFmt.format(total)}',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800)),
+              ]),
+            ),
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView.separated(
+              padding: const EdgeInsets.only(bottom: 12),
+              itemCount: records.length,
+              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+              itemBuilder: (_, i) {
+                final rec   = records[i];
+                final date  = rec['date'] as String? ?? '';
+                final qty   = (rec['quantity'] as num?)?.toDouble() ?? 0;
+                final unit  = rec['unit'] as String? ?? '';
+                final mode  = rec['vehicleMode'] as String?;
+                final trips = rec['tripsCount'] as int?;
+                return ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    radius: 14,
+                    backgroundColor: Colors.blue.shade50,
+                    child: Text('${i + 1}',
+                        style: TextStyle(fontSize: 10, color: Colors.blue.shade700)),
+                  ),
+                  title: Text(
+                    date.isNotEmpty ? _dateFmt.format(DateTime.parse(date)) : '—',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: mode != null
+                      ? Text(mode == 'OWN_VEHICLE' ? 'Own Vehicle' : 'Company Vehicle',
+                            style: TextStyle(fontSize: 11, color: Colors.grey[600]))
+                      : (trips != null
+                          ? Text('$trips trip${trips == 1 ? '' : 's'}',
+                                style: TextStyle(fontSize: 11, color: Colors.grey[600]))
+                          : null),
+                  trailing: Text('${_numFmt.format(qty)} $unit',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                );
+              },
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }

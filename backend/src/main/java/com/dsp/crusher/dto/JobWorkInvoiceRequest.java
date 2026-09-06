@@ -11,6 +11,9 @@ public class JobWorkInvoiceRequest {
     /** Client Site — party is auto-derived from site.linkedPartyId. */
     @NotNull private Long siteId;
     @NotNull private LocalDate invoiceDate;
+    /** Optional billing period — used to scope auto-quantity calculation for line items. */
+    private LocalDate periodFrom;
+    private LocalDate periodTo;
     private String notes;
     @NotNull private List<JobWorkInvoiceItemRequest> items;
 }

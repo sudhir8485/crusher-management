@@ -122,16 +122,19 @@ class DabarScreen extends ConsumerWidget {
     final detail  = brass != null ? '$vehicle · $vendor · ${numFmt.format(brass)} Brass' : '$vehicle · $vendor';
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete dabar entry?'),
         content: Text('Delete: $detail?\n\nThis cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(_dabarProvider(dateKey));
             },
             child: const Text('Delete'),

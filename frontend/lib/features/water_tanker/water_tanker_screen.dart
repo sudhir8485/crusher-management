@@ -110,16 +110,19 @@ class WaterTankerScreen extends ConsumerWidget {
     final detail  = amount != null ? '$vehicle · ${fmtCurr(amount)}' : vehicle;
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete water tanker log?'),
         content: Text('Delete: $detail?\n\nThis cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/water-tanker/${log['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/water-tanker/${log['id']}');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(_tankerProvider(dateKey));
             },
             child: const Text('Delete'),

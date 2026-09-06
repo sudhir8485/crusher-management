@@ -37,6 +37,13 @@ public class JobWorkInvoice {
     @Column(name = "invoice_date", nullable = false)
     private LocalDate invoiceDate;
 
+    /** Optional billing period — used as the date range for auto-quantity calculation. */
+    @Column(name = "period_from")
+    private LocalDate periodFrom;
+
+    @Column(name = "period_to")
+    private LocalDate periodTo;
+
     @Column(name = "cgst_rate", nullable = false, precision = 5, scale = 2)
     private BigDecimal cgstRate = BigDecimal.ZERO;
 

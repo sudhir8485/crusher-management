@@ -17,4 +17,31 @@ public interface DabarEntryRepository extends JpaRepository<DabarEntry, Long> {
 
     @Query("SELECT d FROM DabarEntry d WHERE d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' AND (:siteId IS NULL OR d.siteId = :siteId) ORDER BY d.entryDate DESC, d.id DESC")
     List<DabarEntry> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    /** All active dabar entries at a specific site in a date range — for auto-qty calculation in Job-Work invoices. */
+    @Query("SELECT d FROM DabarEntry d WHERE d.siteId = :siteId AND d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' ORDER BY d.entryDate ASC, d.id ASC")
+    List<DabarEntry> findBySiteAndDateRange(@Param("siteId") Long siteId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** Unbilled dabar entries: excludes those already linked in dabar_jw_billing for this service. */
+    @Query("SELECT d FROM DabarEntry d WHERE d.siteId = :siteId AND d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' " +
+           "AND d.id NOT IN (" +
+           "  SELECT b.dabarEntryId FROM DabarJwBilling b WHERE b.serviceId = :serviceId " +
+           "  AND (:excludeInvoiceId IS NULL OR b.jobWorkInvoiceId <> :excludeInvoiceId)" +
+           ") ORDER BY d.entryDate ASC, d.id ASC")
+    List<DabarEntry> findUnbilledBySiteAndDateRange(
+            @Param("siteId") Long siteId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("serviceId") Long serviceId,
+            @Param("excludeInvoiceId") Long excludeInvoiceId);
+
+    /** Already-billed dabar entries at a site in date range for a service. */
+    @Query("SELECT d FROM DabarEntry d WHERE d.siteId = :siteId AND d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' " +
+           "AND d.id IN (SELECT b.dabarEntryId FROM DabarJwBilling b WHERE b.serviceId = :serviceId) " +
+           "ORDER BY d.entryDate ASC, d.id ASC")
+    List<DabarEntry> findBilledBySiteAndDateRange(
+            @Param("siteId") Long siteId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("serviceId") Long serviceId);
 }

@@ -91,16 +91,19 @@ class SitesScreen extends ConsumerWidget {
   void _confirmDelete(BuildContext context, WidgetRef ref, int id, String name) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Deactivate site?'),
         content: Text('Deactivate "$name"? It will be hidden from new entries.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/sites/$id');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/sites/$id');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(sitesProvider);
             },
             child: const Text('Deactivate'),

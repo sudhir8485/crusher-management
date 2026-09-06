@@ -54,15 +54,18 @@ class VehiclesScreen extends ConsumerWidget {
   void _confirmDelete(BuildContext context, WidgetRef ref, int id, String name) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Deactivate vehicle?'),
         content: Text('Deactivate "$name"? It will be hidden from new trip entries.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/vehicles/$id');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/vehicles/$id');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(vehiclesProvider);
             },
             child: const Text('Deactivate'),

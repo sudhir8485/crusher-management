@@ -140,4 +140,9 @@ public class Trip {
     /** GST rate snapshot from Material at creation time. Changing material's rate never alters old trips. */
     @Column(name = "gst_rate", precision = 5, scale = 2)
     private BigDecimal gstRate = BigDecimal.ZERO;
+
+    /** TRUE when material amount was suppressed because the trip's party is the CLIENT_SITE owner.
+     *  Set at creation/update time; never retroactively changed. */
+    @Column(name = "material_suppressed", nullable = false)
+    private boolean materialSuppressed = false;
 }

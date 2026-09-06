@@ -17,6 +17,8 @@ public class JobWorkInvoiceResponse {
     private String siteName;
     private String invoiceNo;
     private LocalDate invoiceDate;
+    private LocalDate periodFrom;
+    private LocalDate periodTo;
     private BigDecimal cgstRate;
     private BigDecimal sgstRate;
     private BigDecimal subtotal;

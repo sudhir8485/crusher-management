@@ -73,4 +73,32 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     /** Sum of all trip bills for a vendor strictly before 'before' date (for opening balance). */
     @Query("SELECT COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId = :vendorId AND t.tripDate < :before AND t.status = 'ACTIVE'")
     BigDecimal sumTotalBillByVendorIdBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
+
+    /** All active trips at a specific site in a date range — for auto-qty calculation in Job-Work invoices. */
+    @Query("SELECT t FROM Trip t WHERE t.siteId = :siteId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findBySiteAndDateRange(@Param("siteId") Long siteId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** Unbilled trips: excludes those already linked in trip_jw_billing for this service.
+     *  When excludeInvoiceId is non-null (edit mode), records linked to THAT invoice are treated as available. */
+    @Query("SELECT t FROM Trip t WHERE t.siteId = :siteId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' " +
+           "AND t.id NOT IN (" +
+           "  SELECT b.tripId FROM TripJwBilling b WHERE b.serviceId = :serviceId " +
+           "  AND (:excludeInvoiceId IS NULL OR b.jobWorkInvoiceId <> :excludeInvoiceId)" +
+           ") ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findUnbilledBySiteAndDateRange(
+            @Param("siteId") Long siteId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("serviceId") Long serviceId,
+            @Param("excludeInvoiceId") Long excludeInvoiceId);
+
+    /** Already-billed trips at a site in date range for a service. */
+    @Query("SELECT t FROM Trip t WHERE t.siteId = :siteId AND t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' " +
+           "AND t.id IN (SELECT b.tripId FROM TripJwBilling b WHERE b.serviceId = :serviceId) " +
+           "ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findBilledBySiteAndDateRange(
+            @Param("siteId") Long siteId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("serviceId") Long serviceId);
 }

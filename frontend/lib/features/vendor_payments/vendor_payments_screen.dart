@@ -143,10 +143,10 @@ class VendorPaymentsScreen extends ConsumerWidget {
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(dialogCtx);
-              await ref.read(apiClientProvider).delete('/api/party-payments/${p['id']}');
-              // Small settle wait so any exit animations complete before the
-              // list rebuilds and deactivates the old card widgets.
-              await Future.delayed(const Duration(milliseconds: 150));
+              try {
+                await ref.read(apiClientProvider).delete('/api/party-payments/${p['id']}');
+              } catch (_) { return; }
+              if (!dialogCtx.mounted) return;
               ref.invalidate(_paymentsProvider(rangeKey));
             },
             child: const Text('Delete'),

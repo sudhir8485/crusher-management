@@ -77,16 +77,18 @@ class VendorsScreen extends ConsumerWidget {
   void _confirmDelete(BuildContext context, WidgetRef ref, int id, String name) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Deactivate party?'),
         content: Text('Deactivate "$name"? They will be marked inactive and hidden from new entries.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              Navigator.pop(context);
-              final api = ref.read(apiClientProvider);
-              await api.delete('/api/parties/$id');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/parties/$id');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(vendorsProvider);
             },
             child: const Text('Deactivate'),

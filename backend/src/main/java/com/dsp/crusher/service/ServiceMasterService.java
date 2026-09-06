@@ -58,5 +58,8 @@ public class ServiceMasterService {
             s.setGstRateConfigured(true);   // explicit save = deliberately configured
         }
         s.setSacCode(req.getSacCode());
+        if (req.getAutoCalcSource() != null && !req.getAutoCalcSource().isBlank()) {
+            s.setAutoCalcSource(req.getAutoCalcSource());
+        }
     }
 }

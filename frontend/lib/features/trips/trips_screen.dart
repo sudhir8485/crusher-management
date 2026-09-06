@@ -157,16 +157,19 @@ class TripsScreen extends ConsumerWidget {
     final material = trip['materialName'] ?? '—';
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete Trip?'),
         content: Text('Delete trip: $customer · $material?\n\nThis cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/trips/${trip['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/trips/${trip['id']}');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(tripsProvider(rangeKey));
             },
             child: const Text('Delete'),
@@ -924,20 +927,21 @@ class _TripCardState extends State<_TripCard> {
 
   Widget _buildCalculationDetail() {
     final t = widget.trip;
-    final loadedKg  = (t['loadedWeightKg']     as num?)?.toDouble();
-    final emptyKg   = (t['emptyWeightKg']      as num?)?.toDouble();
-    final netKg     = (t['netWeightKg']        as num?)?.toDouble();
-    final qty       = (t['billableQuantity']   as num?)?.toDouble()
-                      ?? (t['quantityBrass']   as num?)?.toDouble();
-    final unit      = t['quantityUnit'] as String? ?? 'BRASS';
-    final rate      = (t['saleRate']           as num?)?.toDouble();
-    final matAmt    = (t['materialAmount']     as num?)?.toDouble();
-    final transChg  = (t['transportationCharge'] as num?)?.toDouble();
-    final total     = (t['totalBill']          as num?)?.toDouble();
-    final distKm    = (t['distanceKm']         as num?)?.toDouble();
-    final transRate = (t['transportRatePerKm'] as num?)?.toDouble();
-    final isOwn     = t['vehicleMode'] == 'OWN_VEHICLE';
-    final isDirect  = t['transportMode'] == 'DIRECT';
+    final loadedKg    = (t['loadedWeightKg']     as num?)?.toDouble();
+    final emptyKg     = (t['emptyWeightKg']      as num?)?.toDouble();
+    final netKg       = (t['netWeightKg']        as num?)?.toDouble();
+    final qty         = (t['billableQuantity']   as num?)?.toDouble()
+                        ?? (t['quantityBrass']   as num?)?.toDouble();
+    final unit        = t['quantityUnit'] as String? ?? 'BRASS';
+    final rate        = (t['saleRate']           as num?)?.toDouble();
+    final matAmt      = (t['materialAmount']     as num?)?.toDouble();
+    final transChg    = (t['transportationCharge'] as num?)?.toDouble();
+    final total       = (t['totalBill']          as num?)?.toDouble();
+    final distKm      = (t['distanceKm']         as num?)?.toDouble();
+    final transRate   = (t['transportRatePerKm'] as num?)?.toDouble();
+    final isOwn       = t['vehicleMode'] == 'OWN_VEHICLE';
+    final isDirect    = t['transportMode'] == 'DIRECT';
+    final isSuppressed = t['materialSuppressed'] == true;
 
     Widget row(String label, String value, {bool strong = false, bool totalRow = false}) =>
         Container(
@@ -989,7 +993,26 @@ class _TripCardState extends State<_TripCard> {
             sHead('MATERIAL'),
             row('Billable Quantity', '${numFmt.format(qty)} $unit'),
             if (rate != null) row('Sale Rate', '${fmtCurr(rate)} / $unit'),
-            if (matAmt != null) row('Material Amount', fmtCurr(matAmt), strong: true),
+            if (isSuppressed)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 13, color: Colors.blue.shade600),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(
+                    'Material charge not applied — billing site owner at their own Client Site',
+                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+                  )),
+                ]),
+              )
+            else if (matAmt != null)
+              row('Material Amount', fmtCurr(matAmt), strong: true),
           ],
           sHead('TRANSPORT'),
           if (isOwn)

@@ -72,4 +72,7 @@ public class TripResponse {
     private BigDecimal gstRate;
     /** True when this trip's party (vendor) is GST-registered — drives document routing. */
     private Boolean gstRegistered;
+
+    /** True when material amount was suppressed because the trip's party is the CLIENT_SITE owner. */
+    private boolean materialSuppressed;
 }

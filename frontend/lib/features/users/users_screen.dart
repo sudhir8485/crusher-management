@@ -124,22 +124,23 @@ class UsersScreen extends ConsumerWidget {
       BuildContext ctx, WidgetRef ref, Map<String, dynamic> user) {
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Deactivate User'),
         content: Text(
             'Deactivate ${user['fullName']}? They will no longer be able to log in.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.orange),
             onPressed: () async {
-              Navigator.pop(ctx);
-              await ref
-                  .read(apiClientProvider)
-                  .delete('/api/users/${user['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/users/${user['id']}');
+              } catch (_) { return; }
+              if (!ctx.mounted) return;
               ref.invalidate(usersProvider);
             },
             child: const Text('Deactivate'),

@@ -78,16 +78,19 @@ class ServicesScreen extends ConsumerWidget {
   void _confirmDelete(BuildContext context, WidgetRef ref, int id, String name) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Deactivate service?'),
         content: Text('Deactivate "$name"? It will be hidden from new job-work invoices.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(context);
-              await ref.read(apiClientProvider).delete('/api/services/$id');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/services/$id');
+              } catch (_) { return; }
+              if (!context.mounted) return;
               ref.invalidate(servicesProvider);
             },
             child: const Text('Deactivate'),
@@ -118,12 +121,14 @@ class _ServiceFormState extends ConsumerState<_ServiceForm> {
   late final _sacCode  = TextEditingController(
       text: widget.existing?['sacCode'] ?? '');
   String _unit = 'TON';
+  String _autoCalcSource = 'NONE';
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _unit = widget.existing?['defaultUnit'] ?? 'TON';
+    _autoCalcSource = widget.existing?['autoCalcSource'] ?? 'NONE';
   }
 
   @override
@@ -144,6 +149,7 @@ class _ServiceFormState extends ConsumerState<_ServiceForm> {
         'defaultRate': double.tryParse(_rate.text.trim()),
       'gstRate': double.tryParse(_gstRate.text.trim()) ?? 0,
       if (_sacCode.text.trim().isNotEmpty) 'sacCode': _sacCode.text.trim(),
+      'autoCalcSource': _autoCalcSource,
     };
     final api = ref.read(apiClientProvider);
     try {
@@ -235,6 +241,20 @@ class _ServiceFormState extends ConsumerState<_ServiceForm> {
                   ),
                 )),
               ]),
+              const Divider(height: 24),
+              DropdownButtonFormField<String>(
+                value: _autoCalcSource,
+                decoration: const InputDecoration(
+                  labelText: 'Auto-Calculate Quantity From',
+                  helperText: 'Used by Job-Work invoices to auto-fill line quantity',
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'NONE',             child: Text('Manual Entry (no auto-calculate)')),
+                  DropdownMenuItem(value: 'TRIP_QUANTITIES',  child: Text('Sum of Trip Quantities')),
+                  DropdownMenuItem(value: 'DABAR_QUANTITIES', child: Text('Sum of Dabar Quantities')),
+                ],
+                onChanged: (v) => setState(() => _autoCalcSource = v!),
+              ),
             ],
           ),
         ),

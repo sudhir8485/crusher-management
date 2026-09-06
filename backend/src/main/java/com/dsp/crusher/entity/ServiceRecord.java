@@ -42,6 +42,12 @@ public class ServiceRecord {
     @Column(name = "sac_code", length = 20)
     private String sacCode;
 
+    /** Source for auto-calculating quantity on Job-Work invoice lines.
+     *  NONE = manual entry (default). TRIP_QUANTITIES = sum of trip billableQuantity at the site.
+     *  DABAR_QUANTITIES = sum of dabar quantityBrass at the site. */
+    @Column(name = "auto_calc_source", nullable = false, length = 30)
+    private String autoCalcSource = "NONE";
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

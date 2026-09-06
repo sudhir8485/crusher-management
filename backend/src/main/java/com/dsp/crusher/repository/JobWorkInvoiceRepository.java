@@ -32,4 +32,19 @@ public interface JobWorkInvoiceRepository extends JpaRepository<JobWorkInvoice, 
     BigDecimal sumGrandTotalByVendorBefore(
             @Param("vendorId") Long vendorId,
             @Param("before") LocalDate before);
+
+    /** Find active invoices for the same site + service whose period overlaps [from, to].
+     *  Excludes invoices without a period set, and optionally the invoice being edited. */
+    @Query("SELECT DISTINCT i FROM JobWorkInvoice i JOIN i.items item " +
+           "WHERE i.siteId = :siteId AND item.serviceId = :serviceId AND i.status = 'ACTIVE' " +
+           "AND i.periodFrom IS NOT NULL AND i.periodTo IS NOT NULL " +
+           "AND i.periodFrom <= :to AND i.periodTo >= :from " +
+           "AND (:excludeId IS NULL OR i.id <> :excludeId) " +
+           "ORDER BY i.id ASC")
+    List<JobWorkInvoice> findOverlappingByPeriod(
+            @Param("siteId") Long siteId,
+            @Param("serviceId") Long serviceId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("excludeId") Long excludeId);
 }

@@ -16,4 +16,6 @@ public class ServiceRequest {
     private BigDecimal gstRate;
     /** SAC code — Service Accounting Code (equivalent of HSN for goods). */
     private String sacCode;
+    /** NONE | TRIP_QUANTITIES | DABAR_QUANTITIES. Controls auto-quantity calculation on Job-Work invoices. */
+    private String autoCalcSource;
 }

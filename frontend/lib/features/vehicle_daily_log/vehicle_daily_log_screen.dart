@@ -120,21 +120,22 @@ class VehicleDailyLogScreen extends ConsumerWidget {
     final name = log['vehicleDisplayName'] ?? 'this vehicle';
     showDialog(
       context: ctx,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete Entry'),
         content: Text('Delete daily log for $name?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              Navigator.pop(ctx);
-              await ref
-                  .read(apiClientProvider)
-                  .delete('/api/vehicle-daily-log/${log['id']}');
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/vehicle-daily-log/${log['id']}');
+              } catch (_) { return; }
+              if (!ctx.mounted) return;
               ref.invalidate(_logsProvider(dateKey));
             },
             child: const Text('Delete'),

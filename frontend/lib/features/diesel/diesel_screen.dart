@@ -314,16 +314,19 @@ void _confirmDelete(BuildContext context, WidgetRef ref, String path, String dat
     {String label = 'this entry'}) {
   showDialog(
     context: context,
-    builder: (_) => AlertDialog(
+    builder: (dialogCtx) => AlertDialog(
       title: const Text('Delete diesel entry?'),
       content: Text('Delete $label?\n\nThis cannot be undone.'),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: Colors.red),
           onPressed: () async {
-            Navigator.pop(context);
-            await ref.read(apiClientProvider).delete(path);
+            Navigator.pop(dialogCtx);
+            try {
+              await ref.read(apiClientProvider).delete(path);
+            } catch (_) { return; }
+            if (!context.mounted) return;
             ref.invalidate(_balanceProvider);
             onChanged();
           },
