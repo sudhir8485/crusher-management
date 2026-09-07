@@ -286,10 +286,15 @@ public class LedgerService {
         for (VendorPayment pmt : payments) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(pmt.getPaymentDate());
-            String particulars = "By " + pmt.getPaymentMode();
-            if (pmt.getReferenceNo() != null && !pmt.getReferenceNo().isBlank()) {
-                particulars += " – " + pmt.getReferenceNo();
-            }
+            String particulars = switch (pmt.getPaymentMode()) {
+                case "DIESEL_ADVANCE" -> "Diesel Advance";
+                case "DIESEL_CREDIT"  -> "Diesel Credit";
+                default -> {
+                    String base = "By " + pmt.getPaymentMode();
+                    yield (pmt.getReferenceNo() != null && !pmt.getReferenceNo().isBlank())
+                            ? base + " – " + pmt.getReferenceNo() : base;
+                }
+            };
             e.setParticulars(particulars);
             e.setVoucherType("Receipt");
             e.setCredit(pmt.getAmount());

@@ -46,6 +46,15 @@ public class DieselReceipt {
     @Column(length = 500)
     private String notes;
 
+    // Set when source = PARTY_ADVANCE
+    @Column(name = "advance_party_id")
+    private Long advancePartyId;
+
+    // Points to the VendorPayment credit created for a PARTY_ADVANCE receipt.
+    // Deactivating this receipt must cascade to deactivate that payment.
+    @Column(name = "advance_payment_id")
+    private Long advancePaymentId;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

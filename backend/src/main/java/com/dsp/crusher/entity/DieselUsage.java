@@ -34,6 +34,15 @@ public class DieselUsage {
     @Column(name = "quantity_liters", nullable = false, precision = 10, scale = 2)
     private BigDecimal quantityLiters;
 
+    // ₹/L at time of usage — used to compute the payable deduction for external vehicles
+    @Column(name = "rate_per_liter", precision = 10, scale = 2)
+    private BigDecimal ratePerLiter;
+
+    // Points to the VendorPayment credit created when diesel was given to an external vehicle.
+    // Deactivating this usage must cascade to deactivate that payment.
+    @Column(name = "diesel_payment_id")
+    private Long dieselPaymentId;
+
     @Column(length = 500)
     private String notes;
 

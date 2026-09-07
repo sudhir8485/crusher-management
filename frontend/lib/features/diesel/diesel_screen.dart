@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -5,28 +6,45 @@ import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+String _apiError(dynamic err) {
+  if (err is DioException) {
+    final data = err.response?.data;
+    if (data is Map && data.isNotEmpty) {
+      final msg = data['error'] ?? data.values.first;
+      return msg?.toString() ?? 'HTTP ${err.response?.statusCode}';
+    }
+    return 'HTTP ${err.response?.statusCode ?? '?'}';
+  }
+  return err.toString();
+}
+
 // ── providers ────────────────────────────────────────────────────────────────
 
 final _receiptDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
 final _usageDateProvider   = StateProvider<DateTime>((ref) => DateTime.now());
 
-final _balanceProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  final siteId = ref.watch(selectedSiteIdProvider);
-  final params = siteId != null ? {'siteId': siteId} : <String, dynamic>{};
-  final res = await ref.read(apiClientProvider).get('/api/diesel/balance', params: params);
+final _balanceProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, int>((ref, siteId) async {
+  final res = await ref.read(apiClientProvider).get('/api/diesel/balance', params: {'siteId': siteId});
   return Map<String, dynamic>.from(res.data);
 });
 
-final _receiptsProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final siteId = ref.watch(selectedSiteIdProvider);
+final _receiptsProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, key) async {
+  // key = "date|siteId"
+  final parts  = key.split('|');
+  final date   = parts[0];
+  final siteId = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
   final params = <String, dynamic>{'from': date, 'to': date};
   if (siteId != null) params['siteId'] = siteId;
   final res = await ref.read(apiClientProvider).get('/api/diesel/receipts', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
 
-final _usagesProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
-  final siteId = ref.watch(selectedSiteIdProvider);
+final _usagesProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, key) async {
+  final parts  = key.split('|');
+  final date   = parts[0];
+  final siteId = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
   final params = <String, dynamic>{'from': date, 'to': date};
   if (siteId != null) params['siteId'] = siteId;
   final res = await ref.read(apiClientProvider).get('/api/diesel/usages', params: params);
@@ -74,16 +92,18 @@ class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerPr
   }
 
   void _refreshAll() {
-    ref.invalidate(_balanceProvider);
+    final siteId = ref.read(selectedSiteIdProvider);
+    if (siteId != null) ref.invalidate(_balanceProvider(siteId));
     final rDate = DateFormat('yyyy-MM-dd').format(ref.read(_receiptDateProvider));
     final uDate = DateFormat('yyyy-MM-dd').format(ref.read(_usageDateProvider));
-    ref.invalidate(_receiptsProvider(rDate));
-    ref.invalidate(_usagesProvider(uDate));
+    final siteStr = siteId?.toString() ?? '';
+    ref.invalidate(_receiptsProvider('$rDate|$siteStr'));
+    ref.invalidate(_usagesProvider('$uDate|$siteStr'));
   }
 
   @override
   Widget build(BuildContext context) {
-    final balance = ref.watch(_balanceProvider);
+    final siteId = ref.watch(selectedSiteIdProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -104,12 +124,29 @@ class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerPr
           : dieselUsageFab(context, ref, _refreshAll),
       body: Column(
         children: [
-          // Balance banner
-          balance.when(
-            loading: () => const SizedBox.shrink(),
-            error: (e, _) => const SizedBox.shrink(),
-            data: (b) => _BalanceBanner(balance: b),
-          ),
+          // Require site selection — same UX pattern as Machine Work
+          if (siteId == null)
+            Material(
+              color: Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Select a site from the sidebar to view diesel stock and add entries',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                  )),
+                ]),
+              ),
+            ),
+          // Per-site balance banner — only shown when site is selected
+          if (siteId != null)
+            ref.watch(_balanceProvider(siteId)).when(
+              loading: () => const SizedBox.shrink(),
+              error:   (_, __) => const SizedBox.shrink(),
+              data:    (b) => _BalanceBanner(balance: b),
+            ),
           Expanded(
             child: TabBarView(
               controller: _tabs,
@@ -187,8 +224,10 @@ class _ReceiptsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(_receiptDateProvider);
-    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final receipts = ref.watch(_receiptsProvider(dateKey));
+    final siteId       = ref.watch(selectedSiteIdProvider);
+    final dateKey      = DateFormat('yyyy-MM-dd').format(selectedDate);
+    final providerKey  = '$dateKey|${siteId ?? ''}';
+    final receipts     = ref.watch(_receiptsProvider(providerKey));
 
     return Column(
       children: [
@@ -212,12 +251,13 @@ class _ReceiptsTab extends ConsumerWidget {
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
                       itemCount: list.length,
-                      separatorBuilder: (_, idx) => const SizedBox(height: 8),
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) => _ReceiptCard(
                         r: list[i],
-                        onEdit: () => _showReceiptForm(context, ref, list[i], selectedDate, onChanged),
-                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/receipts/${list[i]['id']}', dateKey, onChanged,
-                            label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L from ${list[i]['vendorName'] ?? "pump"}'),
+                        onEdit:   () => _showReceiptForm(context, ref, list[i], selectedDate, onChanged),
+                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/receipts/${list[i]['id']}',
+                            providerKey, onChanged, label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L',
+                            isReceipt: true),
                       ),
                     ),
                   ),
@@ -240,8 +280,10 @@ class _UsagesTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(_usageDateProvider);
-    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final usages = ref.watch(_usagesProvider(dateKey));
+    final siteId       = ref.watch(selectedSiteIdProvider);
+    final dateKey      = DateFormat('yyyy-MM-dd').format(selectedDate);
+    final providerKey  = '$dateKey|${siteId ?? ''}';
+    final usages       = ref.watch(_usagesProvider(providerKey));
 
     return Column(
       children: [
@@ -265,12 +307,13 @@ class _UsagesTab extends ConsumerWidget {
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
                       itemCount: list.length,
-                      separatorBuilder: (_, idx) => const SizedBox(height: 8),
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) => _UsageCard(
                         u: list[i],
-                        onEdit: () => _showUsageForm(context, ref, list[i], selectedDate, onChanged),
-                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/usages/${list[i]['id']}', dateKey, onChanged,
-                            label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L used by ${list[i]['machineName'] ?? list[i]['vehicleDisplayName'] ?? "unknown"}'),
+                        onEdit:   () => _showUsageForm(context, ref, list[i], selectedDate, onChanged),
+                        onDelete: () => _confirmDelete(context, ref, '/api/diesel/usages/${list[i]['id']}',
+                            providerKey, onChanged,
+                            label: '${(list[i]['quantityLiters'] as num?)?.toStringAsFixed(1) ?? "?"} L'),
                       ),
                     ),
                   ),
@@ -286,32 +329,45 @@ class _UsagesTab extends ConsumerWidget {
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-void _showReceiptForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing, DateTime date, VoidCallback onChanged) {
+void _showReceiptForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing,
+    DateTime date, VoidCallback onChanged) {
   showDialog(
     context: context,
-    builder: (_) => _ReceiptForm(existing: existing, initialDate: date, onSaved: () {
-      final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_receiptDateProvider));
-      ref.invalidate(_receiptsProvider(dateKey));
-      ref.invalidate(_balanceProvider);
-      onChanged();
-    }),
+    builder: (_) => _ReceiptForm(
+      existing: existing,
+      initialDate: date,
+      onSaved: () {
+        final siteId  = ref.read(selectedSiteIdProvider);
+        final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_receiptDateProvider));
+        ref.invalidate(_receiptsProvider('$dateKey|${siteId ?? ''}'));
+        if (siteId != null) ref.invalidate(_balanceProvider(siteId));
+        onChanged();
+      },
+    ),
   );
 }
 
-void _showUsageForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing, DateTime date, VoidCallback onChanged) {
+void _showUsageForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing,
+    DateTime date, VoidCallback onChanged) {
   showDialog(
     context: context,
-    builder: (_) => _UsageForm(existing: existing, initialDate: date, onSaved: () {
-      final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_usageDateProvider));
-      ref.invalidate(_usagesProvider(dateKey));
-      ref.invalidate(_balanceProvider);
-      onChanged();
-    }),
+    builder: (_) => _UsageForm(
+      existing: existing,
+      initialDate: date,
+      onSaved: () {
+        final siteId  = ref.read(selectedSiteIdProvider);
+        final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_usageDateProvider));
+        ref.invalidate(_usagesProvider('$dateKey|${siteId ?? ''}'));
+        if (siteId != null) ref.invalidate(_balanceProvider(siteId));
+        onChanged();
+      },
+    ),
   );
 }
 
-void _confirmDelete(BuildContext context, WidgetRef ref, String path, String dateKey, VoidCallback onChanged,
-    {String label = 'this entry'}) {
+void _confirmDelete(BuildContext context, WidgetRef ref, String path,
+    String providerKey, VoidCallback onChanged,
+    {String label = 'this entry', bool isReceipt = false}) {
   showDialog(
     context: context,
     builder: (dialogCtx) => AlertDialog(
@@ -327,7 +383,13 @@ void _confirmDelete(BuildContext context, WidgetRef ref, String path, String dat
               await ref.read(apiClientProvider).delete(path);
             } catch (_) { return; }
             if (!context.mounted) return;
-            ref.invalidate(_balanceProvider);
+            final siteId = ref.read(selectedSiteIdProvider);
+            if (siteId != null) ref.invalidate(_balanceProvider(siteId));
+            if (isReceipt) {
+              ref.invalidate(_receiptsProvider(providerKey));
+            } else {
+              ref.invalidate(_usagesProvider(providerKey));
+            }
             onChanged();
           },
           child: const Text('Delete'),
@@ -414,14 +476,25 @@ class _ReceiptCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final source = r['source'] as String? ?? '';
-    final qty    = (r['quantityLiters'] as num?)?.toDouble();
-    final rate   = r['ratePerLiter'];
-    final amount = r['amount'];
-    final vendor = r['vendorName'];
-    final inv    = r['invoiceNo'];
+    final source        = r['source'] as String? ?? '';
+    final qty           = (r['quantityLiters'] as num?)?.toDouble();
+    final rate          = r['ratePerLiter'];
+    final amount        = r['amount'];
+    final vendor        = r['vendorName'];
+    final inv           = r['invoiceNo'];
+    final advanceParty  = r['advancePartyName'] as String?;
+    final advanceAmount = r['advanceAmount'];
 
-    final isPump = source == 'PUMP';
+    final isPump    = source == 'PUMP';
+    final isAdvance = source == 'PARTY_ADVANCE';
+
+    Color badgeColor = isPump ? Colors.blue : isAdvance ? Colors.purple : Colors.orange;
+    String badgeLabel = isPump ? 'Pump' : isAdvance ? 'Party Advance' : 'Direct';
+    IconData badgeIcon = isPump
+        ? Icons.local_gas_station
+        : isAdvance
+            ? Icons.account_balance_wallet_outlined
+            : Icons.inventory_2_outlined;
 
     return Card(
       child: Padding(
@@ -430,9 +503,8 @@ class _ReceiptCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: isPump ? Colors.blue.shade100 : Colors.orange.shade100,
-              child: Icon(isPump ? Icons.local_gas_station : Icons.inventory_2_outlined,
-                  color: isPump ? Colors.blue : Colors.orange, size: 20),
+              backgroundColor: badgeColor.withValues(alpha: 0.15),
+              child: Icon(badgeIcon, color: badgeColor, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -440,7 +512,7 @@ class _ReceiptCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    _SourceBadge(isPump ? 'Pump' : 'Direct', isPump ? Colors.blue : Colors.orange),
+                    _SourceBadge(badgeLabel, badgeColor),
                     if (qty != null) ...[
                       const SizedBox(width: 8),
                       Text('${qty.toStringAsFixed(1)} L',
@@ -448,19 +520,27 @@ class _ReceiptCard extends StatelessWidget {
                     ],
                   ]),
                   const SizedBox(height: 4),
-                  if (vendor != null || inv != null)
-                    Text(
-                      [vendor, if (inv != null) 'Invoice: $inv'].whereType<String>().join('  ·  '),
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  if (rate != null || amount != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        [if (rate != null) '₹$rate/L', if (amount != null) 'Total: ₹$amount'].join('  ·  '),
-                        style: const TextStyle(fontSize: 12, color: Colors.green),
+                  if (isAdvance && advanceParty != null)
+                    Text('Party: $advanceParty',
+                        style: TextStyle(fontSize: 13, color: Colors.purple.shade700, fontWeight: FontWeight.w500)),
+                  if (isAdvance && advanceAmount != null)
+                    Text('Advance credited: ₹$advanceAmount',
+                        style: const TextStyle(fontSize: 12, color: Colors.purple)),
+                  if (!isAdvance) ...[
+                    if (vendor != null || inv != null)
+                      Text(
+                        [vendor, if (inv != null) 'Invoice: $inv'].whereType<String>().join('  ·  '),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
-                    ),
+                    if (rate != null || amount != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          [if (rate != null) '₹$rate/L', if (amount != null) 'Total: ₹$amount'].join('  ·  '),
+                          style: const TextStyle(fontSize: 12, color: Colors.green),
+                        ),
+                      ),
+                  ],
                   if (r['notes'] != null && (r['notes'] as String).isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
@@ -509,10 +589,16 @@ class _UsageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qty     = (u['quantityLiters'] as num?)?.toDouble();
-    final machine = u['machineName'];
-    final vehicle = u['vehicleDisplayName'] ?? u['vehiclePlateNumber'];
-    final consumer = machine ?? vehicle ?? 'Unknown';
+    final qty           = (u['quantityLiters'] as num?)?.toDouble();
+    final rate          = u['ratePerLiter'];
+    final dieselValue   = u['dieselValue'];
+    final machine       = u['machineName'];
+    final vehicle       = u['vehicleDisplayName'] ?? u['vehiclePlateNumber'];
+    final consumer      = machine ?? vehicle ?? 'Unknown';
+    final owner         = u['vehicleOwner'] as String?;
+    final ownerParty    = u['vehicleOwnedByPartyName'] as String?;
+    final hasPayable    = u['hasDieselPayable'] == true;
+    final isExternal    = owner == 'VENDOR';
 
     return Card(
       child: Padding(
@@ -535,6 +621,28 @@ class _UsageCard extends StatelessWidget {
                   if (qty != null)
                     Text('${qty.toStringAsFixed(1)} L used',
                         style: const TextStyle(fontSize: 13, color: Colors.red)),
+                  if (rate != null)
+                    Text('₹$rate/L${dieselValue != null ? '  ·  Value: ₹$dieselValue' : ''}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  if (isExternal && ownerParty != null) ...[
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      Icon(hasPayable ? Icons.account_balance_wallet : Icons.account_balance_wallet_outlined,
+                          size: 14,
+                          color: hasPayable ? Colors.deepOrange : Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        hasPayable
+                            ? 'Payable deducted from $ownerParty'
+                            : 'External vehicle — $ownerParty (no rate, no deduction)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: hasPayable ? Colors.deepOrange : Colors.grey,
+                          fontWeight: hasPayable ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ]),
+                  ],
                   if (u['notes'] != null && (u['notes'] as String).isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
@@ -570,11 +678,13 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _date;
   late String _source;
-  late final _qty    = TextEditingController(text: widget.existing?['quantityLiters']?.toString());
-  late final _rate   = TextEditingController(text: widget.existing?['ratePerLiter']?.toString());
-  late final _invNo  = TextEditingController(text: widget.existing?['invoiceNo']);
-  late final _notes  = TextEditingController(text: widget.existing?['notes']);
+  late final _qty           = TextEditingController(text: widget.existing?['quantityLiters']?.toString());
+  late final _rate          = TextEditingController(text: widget.existing?['ratePerLiter']?.toString());
+  late final _invNo         = TextEditingController(text: widget.existing?['invoiceNo']);
+  late final _notes         = TextEditingController(text: widget.existing?['notes']);
+  late final _advanceAmount = TextEditingController(text: widget.existing?['advanceAmount']?.toString());
   int? _vendorId;
+  int? _advancePartyId;
   bool _saving = false;
 
   double? get _computedAmount {
@@ -587,16 +697,17 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
   @override
   void initState() {
     super.initState();
-    _date     = widget.initialDate;
-    _source   = widget.existing?['source'] ?? 'PUMP';
-    _vendorId = widget.existing?['vendorId'];
+    _date          = widget.initialDate;
+    _source        = widget.existing?['source'] ?? 'PUMP';
+    _vendorId      = widget.existing?['vendorId'];
+    _advancePartyId = widget.existing?['advancePartyId'];
     _qty.addListener(() => setState(() {}));
     _rate.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    _qty.dispose(); _rate.dispose(); _invNo.dispose(); _notes.dispose();
+    _qty.dispose(); _rate.dispose(); _invNo.dispose(); _notes.dispose(); _advanceAmount.dispose();
     super.dispose();
   }
 
@@ -610,22 +721,32 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final siteId = ref.read(selectedSiteIdProvider);
+    if (siteId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a site before adding entries'), backgroundColor: Colors.red),
+      );
+      return;
+    }
     setState(() => _saving = true);
-    final data = {
+    final data = <String, dynamic>{
       'receiptDate': DateFormat('yyyy-MM-dd').format(_date),
-      'source': _source,
+      'source':       _source,
       'quantityLiters': double.tryParse(_qty.text.trim()),
-      'ratePerLiter': _rate.text.trim().isEmpty ? null : double.tryParse(_rate.text.trim()),
-      'vendorId': _vendorId,
-      'invoiceNo': _invNo.text.trim().isEmpty ? null : _invNo.text.trim(),
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
+    if (_source == 'PARTY_ADVANCE') {
+      data['advancePartyId'] = _advancePartyId;
+      data['advanceAmount']  = double.tryParse(_advanceAmount.text.trim());
+    } else {
+      data['ratePerLiter'] = _rate.text.trim().isEmpty ? null : double.tryParse(_rate.text.trim());
+      data['vendorId']     = _vendorId;
+      data['invoiceNo']    = _invNo.text.trim().isEmpty ? null : _invNo.text.trim();
+    }
     final api = ref.read(apiClientProvider);
-    final siteId = ref.read(selectedSiteIdProvider);
-    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/diesel/receipts', data: data, params: siteParams);
+        await api.post('/api/diesel/receipts', data: data, params: {'siteId': siteId});
       } else {
         await api.put('/api/diesel/receipts/${widget.existing!['id']}', data: data);
       }
@@ -634,7 +755,7 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed: ${_apiError(e)}'), backgroundColor: Colors.red),
         );
       }
     }
@@ -642,13 +763,14 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
 
   @override
   Widget build(BuildContext context) {
-    final vendors = ref.watch(_vendorsProvider);
-    final amount  = _computedAmount;
+    final vendors      = ref.watch(_vendorsProvider);
+    final amount       = _computedAmount;
+    final isAdvance    = _source == 'PARTY_ADVANCE';
 
     return AlertDialog(
       title: Text(widget.existing == null ? 'Add Diesel Receipt' : 'Edit Diesel Receipt'),
       content: SizedBox(
-        width: 440,
+        width: 460,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -666,71 +788,123 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
                 ),
                 const SizedBox(height: 16),
 
-                // Source toggle
+                // Source toggle: 3 options
                 const Text('Source *', style: TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 8),
                 SegmentedButton<String>(
                   segments: const [
-                    ButtonSegment(value: 'PUMP',   label: Text('Pump'),   icon: Icon(Icons.local_gas_station)),
-                    ButtonSegment(value: 'DIRECT', label: Text('Direct'), icon: Icon(Icons.inventory_2_outlined)),
+                    ButtonSegment(value: 'PUMP',          label: Text('Pump'),          icon: Icon(Icons.local_gas_station)),
+                    ButtonSegment(value: 'DIRECT',        label: Text('Direct'),        icon: Icon(Icons.inventory_2_outlined)),
+                    ButtonSegment(value: 'PARTY_ADVANCE', label: Text('Party Advance'), icon: Icon(Icons.account_balance_wallet_outlined)),
                   ],
                   selected: {_source},
-                  onSelectionChanged: (s) => setState(() => _source = s.first),
+                  onSelectionChanged: (s) => setState(() {
+                    _source = s.first;
+                    // Clear fields when switching modes
+                    _rate.clear(); _invNo.clear(); _advanceAmount.clear();
+                    _vendorId = null; _advancePartyId = null;
+                  }),
                 ),
                 const SizedBox(height: 16),
 
-                // Quantity + Rate
-                Row(children: [
-                  Expanded(child: TextFormField(
-                    controller: _qty,
-                    decoration: const InputDecoration(labelText: 'Litres *', suffixText: 'L'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter quantity' : null,
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: TextFormField(
+                // Quantity (always shown)
+                TextFormField(
+                  controller: _qty,
+                  decoration: const InputDecoration(labelText: 'Litres *', suffixText: 'L'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter quantity' : null,
+                ),
+
+                if (isAdvance) ...[
+                  // Party Advance mode — show party picker + amount
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.purple.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Icon(Icons.info_outline, size: 14, color: Colors.purple.shade700),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text(
+                            'Diesel funded by the party. Adds to site stock and credits the party\'s account.',
+                            style: TextStyle(fontSize: 12, color: Colors.purple.shade700),
+                          )),
+                        ]),
+                        const SizedBox(height: 12),
+                        vendors.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error: (e, _) => Text('Error: $e'),
+                          data: (list) => SearchablePicker(
+                            items: list,
+                            itemLabel: (v) => v['name'] as String,
+                            fieldLabel: 'Party who funded diesel *',
+                            value: _advancePartyId,
+                            onChanged: (v) => setState(() => _advancePartyId = v),
+                            validator: (v) => v == null ? 'Select party' : null,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _advanceAmount,
+                          decoration: const InputDecoration(
+                            labelText: 'Amount credited to party *',
+                            prefixText: '₹',
+                            helperText: 'The ₹ amount posted as advance on this party\'s account',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter amount' : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  // Pump / Direct mode — rate, supplier, invoice
+                  const SizedBox(height: 12),
+                  TextFormField(
                     controller: _rate,
                     decoration: const InputDecoration(labelText: 'Rate / Litre', prefixText: '₹'),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  )),
-                ]),
-
-                // Live amount
-                if (amount != null) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade200),
+                  ),
+                  if (amount != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.calculate_outlined, size: 16, color: Colors.green),
+                        const SizedBox(width: 8),
+                        Text('Amount: ₹${amount.toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      ]),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.calculate_outlined, size: 16, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Text('Amount: ₹${amount.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                    ]),
+                  ],
+                  const SizedBox(height: 12),
+                  vendors.when(
+                    loading: () => const LinearProgressIndicator(),
+                    error: (e, _) => Text('Error: $e'),
+                    data: (list) => SearchablePicker(
+                      items: list,
+                      itemLabel: (v) => v['name'] as String,
+                      fieldLabel: 'Supplier (optional)',
+                      value: _vendorId,
+                      clearable: true,
+                      onChanged: (v) => setState(() => _vendorId = v),
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                  TextFormField(controller: _invNo, decoration: const InputDecoration(labelText: 'Invoice / Bill No (optional)')),
                 ],
-                const SizedBox(height: 12),
 
-                // Vendor picker
-                vendors.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text('Error: $e'),
-                  data: (list) => SearchablePicker(
-                    items: list,
-                    itemLabel: (v) => v['name'] as String,
-                    fieldLabel: 'Supplier (optional)',
-                    value: _vendorId,
-                    clearable: true,
-                    onChanged: (v) => setState(() => _vendorId = v),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                TextFormField(controller: _invNo, decoration: const InputDecoration(labelText: 'Invoice / Bill No (optional)')),
                 const SizedBox(height: 12),
                 TextFormField(controller: _notes, decoration: const InputDecoration(labelText: 'Notes (optional)'), maxLines: 2),
               ],
@@ -761,13 +935,23 @@ class _UsageForm extends ConsumerStatefulWidget {
 class _UsageFormState extends ConsumerState<_UsageForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _date;
-  late final _qty   = TextEditingController(text: widget.existing?['quantityLiters']?.toString());
+  late final _qty  = TextEditingController(text: widget.existing?['quantityLiters']?.toString());
+  late final _rate = TextEditingController(text: widget.existing?['ratePerLiter']?.toString());
   late final _notes = TextEditingController(text: widget.existing?['notes']);
-  // consumer type: 'machine' | 'vehicle'
   late String _consumerType;
   int? _machineId;
   int? _vehicleId;
   bool _saving = false;
+
+  // Resolved from vehicle list after vehicle selection
+  Map<String, dynamic>? _selectedVehicle;
+
+  double? get _dieselValue {
+    final q = double.tryParse(_qty.text);
+    final r = double.tryParse(_rate.text);
+    if (q != null && r != null) return q * r;
+    return null;
+  }
 
   @override
   void initState() {
@@ -782,11 +966,13 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
     } else {
       _consumerType = 'machine';
     }
+    _qty.addListener(() => setState(() {}));
+    _rate.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    _qty.dispose(); _notes.dispose();
+    _qty.dispose(); _rate.dispose(); _notes.dispose();
     super.dispose();
   }
 
@@ -800,20 +986,26 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final siteId = ref.read(selectedSiteIdProvider);
+    if (siteId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a site before adding entries'), backgroundColor: Colors.red),
+      );
+      return;
+    }
     setState(() => _saving = true);
-    final data = {
-      'usageDate': DateFormat('yyyy-MM-dd').format(_date),
-      'machineId': _consumerType == 'machine' ? _machineId : null,
-      'vehicleId': _consumerType == 'vehicle' ? _vehicleId : null,
+    final data = <String, dynamic>{
+      'usageDate':      DateFormat('yyyy-MM-dd').format(_date),
+      'machineId':      _consumerType == 'machine' ? _machineId : null,
+      'vehicleId':      _consumerType == 'vehicle' ? _vehicleId : null,
       'quantityLiters': double.tryParse(_qty.text.trim()),
-      'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+      'ratePerLiter':   _rate.text.trim().isEmpty ? null : double.tryParse(_rate.text.trim()),
+      'notes':          _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
     final api = ref.read(apiClientProvider);
-    final siteId = ref.read(selectedSiteIdProvider);
-    final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {
-        await api.post('/api/diesel/usages', data: data, params: siteParams);
+        await api.post('/api/diesel/usages', data: data, params: {'siteId': siteId});
       } else {
         await api.put('/api/diesel/usages/${widget.existing!['id']}', data: data);
       }
@@ -822,7 +1014,7 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Failed: ${_apiError(e)}'), backgroundColor: Colors.red),
         );
       }
     }
@@ -830,13 +1022,25 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
 
   @override
   Widget build(BuildContext context) {
-    final machines = ref.watch(_machinesProvider);
-    final vehicles = ref.watch(_vehiclesProvider);
+    final machines   = ref.watch(_machinesProvider);
+    final vehicles   = ref.watch(_vehiclesProvider);
+    final dieselVal  = _dieselValue;
+    final isExternal = _consumerType == 'vehicle' && _selectedVehicle != null
+        && _selectedVehicle!['owner'] == 'VENDOR';
+    final ownerName  = _selectedVehicle?['vendorName'] as String?;
+
+    // On first build with existing vehicle, resolve from loaded list
+    if (_consumerType == 'vehicle' && _vehicleId != null && _selectedVehicle == null) {
+      vehicles.whenData((list) {
+        final match = list.where((v) => v['id'] == _vehicleId).firstOrNull;
+        if (match != null && mounted) setState(() => _selectedVehicle = match);
+      });
+    }
 
     return AlertDialog(
       title: Text(widget.existing == null ? 'Add Diesel Usage' : 'Edit Diesel Usage'),
       content: SizedBox(
-        width: 420,
+        width: 440,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -864,9 +1068,10 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                   ],
                   selected: {_consumerType},
                   onSelectionChanged: (s) => setState(() {
-                    _consumerType = s.first;
-                    _machineId = null;
-                    _vehicleId = null;
+                    _consumerType   = s.first;
+                    _machineId      = null;
+                    _vehicleId      = null;
+                    _selectedVehicle = null;
                   }),
                 ),
                 const SizedBox(height: 16),
@@ -894,11 +1099,38 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                       itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
                       fieldLabel: 'Vehicle *',
                       value: _vehicleId,
-                      onChanged: (v) => setState(() => _vehicleId = v),
+                      onChanged: (v) {
+                        setState(() {
+                          _vehicleId = v;
+                          _selectedVehicle = v == null ? null : list.where((veh) => veh['id'] == v).firstOrNull;
+                        });
+                      },
                       validator: (v) => v == null ? 'Select vehicle' : null,
                     ),
                   ),
                 const SizedBox(height: 12),
+
+                // External vehicle info banner — auto-detected, no toggle needed
+                if (isExternal) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.deepOrange.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 16, color: Colors.deepOrange.shade700),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(
+                        'External vehicle${ownerName != null ? ' — owned by $ownerName' : ''}. '
+                        'Rate is required — it will be used to compute the payable deduction to this party.',
+                        style: TextStyle(fontSize: 12, color: Colors.deepOrange.shade800),
+                      )),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                ],
 
                 // Quantity
                 TextFormField(
@@ -909,6 +1141,43 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                 ),
                 const SizedBox(height: 12),
 
+                // Rate per litre — required for external vehicles (payable cannot be silently skipped)
+                TextFormField(
+                  controller: _rate,
+                  decoration: InputDecoration(
+                    labelText: isExternal ? 'Rate / Litre *' : 'Rate / Litre (optional)',
+                    prefixText: '₹',
+                    helperText: isExternal ? 'Required — deducts ₹(qty × rate) from DSP\'s payable to ${ownerName ?? 'owner'}' : null,
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (isExternal && (v == null || v.trim().isEmpty)) {
+                      return 'Rate is required for external vehicles — cannot skip payable deduction';
+                    }
+                    return null;
+                  },
+                ),
+
+                // Live diesel value for external vehicles
+                if (isExternal && dieselVal != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.deepOrange.shade200),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.calculate_outlined, size: 16, color: Colors.deepOrange),
+                      const SizedBox(width: 8),
+                      Text('Payable deduction: ₹${dieselVal.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                    ]),
+                  ),
+                ],
+
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _notes,
                   decoration: const InputDecoration(labelText: 'Notes (optional)'),
@@ -928,7 +1197,6 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
 }
 
 // ── FAB overlay (one per tab) ─────────────────────────────────────────────────
-// Exposed so the parent screen can show the right FAB per tab.
 
 FloatingActionButton dieselReceiptFab(BuildContext context, WidgetRef ref, VoidCallback onChanged) =>
     FloatingActionButton.extended(

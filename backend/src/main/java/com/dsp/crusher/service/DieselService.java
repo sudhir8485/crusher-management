@@ -4,11 +4,7 @@ import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.*;
-import com.dsp.crusher.entity.DieselReceipt;
-import com.dsp.crusher.entity.DieselUsage;
-import com.dsp.crusher.entity.Machine;
-import com.dsp.crusher.entity.Vehicle;
-import com.dsp.crusher.entity.Vendor;
+import com.dsp.crusher.entity.*;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -26,17 +22,18 @@ import java.util.stream.Collectors;
 public class DieselService {
 
     private final DieselReceiptRepository receiptRepo;
-    private final DieselUsageRepository usageRepo;
-    private final VendorRepository vendorRepo;
-    private final MachineRepository machineRepo;
-    private final VehicleRepository vehicleRepo;
+    private final DieselUsageRepository   usageRepo;
+    private final VendorRepository        vendorRepo;
+    private final MachineRepository       machineRepo;
+    private final VehicleRepository       vehicleRepo;
+    private final VendorPaymentRepository paymentRepo;
 
     // ── Balance ──────────────────────────────────────────────────────────────
 
     public DieselBalanceResponse balance(Long siteId) {
         Long sid = effectiveSiteId(siteId);
         BigDecimal received = receiptRepo.sumTotalReceivedBySite(sid);
-        BigDecimal used = usageRepo.sumTotalUsedBySite(sid);
+        BigDecimal used     = usageRepo.sumTotalUsedBySite(sid);
         DieselBalanceResponse r = new DieselBalanceResponse();
         r.setTotalReceivedLiters(received);
         r.setTotalUsedLiters(used);
@@ -69,6 +66,8 @@ public class DieselService {
         r.setTenantId(TenantContext.get());
         r.setSiteId(resolveCreateSite(targetSiteId));
         applyReceipt(r, req);
+        receiptRepo.save(r);
+        createAdvancePaymentIfNeeded(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
     }
 
@@ -76,7 +75,11 @@ public class DieselService {
     public DieselReceiptResponse updateReceipt(Long id, DieselReceiptRequest req) {
         DieselReceipt r = receiptRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel receipt not found: " + id));
+        // Deactivate prior advance payment before re-applying
+        deactivateAdvancePayment(r);
         applyReceipt(r, req);
+        receiptRepo.save(r);
+        createAdvancePaymentIfNeeded(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
     }
 
@@ -84,6 +87,7 @@ public class DieselService {
     public void deactivateReceipt(Long id) {
         DieselReceipt r = receiptRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel receipt not found: " + id));
+        deactivateAdvancePayment(r);
         r.setStatus("INACTIVE");
         receiptRepo.save(r);
     }
@@ -114,9 +118,11 @@ public class DieselService {
         Long sid = resolveCreateSite(targetSiteId);
         u.setSiteId(sid);
         applyUsage(u, req);
+        usageRepo.save(u);
+        createDieselPaymentIfNeeded(u, req);
         DieselUsageResponse resp = enrichUsages(List.of(usageRepo.save(u))).get(0);
         BigDecimal balance = receiptRepo.sumTotalReceivedBySite(sid)
-                .subtract(usageRepo.sumTotalUsedBySite(SiteContext.get()));
+                .subtract(usageRepo.sumTotalUsedBySite(sid));
         resp.setStockWarning(balance.compareTo(BigDecimal.ZERO) < 0);
         return resp;
     }
@@ -125,7 +131,10 @@ public class DieselService {
     public DieselUsageResponse updateUsage(Long id, DieselUsageRequest req) {
         DieselUsage u = usageRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel usage not found: " + id));
+        deactivateDieselPayment(u);
         applyUsage(u, req);
+        usageRepo.save(u);
+        createDieselPaymentIfNeeded(u, req);
         return enrichUsages(List.of(usageRepo.save(u))).get(0);
     }
 
@@ -133,11 +142,75 @@ public class DieselService {
     public void deactivateUsage(Long id) {
         DieselUsage u = usageRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel usage not found: " + id));
+        deactivateDieselPayment(u);
         u.setStatus("INACTIVE");
         usageRepo.save(u);
     }
 
-    // ── helpers ───────────────────────────────────────────────────────────────
+    // ── Party Advance helpers ─────────────────────────────────────────────────
+
+    private void createAdvancePaymentIfNeeded(DieselReceipt r, DieselReceiptRequest req) {
+        if (!"PARTY_ADVANCE".equals(req.getSource())) return;
+        if (req.getAdvancePartyId() == null)
+            throw new IllegalArgumentException("Party is required for Party Advance receipt");
+        if (req.getAdvanceAmount() == null)
+            throw new IllegalArgumentException("Amount is required for Party Advance receipt");
+
+        VendorPayment p = new VendorPayment();
+        p.setTenantId(r.getTenantId());
+        p.setVendorId(req.getAdvancePartyId());
+        p.setPaymentDate(r.getReceiptDate());
+        p.setAmount(req.getAdvanceAmount());
+        p.setPaymentMode("DIESEL_ADVANCE");
+        p.setNotes("Diesel advance: " + r.getQuantityLiters().toPlainString() + " L (diesel receipt #" + r.getId() + ")");
+        p = paymentRepo.save(p);
+
+        r.setAdvancePartyId(req.getAdvancePartyId());
+        r.setAdvancePaymentId(p.getId());
+    }
+
+    private void deactivateAdvancePayment(DieselReceipt r) {
+        if (r.getAdvancePaymentId() == null) return;
+        paymentRepo.findById(r.getAdvancePaymentId()).ifPresent(p -> {
+            p.setStatus("INACTIVE");
+            paymentRepo.save(p);
+        });
+        r.setAdvancePartyId(null);
+        r.setAdvancePaymentId(null);
+    }
+
+    // ── External-vehicle diesel payable helpers ───────────────────────────────
+
+    private void createDieselPaymentIfNeeded(DieselUsage u, DieselUsageRequest req) {
+        if (req.getVehicleId() == null || req.getRatePerLiter() == null) return;
+        Vehicle vehicle = vehicleRepo.findById(req.getVehicleId()).orElse(null);
+        if (vehicle == null || !"VENDOR".equals(vehicle.getOwner()) || vehicle.getVendorId() == null) return;
+
+        BigDecimal dieselValue = u.getQuantityLiters().multiply(req.getRatePerLiter());
+
+        VendorPayment p = new VendorPayment();
+        p.setTenantId(u.getTenantId());
+        p.setVendorId(vehicle.getVendorId());
+        p.setPaymentDate(u.getUsageDate());
+        p.setAmount(dieselValue);
+        p.setPaymentMode("DIESEL_CREDIT");
+        String plate = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
+        p.setNotes("Diesel given: " + u.getQuantityLiters().toPlainString() + " L to " + plate + " (diesel usage #" + u.getId() + ")");
+        p = paymentRepo.save(p);
+
+        u.setDieselPaymentId(p.getId());
+    }
+
+    private void deactivateDieselPayment(DieselUsage u) {
+        if (u.getDieselPaymentId() == null) return;
+        paymentRepo.findById(u.getDieselPaymentId()).ifPresent(p -> {
+            p.setStatus("INACTIVE");
+            paymentRepo.save(p);
+        });
+        u.setDieselPaymentId(null);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private Long effectiveSiteId(Long requested) {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
@@ -155,11 +228,19 @@ public class DieselService {
         r.setReceiptDate(req.getReceiptDate());
         r.setSource(req.getSource());
         r.setQuantityLiters(req.getQuantityLiters());
-        r.setRatePerLiter(req.getRatePerLiter());
-        r.setAmount(req.getRatePerLiter() != null
-                ? req.getQuantityLiters().multiply(req.getRatePerLiter()) : null);
-        r.setVendorId(req.getVendorId());
-        r.setInvoiceNo(req.getInvoiceNo());
+        if ("PARTY_ADVANCE".equals(req.getSource())) {
+            // No rate/vendor/invoiceNo for party-advance receipts
+            r.setRatePerLiter(null);
+            r.setAmount(null);
+            r.setVendorId(null);
+            r.setInvoiceNo(null);
+        } else {
+            r.setRatePerLiter(req.getRatePerLiter());
+            r.setAmount(req.getRatePerLiter() != null
+                    ? req.getQuantityLiters().multiply(req.getRatePerLiter()) : null);
+            r.setVendorId(req.getVendorId());
+            r.setInvoiceNo(req.getInvoiceNo());
+        }
         r.setNotes(req.getNotes());
     }
 
@@ -168,6 +249,7 @@ public class DieselService {
         u.setMachineId(req.getMachineId());
         u.setVehicleId(req.getVehicleId());
         u.setQuantityLiters(req.getQuantityLiters());
+        u.setRatePerLiter(req.getRatePerLiter());
         u.setNotes(req.getNotes());
     }
 
@@ -187,9 +269,20 @@ public class DieselService {
             res.setInvoiceNo(r.getInvoiceNo());
             res.setNotes(r.getNotes());
             res.setCreatedAt(r.getCreatedAt());
+            res.setAdvancePartyId(r.getAdvancePartyId());
             if (r.getVendorId() != null) {
                 Vendor v = vendors.get(r.getVendorId());
                 if (v != null) res.setVendorName(v.getName());
+            }
+            if (r.getAdvancePartyId() != null) {
+                Vendor v = vendors.get(r.getAdvancePartyId());
+                if (v != null) res.setAdvancePartyName(v.getName());
+                // Resolve advance amount from the linked payment
+                if (r.getAdvancePaymentId() != null) {
+                    paymentRepo.findById(r.getAdvancePaymentId()).ifPresent(p -> {
+                        if ("ACTIVE".equals(p.getStatus())) res.setAdvanceAmount(p.getAmount());
+                    });
+                }
             }
             return res;
         }).collect(Collectors.toList());
@@ -201,6 +294,8 @@ public class DieselService {
                 .collect(Collectors.toMap(Machine::getId, m -> m));
         Map<Long, Vehicle> vehicles = vehicleRepo.findAll().stream()
                 .collect(Collectors.toMap(Vehicle::getId, v -> v));
+        Map<Long, Vendor>  vendors  = vendorRepo.findAll().stream()
+                .collect(Collectors.toMap(Vendor::getId, v -> v));
         return list.stream().map(u -> {
             DieselUsageResponse res = new DieselUsageResponse();
             res.setId(u.getId());
@@ -208,8 +303,12 @@ public class DieselService {
             res.setMachineId(u.getMachineId());
             res.setVehicleId(u.getVehicleId());
             res.setQuantityLiters(u.getQuantityLiters());
+            res.setRatePerLiter(u.getRatePerLiter());
+            if (u.getRatePerLiter() != null)
+                res.setDieselValue(u.getQuantityLiters().multiply(u.getRatePerLiter()));
             res.setNotes(u.getNotes());
             res.setCreatedAt(u.getCreatedAt());
+            res.setHasDieselPayable(u.getDieselPaymentId() != null);
             if (u.getMachineId() != null) {
                 Machine m = machines.get(u.getMachineId());
                 if (m != null) res.setMachineName(m.getName());
@@ -219,6 +318,12 @@ public class DieselService {
                 if (v != null) {
                     res.setVehicleDisplayName(v.getDisplayName());
                     res.setVehiclePlateNumber(v.getPlateNumber());
+                    res.setVehicleOwner(v.getOwner());
+                    if ("VENDOR".equals(v.getOwner()) && v.getVendorId() != null) {
+                        res.setVehicleOwnedByPartyId(v.getVendorId());
+                        Vendor owner = vendors.get(v.getVendorId());
+                        if (owner != null) res.setVehicleOwnedByPartyName(owner.getName());
+                    }
                 }
             }
             return res;

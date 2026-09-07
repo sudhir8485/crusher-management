@@ -12,5 +12,6 @@ public class DieselUsageRequest {
     private Long machineId;
     private Long vehicleId;
     @NotNull private BigDecimal quantityLiters;
+    private BigDecimal ratePerLiter; // required for external-vehicle payable deduction
     private String notes;
 }

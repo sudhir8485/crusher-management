@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 public class DieselReceiptResponse {
     private Long id;
     private LocalDate receiptDate;
-    private String source;
+    private String source;           // PUMP | DIRECT | PARTY_ADVANCE
     private BigDecimal quantityLiters;
     private BigDecimal ratePerLiter;
     private BigDecimal amount;
@@ -18,5 +18,9 @@ public class DieselReceiptResponse {
     private String vendorName;
     private String invoiceNo;
     private String notes;
+    // PARTY_ADVANCE enrichment
+    private Long advancePartyId;
+    private String advancePartyName;
+    private BigDecimal advanceAmount; // the ₹ credited to that party's ledger
     private LocalDateTime createdAt;
 }
