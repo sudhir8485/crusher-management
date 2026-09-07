@@ -64,4 +64,12 @@ public class DabarController {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
     }
+
+    @GetMapping("/payable-eligibility")
+    @Operation(summary = "Check if transport payable toggle should be shown for a vehicle+site combination")
+    public java.util.Map<String, String> payableEligibility(
+            @RequestParam Long vehicleId,
+            @RequestParam Long siteId) {
+        return java.util.Map.of("eligibility", service.payableEligibility(vehicleId, siteId));
+    }
 }

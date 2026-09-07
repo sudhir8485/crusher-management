@@ -75,10 +75,16 @@ class DabarScreen extends ConsumerWidget {
                   0, (sum, e) => sum + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
                 final totalTrips = list.fold<int>(
                   0, (sum, e) => sum + ((e['tripsCount'] as int?) ?? 0));
+                final payableCount = list.where((e) => e['transportPayableActive'] == true).length;
 
                 return Column(
                   children: [
-                    _SummaryBar(totalBrass: totalBrass, totalTrips: totalTrips),
+                    _SummaryBar(
+                      entryCount: list.length,
+                      totalBrass: totalBrass,
+                      totalTrips: totalTrips,
+                      payableCount: payableCount,
+                    ),
                     Expanded(
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
@@ -86,6 +92,7 @@ class DabarScreen extends ConsumerWidget {
                         separatorBuilder: (_, idx) => const SizedBox(height: 8),
                         itemBuilder: (_, i) => _DabarCard(
                           entry: list[i],
+                          onTap: () => _showDrilldown(context, list[i]),
                           onEdit: () => _showForm(context, ref, list[i], selectedDate),
                           onDelete: () => _confirmDelete(context, ref, list[i], dateKey),
                         ),
@@ -111,6 +118,62 @@ class DabarScreen extends ConsumerWidget {
           final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_dabarDateProvider));
           ref.invalidate(_dabarProvider(dateKey));
         },
+      ),
+    );
+  }
+
+  void _showDrilldown(BuildContext context, Map<String, dynamic> entry) {
+    final vehicle = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
+    final party = entry['vendorName'] ?? '—';
+    final owner = entry['vehicleOwner'] as String?;
+    final ownerParty = entry['vehicleOwnedByPartyName'] as String?;
+    final hasPayable = entry['transportPayableActive'] == true;
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Entry Details'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DetailRow(label: 'Vehicle', value: vehicle),
+            _DetailRow(label: 'Party', value: party),
+            _DetailRow(
+              label: 'Vehicle Ownership',
+              value: owner == 'TENANT' ? 'Company (no payable)' : (ownerParty ?? 'External'),
+              valueColor: owner == 'TENANT' ? Colors.blueGrey : Colors.orange.shade800,
+            ),
+            if (owner == 'VENDOR' && ownerParty != null)
+              _DetailRow(label: 'Owned by', value: ownerParty),
+            const Divider(height: 20),
+            Row(
+              children: [
+                Icon(
+                  hasPayable ? Icons.account_balance_wallet : Icons.do_not_disturb_alt_outlined,
+                  size: 18,
+                  color: hasPayable ? Colors.deepOrange : Colors.grey,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    hasPayable
+                        ? 'Transport payable created — visible in party ledger'
+                        : 'No transport payable',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: hasPayable ? Colors.deepOrange : Colors.grey,
+                      fontWeight: hasPayable ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
       ),
     );
   }
@@ -145,12 +208,50 @@ class DabarScreen extends ConsumerWidget {
   }
 }
 
+// ── drilldown detail row ──────────────────────────────────────────────────────
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? valueColor;
+  const _DetailRow({required this.label, required this.value, this.valueColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: valueColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── summary bar ──────────────────────────────────────────────────────────────
 
 class _SummaryBar extends StatelessWidget {
+  final int entryCount;
   final double totalBrass;
   final int totalTrips;
-  const _SummaryBar({required this.totalBrass, required this.totalTrips});
+  final int payableCount;
+  const _SummaryBar({
+    required this.entryCount,
+    required this.totalBrass,
+    required this.totalTrips,
+    required this.payableCount,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -160,8 +261,11 @@ class _SummaryBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
+          _Stat(label: 'Entries', value: '$entryCount'),
           _Stat(label: 'Total Trips', value: '$totalTrips'),
-          _Stat(label: 'Total Brass', value: '${totalBrass.toStringAsFixed(3)} Brass'),
+          _Stat(label: 'Total Brass', value: '${totalBrass.toStringAsFixed(3)}'),
+          if (payableCount > 0)
+            _Stat(label: 'Payables', value: '$payableCount', color: Colors.deepOrange),
         ],
       ),
     );
@@ -171,14 +275,16 @@ class _SummaryBar extends StatelessWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
-  const _Stat({required this.label, required this.value});
+  final Color? color;
+  const _Stat({required this.label, required this.value, this.color});
 
   @override
   Widget build(BuildContext context) {
+    final c = color ?? Colors.brown;
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown)),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.brown)),
+        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: c)),
+        Text(label, style: TextStyle(fontSize: 11, color: c)),
       ],
     );
   }
@@ -188,9 +294,10 @@ class _Stat extends StatelessWidget {
 
 class _DabarCard extends StatelessWidget {
   final Map<String, dynamic> entry;
+  final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _DabarCard({required this.entry, required this.onEdit, required this.onDelete});
+  const _DabarCard({required this.entry, required this.onTap, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -198,53 +305,77 @@ class _DabarCard extends StatelessWidget {
     final vendor = entry['vendorName'] ?? '-';
     final trips = entry['tripsCount'];
     final brass = entry['quantityBrass'];
+    final hasPayable = entry['transportPayableActive'] == true;
+    final vehicleOwner = entry['vehicleOwner'] as String?;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.brown.shade100,
-              child: Text(
-                vehicle.length > 4 ? vehicle.substring(0, 4) : vehicle,
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.brown),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: Colors.brown.shade100,
+                child: Text(
+                  vehicle.length > 4 ? vehicle.substring(0, 4) : vehicle,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.brown),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(vehicle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  const SizedBox(height: 4),
-                  Text('Vendor: $vendor', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      if (trips != null)
-                        _Badge('$trips Trips', Colors.orange),
-                      if (trips != null && brass != null) const SizedBox(width: 8),
-                      if (brass != null)
-                        _Badge('$brass Brass', Colors.green),
-                    ],
-                  ),
-                  if (entry['notes'] != null && (entry['notes'] as String).isNotEmpty)
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(vehicle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        ),
+                        if (vehicleOwner == 'TENANT')
+                          _Badge('Company', Colors.blueGrey)
+                        else if (vehicleOwner == 'VENDOR')
+                          _Badge('External', Colors.orange),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('Party: $vendor', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        if (trips != null)
+                          _Badge('$trips Trips', Colors.orange.shade700),
+                        if (trips != null && brass != null) const SizedBox(width: 8),
+                        if (brass != null)
+                          _Badge('$brass Brass', Colors.green),
+                        if (hasPayable) ...[
+                          const SizedBox(width: 8),
+                          _Badge('Payable', Colors.deepOrange),
+                        ],
+                      ],
+                    ),
+                    if (entry['notes'] != null && (entry['notes'] as String).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(entry['notes'], style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                      ),
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: Text(entry['notes'], style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                      child: Text('Tap for details', style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
                     ),
+                  ],
+                ),
+              ),
+              Column(
+                children: [
+                  IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+                  IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
                 ],
               ),
-            ),
-            Column(
-              children: [
-                IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-                IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -285,12 +416,19 @@ class _DabarForm extends ConsumerStatefulWidget {
 class _DabarFormState extends ConsumerState<_DabarForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _entryDate;
-  late final _trips  = TextEditingController(text: widget.existing?['tripsCount']?.toString());
+  late final _trips  = TextEditingController(
+    text: widget.existing?['tripsCount']?.toString() ?? '1', // default 1
+  );
   late final _brass  = TextEditingController(text: widget.existing?['quantityBrass']?.toString());
   late final _notes  = TextEditingController(text: widget.existing?['notes']);
   int? _vehicleId;
   int? _vendorId;
   bool _saving = false;
+
+  // Payable state
+  bool _showPayableToggle = false;
+  bool _createPayable = false;
+  String? _ownerPartyName;
 
   @override
   void initState() {
@@ -298,6 +436,12 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     _entryDate = widget.initialDate;
     _vehicleId = widget.existing?['vehicleId'];
     _vendorId  = widget.existing?['vendorId'];
+    _createPayable = widget.existing?['transportPayableActive'] == true;
+
+    // If editing, compute initial payable toggle visibility
+    if (_vehicleId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onVehicleChanged(_vehicleId!));
+    }
   }
 
   @override
@@ -316,10 +460,78 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     if (picked != null) setState(() => _entryDate = picked);
   }
 
+  Future<void> _onVehicleChanged(int vehicleId) async {
+    setState(() {
+      _vehicleId = vehicleId;
+      _showPayableToggle = false;
+      _ownerPartyName = null;
+    });
+
+    // Load all vehicles to find the selected one
+    final vehicles = ref.read(_vehiclesProvider).valueOrNull;
+    if (vehicles == null) return;
+
+    final vehicle = vehicles.firstWhere(
+      (v) => v['id'] == vehicleId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (vehicle.isEmpty) return;
+
+    // Auto-fill party from vehicle's owning party
+    if (vehicle['owner'] == 'VENDOR' && vehicle['vendorId'] != null) {
+      final vendorId = vehicle['vendorId'] as int;
+      if (widget.existing == null || _vendorId == null) {
+        // Only auto-fill on new entry or if party not yet set
+        setState(() => _vendorId = vendorId);
+      }
+    }
+
+    // Check payable eligibility against selected site
+    final siteId = ref.read(selectedSiteIdProvider);
+    if (siteId == null) return;
+
+    try {
+      final res = await ref.read(apiClientProvider).get(
+        '/api/dabar/payable-eligibility',
+        params: {'vehicleId': vehicleId, 'siteId': siteId},
+      );
+      final eligibility = res.data['eligibility'] as String;
+      if (!mounted) return;
+
+      if (eligibility == 'ELIGIBLE') {
+        final ownerPartyId = vehicle['vendorId'] as int?;
+        String? ownerName;
+        if (ownerPartyId != null) {
+          final vendors = ref.read(_vendorsProvider).valueOrNull;
+          ownerName = vendors
+              ?.firstWhere(
+                (v) => v['id'] == ownerPartyId,
+                orElse: () => <String, dynamic>{},
+              )['name'] as String?;
+        }
+        setState(() {
+          _showPayableToggle = true;
+          _ownerPartyName = ownerName;
+          // Preserve existing payable state on edit; default OFF for new entries
+          if (widget.existing == null) _createPayable = false;
+        });
+      } else {
+        setState(() {
+          _showPayableToggle = false;
+          _createPayable = false;
+        });
+      }
+    } catch (_) {
+      // Eligibility check failure — silently hide the toggle
+      if (!mounted) return;
+      setState(() { _showPayableToggle = false; _createPayable = false; });
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    final data = {
+    final data = <String, dynamic>{
       'entryDate': DateFormat('yyyy-MM-dd').format(_entryDate),
       'vehicleId': _vehicleId,
       'vendorId': _vendorId,
@@ -327,6 +539,15 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       'quantityBrass': _brass.text.trim().isEmpty ? null : double.tryParse(_brass.text.trim()),
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
+
+    // Only send payable flag if the toggle is relevant
+    if (_showPayableToggle) {
+      data['createTransportPayable'] = _createPayable;
+    } else if (widget.existing != null && widget.existing!['transportPayableActive'] == true) {
+      // If editing and payable was active but toggle no longer applies (vehicle changed), deactivate
+      data['createTransportPayable'] = false;
+    }
+
     final api = ref.read(apiClientProvider);
     final siteId = ref.read(selectedSiteIdProvider);
     final siteParams = siteId != null ? {'siteId': siteId} : null;
@@ -380,7 +601,9 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                     '${v['displayName'] ?? v['plateNumber']}  (${v['vehicleType'] ?? ''})',
                 fieldLabel: 'Vehicle *',
                 value: _vehicleId,
-                onChanged: (v) => setState(() => _vehicleId = v),
+                onChanged: (v) {
+                  if (v != null) _onVehicleChanged(v);
+                },
                 validator: (v) => v == null ? 'Select vehicle' : null,
               ),
             ),
@@ -389,6 +612,8 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
               data: (list) => SearchablePicker(
+                // key forces re-init when _vendorId is set from outside (vehicle auto-fill)
+                key: ValueKey(_vendorId),
                 items: list,
                 itemLabel: (v) => v['name'] as String,
                 fieldLabel: 'Party',
@@ -408,7 +633,10 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                 const SizedBox(width: 12),
                 Expanded(child: TextFormField(
                   controller: _brass,
-                  decoration: const InputDecoration(labelText: 'Quantity', suffixText: 'Brass'),
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity',
+                    suffixText: 'Brass', // Dabar is always measured in Brass
+                  ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 )),
               ],
@@ -419,6 +647,31 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
               decoration: const InputDecoration(labelText: 'Notes (optional)'),
               maxLines: 2,
             ),
+            if (_showPayableToggle) ...[
+              const SizedBox(height: 12),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.deepOrange.shade200),
+                ),
+                child: SwitchListTile(
+                  title: const Text(
+                    'Arranged by DSP (creates a payable)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    _ownerPartyName != null
+                        ? 'Creates transport payable to $_ownerPartyName'
+                        : 'Creates transport payable to vehicle\'s owner',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  value: _createPayable,
+                  onChanged: (v) => setState(() => _createPayable = v),
+                  activeColor: Colors.deepOrange,
+                ),
+              ),
+            ],
           ],
         ),
       ),

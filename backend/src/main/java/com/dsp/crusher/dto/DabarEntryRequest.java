@@ -14,4 +14,11 @@ public class DabarEntryRequest {
     private Integer tripsCount;
     private BigDecimal quantityBrass;
     private String notes;
+
+    /**
+     * When true, creates a transport payable to the vehicle's owning party.
+     * Only valid when the vehicle is VENDOR-owned and that party differs from the site's billed party.
+     * null = no change on update; false = deactivate any existing payable.
+     */
+    private Boolean createTransportPayable;
 }

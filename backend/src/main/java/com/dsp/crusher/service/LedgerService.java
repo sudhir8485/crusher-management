@@ -9,13 +9,17 @@ import com.dsp.crusher.entity.JobWorkInvoice;
 import com.dsp.crusher.entity.JobWorkInvoiceItem;
 import com.dsp.crusher.entity.Machine;
 import com.dsp.crusher.entity.MachineWorkLog;
+import com.dsp.crusher.entity.TransportPayable;
 import com.dsp.crusher.entity.Vendor;
+import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.JobWorkInvoiceRepository;
 import com.dsp.crusher.repository.MachineRepository;
 import com.dsp.crusher.repository.MachineWorkLogRepository;
+import com.dsp.crusher.repository.TransportPayableRepository;
+import com.dsp.crusher.repository.VehicleRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,12 +38,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LedgerService {
 
-    private final VendorRepository         vendorRepo;
-    private final GstInvoiceRepository     invoiceRepo;
-    private final VendorPaymentRepository  paymentRepo;
-    private final MachineWorkLogRepository machineWorkRepo;
-    private final MachineRepository        machineRepo;
-    private final JobWorkInvoiceRepository jobWorkInvoiceRepo;
+    private final VendorRepository            vendorRepo;
+    private final GstInvoiceRepository        invoiceRepo;
+    private final VendorPaymentRepository     paymentRepo;
+    private final MachineWorkLogRepository    machineWorkRepo;
+    private final MachineRepository           machineRepo;
+    private final JobWorkInvoiceRepository    jobWorkInvoiceRepo;
+    private final TransportPayableRepository  transportPayableRepo;
+    private final VehicleRepository           vehicleRepo;
 
     public VendorLedgerResponse vendorLedger(Long vendorId, LocalDate from, LocalDate to) {
 
@@ -240,6 +246,39 @@ public class LedgerService {
             }
 
             e.setDetails(details);
+            entries.add(e);
+        }
+
+        // ── Build transport payable entries (Dabar) ──────────────────────────
+        List<TransportPayable> transportPayables =
+                transportPayableRepo.findByPartyIdAndEntryDateBetweenAndStatus(vendorId, from, to, "ACTIVE");
+
+        // Pre-load vehicles for display names
+        List<Long> vehicleIds = transportPayables.stream()
+                .map(TransportPayable::getVehicleId).distinct().collect(Collectors.toList());
+        Map<Long, Vehicle> vehicleMap = vehicleIds.isEmpty() ? Map.of() :
+                vehicleRepo.findAllById(vehicleIds).stream()
+                        .collect(Collectors.toMap(Vehicle::getId, v -> v));
+
+        for (TransportPayable tp : transportPayables) {
+            LedgerEntry e = new LedgerEntry();
+            e.setDate(tp.getEntryDate());
+            e.setVoucherType("TransportPayable");
+            e.setSourceId(tp.getId());
+            e.setGstStatus("PENDING"); // no amount set yet — shown as pending
+
+            String vehicleLabel = "Vehicle";
+            if (tp.getVehicleId() != null) {
+                Vehicle v = vehicleMap.get(tp.getVehicleId());
+                if (v != null) vehicleLabel = v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber();
+            }
+            e.setParticulars("Dabar Transport — " + vehicleLabel);
+
+            // No debit/credit until rate is set — tracking entry only
+            DetailLine pending = new DetailLine();
+            pending.setLabel("Payable: Pending — rate not set");
+            pending.setAmount(null);
+            e.setDetails(List.of(pending));
             entries.add(e);
         }
 

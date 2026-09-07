@@ -249,9 +249,9 @@ class _ServiceFormState extends ConsumerState<_ServiceForm> {
                   helperText: 'Used by Job-Work invoices to auto-fill line quantity',
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'NONE',             child: Text('Manual Entry (no auto-calculate)')),
-                  DropdownMenuItem(value: 'TRIP_QUANTITIES',  child: Text('Sum of Trip Quantities')),
-                  DropdownMenuItem(value: 'DABAR_QUANTITIES', child: Text('Sum of Dabar Quantities')),
+                  DropdownMenuItem(value: 'NONE',            child: Text('Manual Entry (no auto-calculate)')),
+                  DropdownMenuItem(value: 'TRIP_QUANTITIES', child: Text('Sum of Trip Quantities')),
+                  // DABAR_QUANTITIES intentionally excluded — Dabar is intake-only and must never feed invoice quantities
                 ],
                 onChanged: (v) => setState(() => _autoCalcSource = v!),
               ),
