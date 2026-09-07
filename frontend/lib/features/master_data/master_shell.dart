@@ -98,9 +98,10 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
     final showFinance = _visible(8) || _visible(9) || _visible(10);
     final showAdmin   = _visible(13);
 
-    return Container(
-      width: 200,
+    return Material(
       color: Theme.of(context).colorScheme.surface,
+      child: SizedBox(
+      width: 200,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -198,20 +199,24 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
-            child: ListTile(
-              dense: true,
-              leading: const Icon(Icons.logout, size: 18, color: Colors.grey),
-              title: const Text('Logout',
-                  style: TextStyle(fontSize: 13, color: Colors.grey)),
-              onTap: () async {
-                await AuthStorage.clear();
-                if (context.mounted) context.go('/login');
-              },
+            child: Material(
+              color: Colors.transparent,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.logout, size: 18, color: Colors.grey),
+                title: const Text('Logout',
+                    style: TextStyle(fontSize: 13, color: Colors.grey)),
+                onTap: () async {
+                  await AuthStorage.clear();
+                  if (context.mounted) context.go('/login');
+                },
+              ),
             ),
           ),
         ],
       ),
-    );
+      ), // SizedBox
+    ); // Material
   }
 }
 
@@ -267,23 +272,27 @@ class _NavItem extends StatelessWidget {
         color: isSelected ? color.withValues(alpha: 0.1) : null,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: ListTile(
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-        leading: Icon(
-          isSelected ? selectedIcon : icon,
-          size: 18,
-          color: isSelected ? color : Colors.grey[600],
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+          leading: Icon(
+            isSelected ? selectedIcon : icon,
+            size: 18,
+            color: isSelected ? color : Colors.grey[600],
+          ),
+          title: Text(
+            label,
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                color: isSelected ? color : Colors.grey[800]),
+          ),
+          selected: isSelected,
+          onTap: () => context.go(_routes[index]),
         ),
-        title: Text(
-          label,
-          style: TextStyle(
-              fontSize: 13,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              color: isSelected ? color : Colors.grey[800]),
-        ),
-        selected: isSelected,
-        onTap: () => context.go(_routes[index]),
       ),
     );
   }
@@ -299,7 +308,7 @@ class _SiteLabel extends ConsumerWidget {
 
     return sites.when(
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
       data: (list) {
         final site = list.firstWhere(
           (s) => s['id'] == siteId,
@@ -347,7 +356,7 @@ class _SiteSwitcher extends ConsumerWidget {
 
     return sites.when(
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
       data: (list) {
         return Container(
           margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),

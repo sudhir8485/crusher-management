@@ -8,10 +8,30 @@ import '../../core/widgets/app_widgets.dart';
 // ── providers ────────────────────────────────────────────────────────────────
 
 final _dabarDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
+final _dabarModeProvider = StateProvider<String>((ref) => 'day');
+final _dabarCustomRangeProvider =
+    StateProvider<List<DateTime>>((ref) => [DateTime.now(), DateTime.now()]);
 
-final _dabarProvider = FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, date) async {
+List<DateTime> _resolveDabarRange(String mode, DateTime anchor, List<DateTime> custom) {
+  switch (mode) {
+    case 'week':
+      final mon = anchor.subtract(Duration(days: anchor.weekday - 1));
+      return [mon, mon.add(const Duration(days: 6))];
+    case 'month':
+      return [DateTime(anchor.year, anchor.month, 1),
+              DateTime(anchor.year, anchor.month + 1, 0)];
+    case 'custom':
+      return custom;
+    default: // day
+      return [anchor, anchor];
+  }
+}
+
+final _dabarProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, String>((ref, rangeKey) async {
   final siteId = ref.watch(selectedSiteIdProvider);
-  final params = <String, dynamic>{'from': date, 'to': date};
+  final parts = rangeKey.split('|');
+  final params = <String, dynamic>{'from': parts[0], 'to': parts[1]};
   if (siteId != null) params['siteId'] = siteId;
   final res = await ref.read(apiClientProvider).get('/api/dabar', params: params);
   return List<Map<String, dynamic>>.from(res.data);
@@ -32,32 +52,43 @@ final _vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
 class DabarScreen extends ConsumerWidget {
   const DabarScreen({super.key});
 
+  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom) {
+    final fmt = DateFormat('yyyy-MM-dd');
+    final range = _resolveDabarRange(mode, anchor, custom);
+    return '${fmt.format(range[0])}|${fmt.format(range[1])}';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedDate = ref.watch(_dabarDateProvider);
-    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final entries = ref.watch(_dabarProvider(dateKey));
+    final mode         = ref.watch(_dabarModeProvider);
+    final custom       = ref.watch(_dabarCustomRangeProvider);
+    final rangeKey     = _rangeKey(mode, selectedDate, custom);
+    final entries      = ref.watch(_dabarProvider(rangeKey));
+
+    void invalidate() => ref.invalidate(_dabarProvider(rangeKey));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dabar (Raw Stone Intake)'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_dabarProvider(dateKey)),
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: invalidate),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate),
+        onPressed: () => _showForm(context, ref, null, selectedDate, rangeKey),
         icon: const Icon(Icons.add),
         label: const Text('Add Entry'),
       ),
       body: Column(
         children: [
-          AppDateBar(
+          _DabarDateRangeBar(
             selectedDate: selectedDate,
-            onPick: (d) => ref.read(_dabarDateProvider.notifier).state = d,
+            mode: mode,
+            custom: custom,
+            onDateChanged: (d) => ref.read(_dabarDateProvider.notifier).state = d,
+            onModeChanged: (m) => ref.read(_dabarModeProvider.notifier).state = m,
+            onCustomChanged: (r) => ref.read(_dabarCustomRangeProvider.notifier).state = r,
           ),
           Expanded(
             child: entries.when(
@@ -65,40 +96,19 @@ class DabarScreen extends ConsumerWidget {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
                 if (list.isEmpty) {
+                  final emptyMsg = mode == 'day'
+                      ? 'No dabar entries for ${DateFormat('d MMM yyyy').format(selectedDate)}'
+                      : 'No dabar entries for this ${mode == 'week' ? 'week' : mode == 'month' ? 'month' : 'range'}';
                   return AppEmptyState(
                     icon: Icons.terrain_outlined,
-                    message: 'No dabar entries for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                    message: emptyMsg,
                     hint: 'Tap + to add an entry',
                   );
                 }
-                final totalBrass = list.fold<double>(
-                  0, (sum, e) => sum + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
-                final totalTrips = list.fold<int>(
-                  0, (sum, e) => sum + ((e['tripsCount'] as int?) ?? 0));
-                final payableCount = list.where((e) => e['transportPayableActive'] == true).length;
-
-                return Column(
-                  children: [
-                    _SummaryBar(
-                      entryCount: list.length,
-                      totalBrass: totalBrass,
-                      totalTrips: totalTrips,
-                      payableCount: payableCount,
-                    ),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                        itemCount: list.length,
-                        separatorBuilder: (_, idx) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _DabarCard(
-                          entry: list[i],
-                          onTap: () => _showDrilldown(context, list[i]),
-                          onEdit: () => _showForm(context, ref, list[i], selectedDate),
-                          onDelete: () => _confirmDelete(context, ref, list[i], dateKey),
-                        ),
-                      ),
-                    ),
-                  ],
+                return _DabarList(
+                  list: list,
+                  onEdit:   (e) => _showForm(context, ref, e, selectedDate, rangeKey),
+                  onDelete: (e) => _confirmDelete(context, ref, e, rangeKey),
                 );
               },
             ),
@@ -108,30 +118,284 @@ class DabarScreen extends ConsumerWidget {
     );
   }
 
-  void _showForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing, DateTime date) {
+  void _showForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing,
+      DateTime date, String rangeKey) {
     showDialog(
       context: context,
       builder: (_) => _DabarForm(
         existing: existing,
         initialDate: date,
-        onSaved: () {
-          final dateKey = DateFormat('yyyy-MM-dd').format(ref.read(_dabarDateProvider));
-          ref.invalidate(_dabarProvider(dateKey));
-        },
+        onSaved: () => ref.invalidate(_dabarProvider(rangeKey)),
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, WidgetRef ref,
+      Map<String, dynamic> entry, String rangeKey) {
+    final vehicle = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
+    final vendor  = entry['vendorName'] ?? '—';
+    final brass   = entry['quantityBrass'];
+    final detail  = brass != null ? '$vehicle · $vendor · ${numFmt.format(brass)} Brass' : '$vehicle · $vendor';
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Delete dabar entry?'),
+        content: Text('Delete: $detail?\n\nThis cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
+              } catch (_) { return; }
+              if (!context.mounted) return;
+              ref.invalidate(_dabarProvider(rangeKey));
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Date Range Bar ────────────────────────────────────────────────────────────
+
+class _DabarDateRangeBar extends StatelessWidget {
+  final DateTime selectedDate;
+  final String mode;
+  final List<DateTime> custom;
+  final ValueChanged<DateTime> onDateChanged;
+  final ValueChanged<String> onModeChanged;
+  final ValueChanged<List<DateTime>> onCustomChanged;
+
+  const _DabarDateRangeBar({
+    required this.selectedDate,
+    required this.mode,
+    required this.custom,
+    required this.onDateChanged,
+    required this.onModeChanged,
+    required this.onCustomChanged,
+  });
+
+  void _prev() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.subtract(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month - 1, 1)); break;
+      default:      onDateChanged(selectedDate.subtract(const Duration(days: 1))); break;
+    }
+  }
+
+  void _next() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.add(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month + 1, 1)); break;
+      default:      onDateChanged(selectedDate.add(const Duration(days: 1))); break;
+    }
+  }
+
+  String _label() {
+    final fmt = DateFormat('d MMM yyyy');
+    final range = _resolveDabarRange(mode, selectedDate, custom);
+    switch (mode) {
+      case 'week':
+        return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
+      case 'month':
+        return DateFormat('MMMM yyyy').format(selectedDate);
+      case 'custom':
+        return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
+      default:
+        return fmt.format(selectedDate);
+    }
+  }
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: DateTimeRange(start: custom[0], end: custom[1]),
+    );
+    if (picked != null) {
+      onCustomChanged([picked.start, picked.end]);
+      onModeChanged('custom');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final showArrows = mode != 'custom';
+
+    return Container(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Mode chips row
+        Row(children: [
+          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(m.$2),
+                selected: mode == m.$1,
+                onSelected: (_) => onModeChanged(m.$1),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                labelStyle: TextStyle(fontSize: 12,
+                    color: mode == m.$1 ? cs.onPrimary : null),
+                selectedColor: cs.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+            ),
+          InkWell(
+            onTap: () => _pickCustom(context),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: mode == 'custom' ? cs.primary : null,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: mode == 'custom' ? cs.primary : cs.outline.withValues(alpha: 0.4)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.date_range_outlined, size: 14,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface),
+                const SizedBox(width: 4),
+                Text('Custom', style: TextStyle(fontSize: 12,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface)),
+              ]),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 4),
+        // Date navigation row
+        Row(children: [
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: _prev,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          Expanded(
+            child: GestureDetector(
+              onTap: mode == 'day'
+                  ? () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (d != null) onDateChanged(d);
+                    }
+                  : mode == 'custom' ? () => _pickCustom(context) : null,
+              child: Text(_label(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            ),
+          ),
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: _next,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Entry list (search + filter chrome) ──────────────────────────────────────
+
+class _DabarList extends StatefulWidget {
+  final List<Map<String, dynamic>> list;
+  final void Function(Map<String, dynamic>) onEdit;
+  final void Function(Map<String, dynamic>) onDelete;
+  const _DabarList({
+    required this.list,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  State<_DabarList> createState() => _DabarListState();
+}
+
+class _DabarListState extends State<_DabarList> {
+  String _search = '';
+  bool _externalOnly = false;
+  bool _companyOnly  = false;
+  bool _payableOnly  = false;
+  String? _vehicleFilter;
+  final _searchCtrl  = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> all) {
+    var list = all;
+    if (_externalOnly) list = list.where((e) => e['vehicleOwner'] == 'VENDOR').toList();
+    if (_companyOnly)  list = list.where((e) => e['vehicleOwner'] == 'TENANT').toList();
+    if (_payableOnly)  list = list.where((e) => e['transportPayableActive'] == true).toList();
+    if (_vehicleFilter != null) {
+      list = list.where((e) =>
+        (e['vehicleDisplayName'] ?? e['vehiclePlateNumber']) == _vehicleFilter,
+      ).toList();
+    }
+    if (_search.isNotEmpty) {
+      list = list.where((e) {
+        final plate   = (e['vehiclePlateNumber'] as String? ?? '').toLowerCase();
+        final display = (e['vehicleDisplayName']  as String? ?? '').toLowerCase();
+        final party   = (e['vendorName']           as String? ?? '').toLowerCase();
+        return plate.contains(_search) || display.contains(_search) || party.contains(_search);
+      }).toList();
+    }
+    return list;
+  }
+
+  Widget _filterChip(String label, bool active, VoidCallback onTap, {Color? color}) {
+    final c = color ?? Colors.blue;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? c.withValues(alpha: 0.15) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? c : Colors.grey.shade300),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+              color: active ? c : Colors.grey[700])),
+          if (active) ...[
+            const SizedBox(width: 3),
+            Icon(Icons.close, size: 11, color: c),
+          ],
+        ]),
       ),
     );
   }
 
   void _showDrilldown(BuildContext context, Map<String, dynamic> entry) {
-    final vehicle = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
-    final party = entry['vendorName'] ?? '—';
-    final owner = entry['vehicleOwner'] as String?;
+    final vehicle    = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
+    final party      = entry['vendorName'] ?? '—';
+    final owner      = entry['vehicleOwner'] as String?;
     final ownerParty = entry['vehicleOwnedByPartyName'] as String?;
     final hasPayable = entry['transportPayableActive'] == true;
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Entry Details'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -172,38 +436,142 @@ class DabarScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Close')),
         ],
       ),
     );
   }
 
-  void _confirmDelete(BuildContext context, WidgetRef ref, Map<String, dynamic> entry, String dateKey) {
-    final vehicle = entry['vehicleDisplayName'] ?? entry['vehiclePlateNumber'] ?? '—';
-    final vendor  = entry['vendorName'] ?? '—';
-    final brass   = entry['quantityBrass'];
-    final detail  = brass != null ? '$vehicle · $vendor · ${numFmt.format(brass)} Brass' : '$vehicle · $vendor';
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Delete dabar entry?'),
-        content: Text('Delete: $detail?\n\nThis cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async {
-              Navigator.pop(dialogCtx);
-              try {
-                await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
-              } catch (_) { return; }
-              if (!context.mounted) return;
-              ref.invalidate(_dabarProvider(dateKey));
-            },
-            child: const Text('Delete'),
+  @override
+  Widget build(BuildContext context) {
+    final all      = widget.list;
+    final filtered = _applyFilters(all);
+
+    // Counts from unfiltered list (for chip labels)
+    final externalCount = all.where((e) => e['vehicleOwner'] == 'VENDOR').length;
+    final companyCount  = all.where((e) => e['vehicleOwner'] == 'TENANT').length;
+    final payableCount  = all.where((e) => e['transportPayableActive'] == true).length;
+
+    // Top vehicle labels by entry count (for vehicle chips)
+    final Map<String, int> vehicleCounts = {};
+    for (final e in all) {
+      final label = (e['vehicleDisplayName'] ?? e['vehiclePlateNumber']) as String?;
+      if (label != null) vehicleCounts[label] = (vehicleCounts[label] ?? 0) + 1;
+    }
+    final topVehicles = vehicleCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    // Summary from filtered list
+    final totalBrass = filtered.fold<double>(
+        0, (sum, e) => sum + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
+    final totalTrips = filtered.fold<int>(
+        0, (sum, e) => sum + ((e['tripsCount'] as int?) ?? 0));
+    final filteredPayables = filtered.where((e) => e['transportPayableActive'] == true).length;
+
+    final hasChips = externalCount > 0 || companyCount > 0 || payableCount > 0 || topVehicles.length > 1;
+
+    return Column(
+      children: [
+        // ── Summary bar ──────────────────────────────────────────────────────
+        Container(
+          color: Colors.brown.shade50,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _Stat(label: 'Entries',     value: '${filtered.length}'),
+              _Stat(label: 'Total Trips', value: '$totalTrips'),
+              _Stat(label: 'Total Brass', value: totalBrass.toStringAsFixed(3)),
+              if (filteredPayables > 0)
+                _Stat(label: 'Payables', value: '$filteredPayables', color: Colors.deepOrange),
+            ],
           ),
-        ],
-      ),
+        ),
+        // ── Search bar ───────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Search vehicle, party…',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => setState(() {
+                        _search = '';
+                        _searchCtrl.clear();
+                      }),
+                    )
+                  : null,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (v) => setState(() => _search = v.toLowerCase().trim()),
+          ),
+        ),
+        // ── Filter chips ─────────────────────────────────────────────────────
+        if (hasChips)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(children: [
+              if (externalCount > 0) ...[
+                _filterChip('External ($externalCount)', _externalOnly,
+                    () => setState(() {
+                      _externalOnly = !_externalOnly;
+                      if (_externalOnly) _companyOnly = false;
+                    }),
+                    color: Colors.orange),
+                const SizedBox(width: 6),
+              ],
+              if (companyCount > 0) ...[
+                _filterChip('Company ($companyCount)', _companyOnly,
+                    () => setState(() {
+                      _companyOnly = !_companyOnly;
+                      if (_companyOnly) _externalOnly = false;
+                    }),
+                    color: Colors.blueGrey),
+                const SizedBox(width: 6),
+              ],
+              if (payableCount > 0) ...[
+                _filterChip('Payable ($payableCount)', _payableOnly,
+                    () => setState(() => _payableOnly = !_payableOnly),
+                    color: Colors.deepOrange),
+                const SizedBox(width: 6),
+              ],
+              if (topVehicles.length > 1)
+                for (final entry in topVehicles.take(4)) ...[
+                  _filterChip(entry.key, _vehicleFilter == entry.key,
+                      () => setState(() =>
+                        _vehicleFilter = _vehicleFilter == entry.key ? null : entry.key),
+                      color: Colors.indigo),
+                  const SizedBox(width: 6),
+                ],
+            ]),
+          ),
+        // ── Entry list ───────────────────────────────────────────────────────
+        Expanded(
+          child: filtered.isEmpty
+              ? AppEmptyState(
+                  icon: Icons.search_off,
+                  message: 'No entries match the current filter',
+                  hint: 'Clear the search or remove a filter chip',
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) => _DabarCard(
+                    entry: filtered[i],
+                    onTap: () => _showDrilldown(context, filtered[i]),
+                    onEdit: () => widget.onEdit(filtered[i]),
+                    onDelete: () => widget.onDelete(filtered[i]),
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
@@ -239,38 +607,7 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-// ── summary bar ──────────────────────────────────────────────────────────────
-
-class _SummaryBar extends StatelessWidget {
-  final int entryCount;
-  final double totalBrass;
-  final int totalTrips;
-  final int payableCount;
-  const _SummaryBar({
-    required this.entryCount,
-    required this.totalBrass,
-    required this.totalTrips,
-    required this.payableCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.brown.shade50,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _Stat(label: 'Entries', value: '$entryCount'),
-          _Stat(label: 'Total Trips', value: '$totalTrips'),
-          _Stat(label: 'Total Brass', value: '${totalBrass.toStringAsFixed(3)}'),
-          if (payableCount > 0)
-            _Stat(label: 'Payables', value: '$payableCount', color: Colors.deepOrange),
-        ],
-      ),
-    );
-  }
-}
+// ── summary stat ─────────────────────────────────────────────────────────────
 
 class _Stat extends StatelessWidget {
   final String label;
@@ -417,7 +754,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _entryDate;
   late final _trips  = TextEditingController(
-    text: widget.existing?['tripsCount']?.toString() ?? '1', // default 1
+    text: widget.existing?['tripsCount']?.toString() ?? '1',
   );
   late final _brass  = TextEditingController(text: widget.existing?['quantityBrass']?.toString());
   late final _notes  = TextEditingController(text: widget.existing?['notes']);
@@ -438,7 +775,6 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     _vendorId  = widget.existing?['vendorId'];
     _createPayable = widget.existing?['transportPayableActive'] == true;
 
-    // If editing, compute initial payable toggle visibility
     if (_vehicleId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _onVehicleChanged(_vehicleId!));
     }
@@ -467,7 +803,6 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       _ownerPartyName = null;
     });
 
-    // Load all vehicles to find the selected one
     final vehicles = ref.read(_vehiclesProvider).valueOrNull;
     if (vehicles == null) return;
 
@@ -477,16 +812,13 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     );
     if (vehicle.isEmpty) return;
 
-    // Auto-fill party from vehicle's owning party
     if (vehicle['owner'] == 'VENDOR' && vehicle['vendorId'] != null) {
       final vendorId = vehicle['vendorId'] as int;
       if (widget.existing == null || _vendorId == null) {
-        // Only auto-fill on new entry or if party not yet set
         setState(() => _vendorId = vendorId);
       }
     }
 
-    // Check payable eligibility against selected site
     final siteId = ref.read(selectedSiteIdProvider);
     if (siteId == null) return;
 
@@ -512,7 +844,6 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
         setState(() {
           _showPayableToggle = true;
           _ownerPartyName = ownerName;
-          // Preserve existing payable state on edit; default OFF for new entries
           if (widget.existing == null) _createPayable = false;
         });
       } else {
@@ -522,7 +853,6 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
         });
       }
     } catch (_) {
-      // Eligibility check failure — silently hide the toggle
       if (!mounted) return;
       setState(() { _showPayableToggle = false; _createPayable = false; });
     }
@@ -540,11 +870,9 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       'notes': _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     };
 
-    // Only send payable flag if the toggle is relevant
     if (_showPayableToggle) {
       data['createTransportPayable'] = _createPayable;
     } else if (widget.existing != null && widget.existing!['transportPayableActive'] == true) {
-      // If editing and payable was active but toggle no longer applies (vehicle changed), deactivate
       data['createTransportPayable'] = false;
     }
 
@@ -612,7 +940,6 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
               data: (list) => SearchablePicker(
-                // key forces re-init when _vendorId is set from outside (vehicle auto-fill)
                 key: ValueKey(_vendorId),
                 items: list,
                 itemLabel: (v) => v['name'] as String,
@@ -635,7 +962,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                   controller: _brass,
                   decoration: const InputDecoration(
                     labelText: 'Quantity',
-                    suffixText: 'Brass', // Dabar is always measured in Brass
+                    suffixText: 'Brass',
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 )),
@@ -668,7 +995,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                   ),
                   value: _createPayable,
                   onChanged: (v) => setState(() => _createPayable = v),
-                  activeColor: Colors.deepOrange,
+                  activeThumbColor: Colors.deepOrange,
                 ),
               ),
             ],
