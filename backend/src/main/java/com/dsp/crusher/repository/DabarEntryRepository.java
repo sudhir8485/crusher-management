@@ -44,4 +44,7 @@ public interface DabarEntryRepository extends JpaRepository<DabarEntry, Long> {
             @Param("from") LocalDate from,
             @Param("to") LocalDate to,
             @Param("serviceId") Long serviceId);
+
+    boolean existsByVehicleId(Long vehicleId);
+    boolean existsByVendorId(Long vendorId);
 }

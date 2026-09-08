@@ -11,6 +11,7 @@ import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.JobWorkInvoiceRepository;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
@@ -30,13 +31,20 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class VendorService {
 
-    private final VendorRepository repo;
-    private final GstInvoiceRepository invoiceRepo;
+    private final VendorRepository       repo;
+    private final GstInvoiceRepository   invoiceRepo;
     private final VendorPaymentRepository paymentRepo;
-    private final TripRepository tripRepo;
-    private final MaterialRepository materialRepo;
+    private final TripRepository          tripRepo;
+    private final MaterialRepository      materialRepo;
+    private final JobWorkInvoiceRepository jobWorkRepo;
 
     public List<VendorResponse> listActive() {
+        return repo.findByStatusAndIsActiveTrue("ACTIVE").stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<VendorResponse> listAll() {
         return repo.findByStatus("ACTIVE").stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -52,6 +60,7 @@ public class VendorService {
         r.setContact(v.getContact());
         r.setAddress(v.getAddress());
         r.setStatus(v.getStatus());
+        r.setActive(v.isActive());
         BigDecimal invTotal = invoiceRepo.sumAllGrandTotalByVendorId(v.getId());
         BigDecimal paidTotal = paymentRepo.sumByVendorId(v.getId());
         r.setOutstandingAmount(invTotal.subtract(paidTotal));
@@ -258,8 +267,24 @@ public class VendorService {
     }
 
     @Transactional
+    public VendorResponse toggleActive(Long id) {
+        Vendor v = getById(id);
+        v.setActive(!v.isActive());
+        repo.save(v);
+        return toResponse(v);
+    }
+
+    @Transactional
     public void deactivate(Long id) {
         Vendor v = getById(id);
+        if (tripRepo.existsByVendorId(id) ||
+            invoiceRepo.existsByVendorId(id) ||
+            paymentRepo.existsByVendorId(id) ||
+            jobWorkRepo.existsByVendorId(id)) {
+            throw new IllegalStateException(
+                "This party has historical records (trips, invoices, or payments). " +
+                "Use the Active/Inactive toggle to hide them instead of deleting.");
+        }
         v.setStatus("INACTIVE");
         repo.save(v);
     }

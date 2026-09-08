@@ -14,6 +14,7 @@ public class VendorResponse {
     private String contact;
     private String address;
     private String status;
+    private boolean isActive;
     private BigDecimal outstandingAmount;
     private long unpaidInvoiceCount;
 }

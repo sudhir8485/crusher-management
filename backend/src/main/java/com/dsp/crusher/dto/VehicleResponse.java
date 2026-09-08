@@ -13,6 +13,7 @@ public class VehicleResponse {
     private String displayName;
     private String vehicleType;
     private String status;
+    private boolean isActive;
     private Long linkedMachineId;
     private String linkedMachineName;
 }

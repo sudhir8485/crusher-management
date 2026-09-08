@@ -30,9 +30,10 @@ public class VendorController {
     private final VendorService service;
 
     @GetMapping
-    @Operation(summary = "List all active parties")
-    public List<VendorResponse> list() {
-        return service.listActive();
+    @Operation(summary = "List parties. Default: active only. ?includeInactive=true to include inactive.")
+    public List<VendorResponse> list(
+            @RequestParam(defaultValue = "false") boolean includeInactive) {
+        return includeInactive ? service.listAll() : service.listActive();
     }
 
     @GetMapping("/balances")
@@ -76,8 +77,15 @@ public class VendorController {
         return service.update(id, req);
     }
 
+    @PatchMapping("/{id}/toggle-active")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    @Operation(summary = "Toggle is_active flag — instantly hides/shows in pickers without deleting")
+    public VendorResponse toggleActive(@PathVariable Long id) {
+        return service.toggleActive(id);
+    }
+
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate party")
+    @Operation(summary = "Permanently soft-delete. Blocked if historical data exists — use toggle instead.")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);

@@ -13,6 +13,7 @@ public class MachineResponse {
     private String name;
     private String machineType;
     private String status;
+    private boolean isActive;
     private Long linkedVehicleId;
     private String linkedVehicleName;
     private List<MachineWorkTypeDto> workTypes;

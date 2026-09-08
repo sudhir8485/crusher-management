@@ -12,6 +12,8 @@ class MasterListScreen<T> extends StatelessWidget {
   final Widget Function(T item) itemBuilder;
   final VoidCallback onAdd;
   final VoidCallback onRefresh;
+  /// Optional widget shown in the AppBar trailing area (e.g. Show Inactive toggle).
+  final Widget? headerAction;
 
   const MasterListScreen({
     super.key,
@@ -20,6 +22,7 @@ class MasterListScreen<T> extends StatelessWidget {
     required this.itemBuilder,
     required this.onAdd,
     required this.onRefresh,
+    this.headerAction,
   });
 
   @override
@@ -28,6 +31,7 @@ class MasterListScreen<T> extends StatelessWidget {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          if (headerAction != null) headerAction!,
           IconButton(icon: const Icon(Icons.refresh), onPressed: onRefresh),
         ],
       ),

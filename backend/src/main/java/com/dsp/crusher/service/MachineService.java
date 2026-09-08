@@ -9,6 +9,7 @@ import com.dsp.crusher.entity.MachineWorkType;
 import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.MachineRepository;
+import com.dsp.crusher.repository.MachineWorkLogRepository;
 import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,11 +23,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MachineService {
 
-    private final MachineRepository repo;
+    private final MachineRepository        repo;
     private final MachineWorkTypeRepository workTypeRepo;
-    private final VehicleRepository vehicleRepo;
+    private final VehicleRepository         vehicleRepo;
+    private final MachineWorkLogRepository  workLogRepo;
 
     public List<MachineResponse> listActive() {
+        return buildResponses(repo.findByStatusAndIsActiveTrue("ACTIVE"));
+    }
+
+    public List<MachineResponse> listAll() {
         return buildResponses(repo.findByStatus("ACTIVE"));
     }
 
@@ -60,6 +66,15 @@ public class MachineService {
     }
 
     @Transactional
+    public MachineResponse toggleActive(Long id) {
+        Machine m = repo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + id));
+        m.setActive(!m.isActive());
+        repo.save(m);
+        return getById(id);
+    }
+
+    @Transactional
     public void deactivate(Long id) {
         Machine m = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Machine not found: " + id));
@@ -68,8 +83,13 @@ public class MachineService {
             if (v != null && "ACTIVE".equals(v.getStatus())) {
                 throw new IllegalStateException(
                     "Machine is linked to vehicle '" + vehicleLabel(v) + "'. " +
-                    "Remove the link in Machine settings before deactivating.");
+                    "Remove the link in Machine settings before deleting.");
             }
+        }
+        if (workLogRepo.existsByMachineId(id)) {
+            throw new IllegalStateException(
+                "This machine has historical work log entries. " +
+                "Use the Active/Inactive toggle to hide it instead of deleting.");
         }
         m.setStatus("INACTIVE");
         repo.save(m);
@@ -179,6 +199,7 @@ public class MachineService {
             r.setName(m.getName());
             r.setMachineType(m.getMachineType());
             r.setStatus(m.getStatus());
+            r.setActive(m.isActive());
             r.setLinkedVehicleId(m.getLinkedVehicleId());
             if (m.getLinkedVehicleId() != null) {
                 Vehicle v = vehiclesById.get(m.getLinkedVehicleId());

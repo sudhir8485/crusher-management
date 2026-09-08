@@ -51,4 +51,6 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
 
     // Today's invoice count
     long countByInvoiceDateAndStatus(LocalDate date, String status);
+
+    boolean existsByVendorId(Long vendorId);
 }

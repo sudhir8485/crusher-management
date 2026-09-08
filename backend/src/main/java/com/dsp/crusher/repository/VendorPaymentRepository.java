@@ -53,4 +53,6 @@ public interface VendorPaymentRepository extends JpaRepository<VendorPayment, Lo
 
     @Query("SELECT p.vendorId, MAX(p.paymentDate) FROM VendorPayment p WHERE p.vendorId IN :vendorIds AND p.status = 'ACTIVE' GROUP BY p.vendorId")
     List<Object[]> lastPaymentDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
+
+    boolean existsByVendorId(Long vendorId);
 }

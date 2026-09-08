@@ -13,6 +13,8 @@ import java.util.Map;
 public class AutoQtyResponse {
     /** Computed total quantity of UNbilled records — what to pre-fill on the invoice line. */
     private BigDecimal quantity;
+    /** Unit of the computed quantity — matches the service's defaultUnit (BRASS or TON). */
+    private String unit;
     /** Number of unbilled underlying records summed. */
     private int count;
     /** TRIP_QUANTITIES | DABAR_QUANTITIES */

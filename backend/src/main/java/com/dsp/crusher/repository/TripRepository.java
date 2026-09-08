@@ -101,4 +101,8 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
             @Param("from") LocalDate from,
             @Param("to") LocalDate to,
             @Param("serviceId") Long serviceId);
+
+    // Reference-check for delete guard
+    boolean existsByVehicleId(Long vehicleId);
+    boolean existsByVendorId(Long vendorId);
 }

@@ -32,4 +32,6 @@ public interface DieselUsageRepository extends JpaRepository<DieselUsage, Long> 
 
     @Query("SELECT COALESCE(SUM(u.quantityLiters), 0) FROM DieselUsage u WHERE u.status = 'ACTIVE' AND (:siteId IS NULL OR u.siteId = :siteId)")
     BigDecimal sumTotalUsedBySite(@Param("siteId") Long siteId);
+
+    boolean existsByVehicleId(Long vehicleId);
 }

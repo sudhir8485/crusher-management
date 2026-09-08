@@ -4,71 +4,138 @@ import '../../../core/api/api_client.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../widgets/master_list_screen.dart';
 
+// ── Providers ─────────────────────────────────────────────────────────────────
+
+/// Active-only — used by pickers everywhere.
 final vehiclesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final api = ref.read(apiClientProvider);
-  final res = await api.get('/api/vehicles');
+  final res = await ref.read(apiClientProvider).get('/api/vehicles');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
+/// All non-deleted including inactive — used when "Show Inactive" is toggled on.
+final _vehiclesAllProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/vehicles', params: {'includeInactive': 'true'});
   return List<Map<String, dynamic>>.from(res.data);
 });
 
 final vendorListProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final api = ref.read(apiClientProvider);
-  final res = await api.get('/api/parties');
+  final res = await ref.read(apiClientProvider).get('/api/parties');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
-class VehiclesScreen extends ConsumerWidget {
+// ── Screen ─────────────────────────────────────────────────────────────────────
+
+class VehiclesScreen extends ConsumerStatefulWidget {
   const VehiclesScreen({super.key});
+  @override
+  ConsumerState<VehiclesScreen> createState() => _VehiclesScreenState();
+}
+
+class _VehiclesScreenState extends ConsumerState<VehiclesScreen> {
+  bool _showInactive = false;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final vehicles = ref.watch(vehiclesProvider);
+  Widget build(BuildContext context) {
+    final provider = _showInactive ? _vehiclesAllProvider : vehiclesProvider;
+    final vehicles = ref.watch(provider);
+
     return MasterListScreen(
       title: 'Vehicles',
       items: vehicles,
-      onRefresh: () => ref.invalidate(vehiclesProvider),
+      onRefresh: () {
+        ref.invalidate(vehiclesProvider);
+        ref.invalidate(_vehiclesAllProvider);
+      },
       onAdd: () => _showForm(context, ref, null),
+      headerAction: _ShowInactiveToggle(
+        value: _showInactive,
+        onChanged: (v) => setState(() => _showInactive = v),
+      ),
       itemBuilder: (v) {
-        final plate = v['plateNumber'] as String;
-        final display = v['displayName'] as String?;
+        final plate     = v['plateNumber'] as String;
+        final display   = v['displayName'] as String?;
         final linkedMachineName = v['linkedMachineName'] as String?;
-        return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.local_shipping)),
-          title: Text('$plate${display != null ? "  ($display)" : ""}'),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${v['owner']} · ${v['vehicleType'] ?? ""}'),
-              if (linkedMachineName != null)
-                Row(children: [
-                  Icon(Icons.construction, size: 12, color: Colors.teal.shade600),
-                  const SizedBox(width: 4),
-                  Text('Linked to Machine: $linkedMachineName',
-                      style: TextStyle(fontSize: 11, color: Colors.teal.shade700)),
-                ]),
-            ],
-          ),
-          isThreeLine: linkedMachineName != null,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showForm(context, ref, v)),
+        final isActive  = v['active'] as bool? ?? true;
+
+        return Opacity(
+          opacity: isActive ? 1.0 : 0.55,
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: isActive ? null : Colors.grey.shade200,
+              child: Icon(Icons.local_shipping, color: isActive ? null : Colors.grey),
+            ),
+            title: Row(children: [
+              Expanded(child: Text('$plate${display != null ? "  ($display)" : ""}')),
+              if (!isActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                ),
+            ]),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${v['owner']} · ${v['vehicleType'] ?? ""}'),
+                if (linkedMachineName != null)
+                  Row(children: [
+                    Icon(Icons.construction, size: 12, color: Colors.teal.shade600),
+                    const SizedBox(width: 4),
+                    Text('Linked to Machine: $linkedMachineName',
+                        style: TextStyle(fontSize: 11, color: Colors.teal.shade700)),
+                  ]),
+              ],
+            ),
+            isThreeLine: linkedMachineName != null,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              // Active/Inactive toggle
+              Switch(
+                value: isActive,
+                onChanged: (_) => _toggleActive(context, ref, v['id'] as int, plate),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => _showForm(context, ref, v),
+              ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
                 onPressed: () => _confirmDelete(context, ref, v['id'] as int,
                     '$plate${display != null ? " ($display)" : ""}'),
               ),
-            ],
+            ]),
           ),
         );
       },
     );
   }
 
+  void _toggleActive(BuildContext context, WidgetRef ref, int id, String label) async {
+    try {
+      await ref.read(apiClientProvider).patch('/api/vehicles/$id/toggle-active');
+      ref.invalidate(vehiclesProvider);
+      ref.invalidate(_vehiclesAllProvider);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_apiError(e)), backgroundColor: Colors.red));
+    }
+  }
+
   void _showForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _VehicleForm(existing: existing, onSaved: () => ref.invalidate(vehiclesProvider)),
+      builder: (_) => _VehicleForm(
+        existing: existing,
+        onSaved: () {
+          ref.invalidate(vehiclesProvider);
+          ref.invalidate(_vehiclesAllProvider);
+        },
+      ),
     );
   }
 
@@ -76,8 +143,28 @@ class VehiclesScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('Deactivate vehicle?'),
-        content: Text('Deactivate "$name"? It will be hidden from new trip entries.'),
+        title: const Text('Delete vehicle?'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Permanently remove "$name"?'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'If this vehicle has any trips or entries, delete will be blocked. '
+                'Use the toggle switch to deactivate it instead.',
+                style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+              )),
+            ]),
+          ),
+        ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
           FilledButton(
@@ -89,21 +176,22 @@ class VehiclesScreen extends ConsumerWidget {
               } catch (e) {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(_apiError(e)),
-                  backgroundColor: Colors.red,
-                ));
+                  content: Text(_apiError(e)), backgroundColor: Colors.red));
                 return;
               }
               if (!context.mounted) return;
               ref.invalidate(vehiclesProvider);
+              ref.invalidate(_vehiclesAllProvider);
             },
-            child: const Text('Deactivate'),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Shared helpers ─────────────────────────────────────────────────────────────
 
 String _apiError(dynamic e) {
   try {
@@ -112,6 +200,23 @@ String _apiError(dynamic e) {
   } catch (_) {}
   return e.toString();
 }
+
+class _ShowInactiveToggle extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _ShowInactiveToggle({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text('Show Inactive', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+      const SizedBox(width: 4),
+      Switch(value: value, onChanged: onChanged, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+    ]);
+  }
+}
+
+// ── Vehicle form ───────────────────────────────────────────────────────────────
 
 class _VehicleForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
@@ -165,9 +270,7 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Save failed: ${_apiError(e)}'),
-          backgroundColor: Colors.red,
-        ));
+          content: Text('Save failed: ${_apiError(e)}'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -218,10 +321,8 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
               const SizedBox(height: 12),
               vendors.when(
                 data: (list) => SearchablePicker(
-                  items: list,
-                  itemLabel: (v) => v['name'] as String,
-                  fieldLabel: 'Party',
-                  value: _vendorId,
+                  items: list, itemLabel: (v) => v['name'] as String,
+                  fieldLabel: 'Party', value: _vendorId,
                   onChanged: (v) => setState(() => _vendorId = v),
                   validator: (v) => v == null ? 'Select vendor' : null,
                 ),
@@ -248,12 +349,10 @@ class _VehicleFormState extends ConsumerState<_VehicleForm> {
   }
 }
 
-// Provider for machine list in the linked-machine picker
+// Provider for machine list in the linked-machine picker — active only
 final _machinesForPickerProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final res = await ref.read(apiClientProvider).get('/api/machines');
-  final list = List<Map<String, dynamic>>.from(res.data);
-  return list.map((m) => {
-    'id': m['id'],
-    'label': m['name'] as String,
+  return List<Map<String, dynamic>>.from(res.data).map((m) => {
+    'id': m['id'], 'label': m['name'] as String,
   }).toList();
 });

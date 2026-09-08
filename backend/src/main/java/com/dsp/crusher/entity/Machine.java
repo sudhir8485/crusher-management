@@ -35,6 +35,9 @@ public class Machine {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    @Column(name = "is_active", nullable = false)
+    private boolean isActive = true;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

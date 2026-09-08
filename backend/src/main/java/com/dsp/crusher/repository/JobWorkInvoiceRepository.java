@@ -47,4 +47,6 @@ public interface JobWorkInvoiceRepository extends JpaRepository<JobWorkInvoice, 
             @Param("from") LocalDate from,
             @Param("to") LocalDate to,
             @Param("excludeId") Long excludeId);
+
+    boolean existsByVendorId(Long vendorId);
 }

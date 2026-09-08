@@ -52,4 +52,7 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.gstInvoiceId IS NULL AND m.logDate < :before AND m.status = 'ACTIVE'")
     java.math.BigDecimal sumTotalAmountByCustomerBefore(@Param("customerId") Long customerId, @Param("before") LocalDate before);
+
+    boolean existsByMachineId(Long machineId);
+    boolean existsByCustomerId(Long customerId);
 }

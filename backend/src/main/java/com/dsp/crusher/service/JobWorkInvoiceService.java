@@ -180,12 +180,18 @@ public class JobWorkInvoiceService {
                     "Service '" + svc.getName() + "' has no auto-calculate source configured (Manual Entry only).");
         }
 
+        String serviceUnit = svc.getDefaultUnit() != null ? svc.getDefaultUnit() : "BRASS";
+
         AutoQtyResponse resp = new AutoQtyResponse();
         resp.setSource(source);
+        resp.setUnit(serviceUnit);
 
         if ("TRIP_QUANTITIES".equals(source)) {
-            // Unbilled trips (exclude those already linked to another invoice for this service)
-            List<Trip> unbilled = tripRepo.findUnbilledBySiteAndDateRange(siteId, from, to, serviceId, excludeInvoiceId);
+            // Unbilled trips — only count trips whose unit matches the service's default unit
+            List<Trip> unbilledAll = tripRepo.findUnbilledBySiteAndDateRange(siteId, from, to, serviceId, excludeInvoiceId);
+            List<Trip> unbilled = unbilledAll.stream()
+                    .filter(t -> serviceUnit.equals(t.getQuantityUnit()))
+                    .collect(Collectors.toList());
             BigDecimal total = unbilled.stream()
                     .map(t -> t.getBillableQuantity() != null ? t.getBillableQuantity() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add)
@@ -205,8 +211,11 @@ public class JobWorkInvoiceService {
             resp.setCount(unbilled.size());
             resp.setRecords(records);
 
-            // Already-billed in this period
-            List<Trip> billed = tripRepo.findBilledBySiteAndDateRange(siteId, from, to, serviceId);
+            // Already-billed in this period (unit-filtered)
+            List<Trip> billedAll = tripRepo.findBilledBySiteAndDateRange(siteId, from, to, serviceId);
+            List<Trip> billed = billedAll.stream()
+                    .filter(t -> serviceUnit.equals(t.getQuantityUnit()))
+                    .collect(Collectors.toList());
             BigDecimal billedQty = billed.stream()
                     .map(t -> t.getBillableQuantity() != null ? t.getBillableQuantity() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add)
@@ -283,9 +292,11 @@ public class JobWorkInvoiceService {
             if (svc == null || "NONE".equals(svc.getAutoCalcSource()) || svc.getAutoCalcSource() == null) continue;
 
             if ("TRIP_QUANTITIES".equals(svc.getAutoCalcSource())) {
-                // Mark all currently-unbilled trips in the period (null excludeId = fresh invoice)
+                // Mark only trips matching the service's unit (avoids locking TON trips for a BRASS invoice)
+                String svcUnit = svc.getDefaultUnit() != null ? svc.getDefaultUnit() : "BRASS";
                 List<Trip> toMark = tripRepo.findUnbilledBySiteAndDateRange(
-                        inv.getSiteId(), req.getPeriodFrom(), req.getPeriodTo(), item.getServiceId(), null);
+                        inv.getSiteId(), req.getPeriodFrom(), req.getPeriodTo(), item.getServiceId(), null)
+                        .stream().filter(t -> svcUnit.equals(t.getQuantityUnit())).collect(Collectors.toList());
                 for (Trip t : toMark) {
                     tripBillingRepo.save(new TripJwBilling(t.getId(), item.getServiceId(), inv.getId()));
                 }

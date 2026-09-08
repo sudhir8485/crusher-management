@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── Combined state: both GST invoices and Job-Work invoices merged ─────────────
@@ -205,16 +206,16 @@ class InvoicesScreen extends ConsumerWidget {
               title: const Text('Job-Work Invoice'),
               subtitle: const Text('Crushing / loading services at a Client Site'),
               onTap: () {
-                final sites    = ref.read(_invoiceSitesProvider).valueOrNull    ?? const [];
-                final services = ref.read(_invoiceServicesProvider).valueOrNull ?? const [];
+                final services     = ref.read(_invoiceServicesProvider).valueOrNull ?? const [];
+                final activeSiteId = ref.read(selectedSiteIdProvider);
                 Navigator.pop(ctx);
                 showDialog(
                   context: ctx,
                   barrierDismissible: false,
                   builder: (_) => _JwForm(
                     existing: null,
-                    sites: sites,
                     services: services,
+                    initialSiteId: activeSiteId,
                     onSaved: () => ref.invalidate(_allInvoicesProvider),
                   ),
                 );
@@ -257,14 +258,12 @@ class InvoicesScreen extends ConsumerWidget {
         ),
       );
     } else {
-      final sites    = ref.read(_invoiceSitesProvider).valueOrNull    ?? const [];
       final services = ref.read(_invoiceServicesProvider).valueOrNull ?? const [];
       showDialog(
         context: ctx,
         barrierDismissible: false,
         builder: (_) => _JwForm(
           existing: inv,
-          sites: sites,
           services: services,
           onSaved: () => ref.invalidate(_allInvoicesProvider),
         ),
@@ -1948,6 +1947,7 @@ class _ServiceRow {
   bool    serviceGstConfigured = true;
   String  autoCalcSource       = 'NONE';
   double?                     autoCalcQty;
+  String?                     autoCalcUnit;
   int?                        autoCalcCount;
   List<Map<String, dynamic>>? autoCalcRecords;
   bool                        qtyOverridden = false;
@@ -1988,14 +1988,14 @@ class _ServiceRow {
 
 class _JwForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
-  final List<Map<String, dynamic>> sites;
   final List<Map<String, dynamic>> services;
   final VoidCallback onSaved;
+  final int? initialSiteId; // from sidebar selection — auto-filled for new invoices
   const _JwForm({
     required this.existing,
-    required this.sites,
     required this.services,
     required this.onSaved,
+    this.initialSiteId,
   });
 
   @override
@@ -2012,6 +2012,7 @@ class _JwFormState extends ConsumerState<_JwForm> {
   final _notesCtrl = TextEditingController();
   final List<_ServiceRow> _items = [];
   bool _saving = false;
+  bool _siteAutoFilled = false;
 
   static final _isoFmt = DateFormat('yyyy-MM-dd');
   static final _dispFmt = DateFormat('d MMM yyyy');
@@ -2035,6 +2036,31 @@ class _JwFormState extends ConsumerState<_JwForm> {
     for (final row in _items) {
       row.qtyCtrl.addListener(() => _autoCalc(row));
       row.rateCtrl.addListener(() => _autoCalc(row));
+    }
+    // Schedule site auto-fill after first frame (retries until sites load)
+    if (widget.existing == null && widget.initialSiteId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryAutoFillSite());
+    }
+  }
+
+  void _tryAutoFillSite() {
+    if (!mounted || _siteAutoFilled) return;
+    final allSites    = ref.read(_invoiceSitesProvider).valueOrNull ?? const [];
+    final clientSites = allSites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
+    if (clientSites.isEmpty) {
+      // Sites not loaded yet — retry next frame
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryAutoFillSite());
+      return;
+    }
+    _siteAutoFilled = true;
+    final match = clientSites.firstWhere(
+        (s) => s['id'] == widget.initialSiteId,
+        orElse: () => <String, dynamic>{});
+    if (match.isNotEmpty && mounted) {
+      setState(() {
+        _siteId    = match['id'] as int?;
+        _partyName = match['linkedPartyName'] as String?;
+      });
     }
   }
 
@@ -2079,6 +2105,7 @@ class _JwFormState extends ConsumerState<_JwForm> {
       final data = res.data as Map<String, dynamic>;
       setState(() {
         row.autoCalcQty     = (data['quantity'] as num?)?.toDouble();
+        row.autoCalcUnit    = data['unit'] as String?;
         row.autoCalcCount   = (data['count']    as num?)?.toInt() ?? 0;
         row.autoCalcRecords = List<Map<String, dynamic>>.from(
             (data['records'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)));
@@ -2160,8 +2187,12 @@ class _JwFormState extends ConsumerState<_JwForm> {
 
   @override
   Widget build(BuildContext context) {
-    final clientSites = widget.sites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
-    final services    = widget.services;
+    final allSites    = ref.watch(_invoiceSitesProvider).valueOrNull ?? const [];
+    final clientSites = allSites.where((s) => s['siteType'] == 'CLIENT_SITE').toList();
+    // Watch services internally so they're always available even if provider
+    // wasn't cached when the form was opened.
+    final services    = ref.watch(_invoiceServicesProvider).valueOrNull
+                        ?? widget.services;
     final sub         = _subtotal;
 
     return AppDialog(
@@ -2197,6 +2228,8 @@ class _JwFormState extends ConsumerState<_JwForm> {
                     _siteId    = site['id'] as int?;
                     _partyName = site['linkedPartyName'] as String? ?? 'Party #$partyId';
                   });
+                  // Re-fetch auto-qty for all rows now that we have a site
+                  _refreshAutoQtyAll();
                 }
               },
               validator: (v) => v == null ? 'Select a client site' : null,
@@ -2221,6 +2254,16 @@ class _JwFormState extends ConsumerState<_JwForm> {
                     ]),
                   ),
                 ],
+            // Hint: tell user site is required for auto-qty
+            if (_siteId == null) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.orange.shade700),
+                const SizedBox(width: 6),
+                Text('Select a site to enable auto-quantity calculation',
+                    style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
+              ]),
+            ],
           ]),
           const SizedBox(height: 12),
           DateField(
@@ -2575,10 +2618,10 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
                 const SizedBox(width: 5),
                 Expanded(child: Text(
                   row.qtyOverridden
-                      ? 'Overriding auto-calculated ${_numFmt.format(row.autoCalcQty!)} '
+                      ? 'Overriding auto-calculated ${_numFmt.format(row.autoCalcQty!)} ${row.autoCalcUnit ?? ''} '
                         'from ${row.autoCalcCount} ${_sourceLabel(row.autoCalcSource)}'
                       : 'Auto-calculated from ${row.autoCalcCount} ${_sourceLabel(row.autoCalcSource)} '
-                        '· tap to view',
+                        '(${row.autoCalcUnit ?? ''}) · tap to view',
                   style: TextStyle(
                       fontSize: 11,
                       color: row.qtyOverridden ? Colors.orange.shade800 : Colors.blue.shade700),

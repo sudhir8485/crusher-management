@@ -23,34 +23,39 @@ public class MachineController {
     private final MachineService service;
 
     @GetMapping
-    @Operation(summary = "List all active machines with their work types")
-    public List<MachineResponse> list() {
-        return service.listActive();
+    @Operation(summary = "List machines. Default: active only. ?includeInactive=true to include inactive.")
+    public List<MachineResponse> list(
+            @RequestParam(defaultValue = "false") boolean includeInactive) {
+        return includeInactive ? service.listAll() : service.listActive();
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get machine by ID")
     public MachineResponse get(@PathVariable Long id) {
         return service.getById(id);
     }
 
     @PostMapping
-    @Operation(summary = "Add a new machine")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public ResponseEntity<MachineResponse> create(@Valid @RequestBody MachineRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update machine and its work types")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
     public MachineResponse update(@PathVariable Long id, @Valid @RequestBody MachineRequest req) {
         return service.update(id, req);
     }
 
+    @PatchMapping("/{id}/toggle-active")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    @Operation(summary = "Toggle is_active flag — instantly hides/shows in pickers without deleting")
+    public MachineResponse toggleActive(@PathVariable Long id) {
+        return service.toggleActive(id);
+    }
+
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate machine (blocked if linked vehicle is active)")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
+    @Operation(summary = "Permanently soft-delete. Blocked if historical data exists — use toggle instead.")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
