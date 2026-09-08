@@ -30,16 +30,6 @@ public class ReportController {
         return to.withDayOfMonth(1);
     }
 
-    @GetMapping("/vehicle-log")
-    public ReportResponse vehicleLog(
-            @RequestParam(required = false) Long vehicleId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
-        LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.vehicleLogReport(vehicleId, effectiveFrom, effectiveTo);
-    }
-
     @GetMapping("/machine-work")
     public ReportResponse machineWork(
             @RequestParam(required = false) Long machineId,

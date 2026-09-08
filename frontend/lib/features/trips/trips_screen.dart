@@ -82,6 +82,7 @@ class TripsScreen extends ConsumerWidget {
     final selectedDate = ref.watch(tripsDateProvider);
     final mode         = ref.watch(tripsModeProvider);
     final custom       = ref.watch(tripsCustomRangeProvider);
+    final siteId       = ref.watch(selectedSiteIdProvider);
     final rangeKey     = _rangeKey(mode, selectedDate, custom);
     final trips        = ref.watch(tripsProvider(rangeKey));
 
@@ -109,6 +110,21 @@ class TripsScreen extends ConsumerWidget {
             onModeChanged: (m) => ref.read(tripsModeProvider.notifier).state = m,
             onCustomChanged: (r) => ref.read(tripsCustomRangeProvider.notifier).state = r,
           ),
+          if (siteId == null)
+            Material(
+              color: Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Select a site from the sidebar to add new entries',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                  )),
+                ]),
+              ),
+            ),
           Expanded(
             child: trips.when(
               loading: () => const Center(child: CircularProgressIndicator()),

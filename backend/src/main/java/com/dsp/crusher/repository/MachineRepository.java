@@ -8,4 +8,5 @@ import java.util.List;
 public interface MachineRepository extends JpaRepository<Machine, Long> {
     List<Machine> findByStatus(String status);
     List<Machine> findByVendorIdAndStatus(Long vendorId, String status);
+    List<Machine> findByLinkedVehicleIdAndStatus(Long linkedVehicleId, String status);
 }

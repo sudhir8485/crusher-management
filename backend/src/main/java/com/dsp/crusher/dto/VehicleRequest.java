@@ -12,4 +12,5 @@ public class VehicleRequest {
     @NotBlank private String plateNumber;
     private String displayName;
     private String vehicleType;
+    private Long linkedMachineId;
 }

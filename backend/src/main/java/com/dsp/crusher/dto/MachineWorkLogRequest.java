@@ -17,16 +17,15 @@ public class MachineWorkLogRequest {
 
     private String workDescription;
 
-    @NotNull
-    private String mode = "BUCKET";  // BUCKET | BREAKER
+    private String mode;         // free-form label from selected work type; null when machine has no work types
+
+    private Long workTypeId;     // FK to machine_work_types; null when machine has no work types
 
     private BigDecimal openingReading;
     private BigDecimal closingReading;
     private String notes;
 
-    // ── Customer Billable ─────────────────────────────────────────────────────
-
     private String workPurpose = "INTERNAL";   // INTERNAL | CUSTOMER_BILLABLE
     private Long customerId;
-    private BigDecimal rate;   // null = save as PENDING
+    private BigDecimal rate;     // null = save as PENDING (no Work Type default was available/used)
 }

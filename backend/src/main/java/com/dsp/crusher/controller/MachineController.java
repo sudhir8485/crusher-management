@@ -1,7 +1,7 @@
 package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.MachineRequest;
-import com.dsp.crusher.entity.Machine;
+import com.dsp.crusher.dto.MachineResponse;
 import com.dsp.crusher.service.MachineService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,33 +23,33 @@ public class MachineController {
     private final MachineService service;
 
     @GetMapping
-    @Operation(summary = "List all active machines")
-    public List<Machine> list() {
+    @Operation(summary = "List all active machines with their work types")
+    public List<MachineResponse> list() {
         return service.listActive();
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get machine by ID")
-    public Machine get(@PathVariable Long id) {
+    public MachineResponse get(@PathVariable Long id) {
         return service.getById(id);
     }
 
     @PostMapping
     @Operation(summary = "Add a new machine")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
-    public ResponseEntity<Machine> create(@Valid @RequestBody MachineRequest req) {
+    public ResponseEntity<MachineResponse> create(@Valid @RequestBody MachineRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update machine")
+    @Operation(summary = "Update machine and its work types")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
-    public Machine update(@PathVariable Long id, @Valid @RequestBody MachineRequest req) {
+    public MachineResponse update(@PathVariable Long id, @Valid @RequestBody MachineRequest req) {
         return service.update(id, req);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate machine")
+    @Operation(summary = "Deactivate machine (blocked if linked vehicle is active)")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);

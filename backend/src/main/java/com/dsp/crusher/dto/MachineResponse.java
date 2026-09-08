@@ -1,17 +1,19 @@
 package com.dsp.crusher.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import lombok.Getter;
 import lombok.Setter;
 import java.util.List;
 
 @Getter @Setter
-public class MachineRequest {
-    @NotBlank @Pattern(regexp = "TENANT|VENDOR") private String owner;
+public class MachineResponse {
+    private Long id;
+    private Long tenantId;
+    private String owner;
     private Long vendorId;
-    @NotBlank private String name;
+    private String name;
     private String machineType;
+    private String status;
     private Long linkedVehicleId;
+    private String linkedVehicleName;
     private List<MachineWorkTypeDto> workTypes;
 }

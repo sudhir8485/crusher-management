@@ -16,6 +16,7 @@ public class MachineWorkLogResponse {
     private String machineType;
     private String workDescription;
     private String mode;
+    private Long workTypeId;
     private BigDecimal openingReading;
     private BigDecimal closingReading;
     private BigDecimal totalHours;
@@ -33,7 +34,6 @@ public class MachineWorkLogResponse {
     private String rateSetBy;
     private LocalDateTime rateSetAt;
 
-    /** Set when a GST invoice was auto-generated for this entry (GST-registered party only). */
     private Long gstInvoiceId;
     private String gstInvoiceStatus;  // PENDING | SET | null
 }

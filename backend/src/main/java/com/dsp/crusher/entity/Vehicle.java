@@ -32,6 +32,9 @@ public class Vehicle {
     @Column(name = "vehicle_type", length = 100)
     private String vehicleType;
 
+    @Column(name = "linked_machine_id")
+    private Long linkedMachineId;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 

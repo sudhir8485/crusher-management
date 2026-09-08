@@ -20,6 +20,8 @@ List<DateTime> _resolveDabarRange(String mode, DateTime anchor, List<DateTime> c
     case 'month':
       return [DateTime(anchor.year, anchor.month, 1),
               DateTime(anchor.year, anchor.month + 1, 0)];
+    case 'year':
+      return [DateTime(anchor.year, 1, 1), DateTime(anchor.year, 12, 31)];
     case 'custom':
       return custom;
     default: // day
@@ -27,12 +29,24 @@ List<DateTime> _resolveDabarRange(String mode, DateTime anchor, List<DateTime> c
   }
 }
 
+String _dabarPeriodLabel(String mode, DateTime anchor, List<DateTime> custom) {
+  switch (mode) {
+    case 'week':   return 'this week';
+    case 'month':  return 'this month';
+    case 'year':   return 'this year';
+    case 'custom':
+      final r = _resolveDabarRange('custom', anchor, custom);
+      return '${DateFormat('d MMM').format(r[0])} – ${DateFormat('d MMM yyyy').format(r[1])}';
+    default:       return 'today';
+  }
+}
+
+// key = "fromDate|toDate|siteId" (same pattern as Diesel)
 final _dabarProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, rangeKey) async {
-  final siteId = ref.watch(selectedSiteIdProvider);
   final parts = rangeKey.split('|');
   final params = <String, dynamic>{'from': parts[0], 'to': parts[1]};
-  if (siteId != null) params['siteId'] = siteId;
+  if (parts[2].isNotEmpty) params['siteId'] = parts[2];
   final res = await ref.read(apiClientProvider).get('/api/dabar', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
@@ -52,10 +66,10 @@ final _vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
 class DabarScreen extends ConsumerWidget {
   const DabarScreen({super.key});
 
-  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom) {
+  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom, int? siteId) {
     final fmt = DateFormat('yyyy-MM-dd');
     final range = _resolveDabarRange(mode, anchor, custom);
-    return '${fmt.format(range[0])}|${fmt.format(range[1])}';
+    return '${fmt.format(range[0])}|${fmt.format(range[1])}|${siteId ?? ''}';
   }
 
   @override
@@ -63,10 +77,21 @@ class DabarScreen extends ConsumerWidget {
     final selectedDate = ref.watch(_dabarDateProvider);
     final mode         = ref.watch(_dabarModeProvider);
     final custom       = ref.watch(_dabarCustomRangeProvider);
-    final rangeKey     = _rangeKey(mode, selectedDate, custom);
+    final siteId       = ref.watch(selectedSiteIdProvider);
+    final rangeKey     = _rangeKey(mode, selectedDate, custom, siteId);
     final entries      = ref.watch(_dabarProvider(rangeKey));
 
     void invalidate() => ref.invalidate(_dabarProvider(rangeKey));
+
+    String emptyPeriod() {
+      switch (mode) {
+        case 'week':   return 'this week';
+        case 'month':  return 'in ${DateFormat('MMMM yyyy').format(selectedDate)}';
+        case 'year':   return 'in ${DateFormat('yyyy').format(selectedDate)}';
+        case 'custom': return 'for this range';
+        default:       return 'for ${DateFormat('d MMM yyyy').format(selectedDate)}';
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -90,23 +115,38 @@ class DabarScreen extends ConsumerWidget {
             onModeChanged: (m) => ref.read(_dabarModeProvider.notifier).state = m,
             onCustomChanged: (r) => ref.read(_dabarCustomRangeProvider.notifier).state = r,
           ),
+          if (siteId == null)
+            Material(
+              color: Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Select a site from the sidebar to add new entries',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+                  )),
+                ]),
+              ),
+            ),
           Expanded(
             child: entries.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
                 if (list.isEmpty) {
-                  final emptyMsg = mode == 'day'
-                      ? 'No dabar entries for ${DateFormat('d MMM yyyy').format(selectedDate)}'
-                      : 'No dabar entries for this ${mode == 'week' ? 'week' : mode == 'month' ? 'month' : 'range'}';
                   return AppEmptyState(
                     icon: Icons.terrain_outlined,
-                    message: emptyMsg,
+                    message: 'No dabar entries ${emptyPeriod()}',
                     hint: 'Tap + to add an entry',
                   );
                 }
                 return _DabarList(
                   list: list,
+                  mode: mode,
+                  date: selectedDate,
+                  custom: custom,
                   onEdit:   (e) => _showForm(context, ref, e, selectedDate, rangeKey),
                   onDelete: (e) => _confirmDelete(context, ref, e, rangeKey),
                 );
@@ -125,7 +165,15 @@ class DabarScreen extends ConsumerWidget {
       builder: (_) => _DabarForm(
         existing: existing,
         initialDate: date,
-        onSaved: () => ref.invalidate(_dabarProvider(rangeKey)),
+        onSaved: () {
+          final key = _rangeKey(
+            ref.read(_dabarModeProvider),
+            ref.read(_dabarDateProvider),
+            ref.read(_dabarCustomRangeProvider),
+            ref.read(selectedSiteIdProvider),
+          );
+          ref.invalidate(_dabarProvider(key));
+        },
       ),
     );
   }
@@ -151,7 +199,13 @@ class DabarScreen extends ConsumerWidget {
                 await ref.read(apiClientProvider).delete('/api/dabar/${entry['id']}');
               } catch (_) { return; }
               if (!context.mounted) return;
-              ref.invalidate(_dabarProvider(rangeKey));
+              final key = _rangeKey(
+                ref.read(_dabarModeProvider),
+                ref.read(_dabarDateProvider),
+                ref.read(_dabarCustomRangeProvider),
+                ref.read(selectedSiteIdProvider),
+              );
+              ref.invalidate(_dabarProvider(key));
             },
             child: const Text('Delete'),
           ),
@@ -184,6 +238,7 @@ class _DabarDateRangeBar extends StatelessWidget {
     switch (mode) {
       case 'week':  onDateChanged(selectedDate.subtract(const Duration(days: 7))); break;
       case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month - 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year - 1, 1, 1)); break;
       default:      onDateChanged(selectedDate.subtract(const Duration(days: 1))); break;
     }
   }
@@ -192,6 +247,7 @@ class _DabarDateRangeBar extends StatelessWidget {
     switch (mode) {
       case 'week':  onDateChanged(selectedDate.add(const Duration(days: 7))); break;
       case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month + 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year + 1, 1, 1)); break;
       default:      onDateChanged(selectedDate.add(const Duration(days: 1))); break;
     }
   }
@@ -204,10 +260,12 @@ class _DabarDateRangeBar extends StatelessWidget {
         return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
       case 'month':
         return DateFormat('MMMM yyyy').format(selectedDate);
+      case 'year':
+        return DateFormat('yyyy').format(selectedDate);
       case 'custom':
         return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
       default:
-        return fmt.format(selectedDate);
+        return DateFormat('EEEE, d MMMM yyyy').format(selectedDate);
     }
   }
 
@@ -235,7 +293,7 @@ class _DabarDateRangeBar extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips row
         Row(children: [
-          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
+          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
             Padding(
               padding: const EdgeInsets.only(right: 6),
               child: ChoiceChip(
@@ -315,10 +373,16 @@ class _DabarDateRangeBar extends StatelessWidget {
 
 class _DabarList extends StatefulWidget {
   final List<Map<String, dynamic>> list;
+  final String mode;
+  final DateTime date;
+  final List<DateTime> custom;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
   const _DabarList({
     required this.list,
+    required this.mode,
+    required this.date,
+    required this.custom,
     required this.onEdit,
     required this.onDelete,
   });
@@ -461,13 +525,12 @@ class _DabarListState extends State<_DabarList> {
     final topVehicles = vehicleCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    // Summary from filtered list
-    final totalBrass = filtered.fold<double>(
-        0, (sum, e) => sum + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
-    final totalTrips = filtered.fold<int>(
-        0, (sum, e) => sum + ((e['tripsCount'] as int?) ?? 0));
-    final filteredPayables = filtered.where((e) => e['transportPayableActive'] == true).length;
+    // Summary from unfiltered backend list (full period aggregates, same as Diesel)
+    final totalBrass    = all.fold<double>(0, (s, e) => s + ((e['quantityBrass'] as num?)?.toDouble() ?? 0));
+    final totalTrips    = all.fold<int>(0, (s, e) => s + ((e['tripsCount'] as int?) ?? 0));
+    final totalPayables = all.where((e) => e['transportPayableActive'] == true).length;
 
+    final periodLabel = _dabarPeriodLabel(widget.mode, widget.date, widget.custom);
     final hasChips = externalCount > 0 || companyCount > 0 || payableCount > 0 || topVehicles.length > 1;
 
     return Column(
@@ -476,14 +539,26 @@ class _DabarListState extends State<_DabarList> {
         Container(
           color: Colors.brown.shade50,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+          child: Column(
             children: [
-              _Stat(label: 'Entries',     value: '${filtered.length}'),
-              _Stat(label: 'Total Trips', value: '$totalTrips'),
-              _Stat(label: 'Total Brass', value: totalBrass.toStringAsFixed(3)),
-              if (filteredPayables > 0)
-                _Stat(label: 'Payables', value: '$filteredPayables', color: Colors.deepOrange),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _Stat(label: 'Entries',     value: '${all.length}'),
+                  _Stat(label: 'Total Trips', value: '$totalTrips'),
+                  _Stat(label: 'Total Brass', value: totalBrass.toStringAsFixed(3)),
+                  _Stat(
+                    label: 'Payables',
+                    value: '$totalPayables',
+                    color: totalPayables > 0 ? Colors.deepOrange : Colors.brown.shade300,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Period: $periodLabel',
+                style: TextStyle(fontSize: 11, color: Colors.brown.shade400),
+              ),
             ],
           ),
         ),
@@ -565,6 +640,7 @@ class _DabarListState extends State<_DabarList> {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _DabarCard(
                     entry: filtered[i],
+                    showDate: widget.mode != 'day',
                     onTap: () => _showDrilldown(context, filtered[i]),
                     onEdit: () => widget.onEdit(filtered[i]),
                     onDelete: () => widget.onDelete(filtered[i]),
@@ -631,10 +707,11 @@ class _Stat extends StatelessWidget {
 
 class _DabarCard extends StatelessWidget {
   final Map<String, dynamic> entry;
+  final bool showDate;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _DabarCard({required this.entry, required this.onTap, required this.onEdit, required this.onDelete});
+  const _DabarCard({required this.entry, this.showDate = false, required this.onTap, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -675,6 +752,13 @@ class _DabarCard extends StatelessWidget {
                           _Badge('Company', Colors.blueGrey)
                         else if (vehicleOwner == 'VENDOR')
                           _Badge('External', Colors.orange),
+                        if (showDate && entry['entryDate'] != null) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            DateFormat('d MMM').format(DateTime.parse(entry['entryDate'] as String)),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -878,6 +962,16 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
 
     final api = ref.read(apiClientProvider);
     final siteId = ref.read(selectedSiteIdProvider);
+    if (widget.existing == null && siteId == null) {
+      setState(() => _saving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Select a site from the sidebar before adding entries'),
+          backgroundColor: Colors.orange,
+        ));
+      }
+      return;
+    }
     final siteParams = siteId != null ? {'siteId': siteId} : null;
     try {
       if (widget.existing == null) {

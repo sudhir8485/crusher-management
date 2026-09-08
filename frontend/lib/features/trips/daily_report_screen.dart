@@ -154,16 +154,6 @@ class DailyReportScreen extends ConsumerWidget {
       widgets.add(pw.SizedBox(height: 8));
     }
 
-    // Water Tanker
-    final wt = d['waterTanker'] as Map<String, dynamic>? ?? {};
-    if ((wt['entryCount'] ?? 0) > 0) {
-      widgets.add(_pdfSection('WATER TANKER'));
-      widgets.add(pw.Text(
-          'Entries: ${wt['entryCount']}  |  Hours: ${numFmt.format(wt['totalHours'] ?? 0)}  |  KM: ${numFmt.format(wt['totalKm'] ?? 0)}  |  Amount: ${fmtCurr(wt['totalAmount'] ?? 0)}',
-          style: const pw.TextStyle(fontSize: 9)));
-      widgets.add(pw.SizedBox(height: 8));
-    }
-
     // Diesel
     final diesel = d['diesel'] as Map<String, dynamic>? ?? {};
     widgets.add(_pdfSection('DIESEL'));
@@ -310,13 +300,7 @@ class _ReportBody extends StatelessWidget {
         ),
         _TripsCard(trips: data['trips'] as Map<String, dynamic>? ?? {}),
         const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: _DabarCard(
-              dabar: data['dabar'] as Map<String, dynamic>? ?? {})),
-          const SizedBox(width: 8),
-          Expanded(child: _WaterTankerCard(
-              wt: data['waterTanker'] as Map<String, dynamic>? ?? {})),
-        ]),
+        _DabarCard(dabar: data['dabar'] as Map<String, dynamic>? ?? {}),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: _DieselCard(
@@ -440,25 +424,6 @@ class _DabarCard extends StatelessWidget {
           _statRow('Total Trips', '${dabar['totalTrips'] ?? 0}'),
           _statRow('Total Brass',
               '${numFmt.format(dabar['totalBrass'] ?? 0)} B',
-              bold: true),
-        ],
-      );
-}
-
-class _WaterTankerCard extends StatelessWidget {
-  final Map<String, dynamic> wt;
-  const _WaterTankerCard({required this.wt});
-
-  @override
-  Widget build(BuildContext context) => _SectionCard(
-        title: 'WATER TANKER',
-        icon: Icons.water_drop,
-        color: Colors.lightBlue,
-        children: [
-          _statRow('Entries', '${wt['entryCount'] ?? 0}'),
-          _statRow('Hours', '${numFmt.format(wt['totalHours'] ?? 0)} hrs'),
-          _statRow('KM', '${numFmt.format(wt['totalKm'] ?? 0)} km'),
-          _statRow('Amount', fmtCurr(wt['totalAmount'] ?? 0),
               bold: true),
         ],
       );

@@ -20,7 +20,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReportService {
 
-    private final VehicleDailyLogRepository vehicleLogRepo;
     private final VehicleRepository vehicleRepo;
     private final MachineWorkLogRepository machineWorkRepo;
     private final MachineRepository machineRepo;
@@ -35,68 +34,6 @@ public class ReportService {
         boolean isSiteStaff = auth != null && auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
         return isSiteStaff ? SiteContext.get() : null;
-    }
-
-    // ── Vehicle Daily Log Report ──────────────────────────────────────────────
-
-    public ReportResponse vehicleLogReport(Long vehicleId, LocalDate from, LocalDate to) {
-        Long siteId = effectiveSiteId();
-
-        List<VehicleDailyLog> logs;
-        String filterLabel;
-
-        if (vehicleId != null) {
-            logs = vehicleLogRepo.findByVehicleIdAndDateRangeAndSite(vehicleId, from, to, siteId);
-            filterLabel = vehicleRepo.findById(vehicleId)
-                    .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber())
-                    .orElse("Vehicle " + vehicleId);
-        } else {
-            logs = vehicleLogRepo.findByDateRangeAndSiteAsc(from, to, siteId);
-            filterLabel = "All Vehicles";
-        }
-
-        Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
-                .collect(Collectors.toMap(Vehicle::getId, v -> v));
-
-        BigDecimal totalKm = BigDecimal.ZERO;
-        int totalTrips = 0;
-        List<Row> rows = new ArrayList<>();
-
-        for (VehicleDailyLog l : logs) {
-            Vehicle v = vehicleMap.get(l.getVehicleId());
-            String vehicleName = v != null
-                    ? (v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber())
-                    : "—";
-
-            BigDecimal km = l.getTotalKm() != null ? l.getTotalKm() : BigDecimal.ZERO;
-            totalKm = totalKm.add(km);
-            totalTrips += (l.getTotalTrips() != null ? l.getTotalTrips() : 0);
-
-            Row row = new Row();
-            row.setDate(l.getLogDate());
-            row.setCol1(vehicleName);
-            row.setCol2(l.getLoadingLocation() != null ? l.getLoadingLocation() : "—");
-            row.setCol3(l.getUnloadingLocation() != null ? l.getUnloadingLocation() : "—");
-            row.setCol4(km.toPlainString() + " km");
-            row.setCol5(dayNightStr(l.getTripsDay(), l.getTripsNight()));
-            row.setCol6(l.getTotalTrips() != null ? l.getTotalTrips().toString() : "0");
-            row.setCol7(l.getDieselNote() != null ? l.getDieselNote() : "");
-            rows.add(row);
-        }
-
-        Summary summary = new Summary();
-        summary.setTotalRows(rows.size());
-        summary.setTotalKm(totalKm);
-        summary.setTotalTrips(totalTrips);
-
-        ReportResponse res = new ReportResponse();
-        res.setReportType("VEHICLE_LOG");
-        res.setFromDate(from);
-        res.setToDate(to);
-        res.setFilterLabel(filterLabel);
-        res.setSummary(summary);
-        res.setRows(rows);
-        return res;
     }
 
     // ── Machine Work Report ───────────────────────────────────────────────────

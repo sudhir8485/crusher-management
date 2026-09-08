@@ -11,7 +11,6 @@ import '../../features/master_data/services/services_screen.dart';
 import '../../features/trips/trips_screen.dart';
 import '../../features/trips/daily_report_screen.dart';
 import '../../features/dabar/dabar_screen.dart';
-import '../../features/water_tanker/water_tanker_screen.dart';
 import '../../features/diesel/diesel_screen.dart';
 import '../../features/machine_work/machine_work_screen.dart';
 import '../../features/invoices/invoices_screen.dart';
@@ -19,7 +18,6 @@ import '../../features/vendor_payments/vendor_payments_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/attendance/attendance_screen.dart';
 import '../../features/attendance/employees_screen.dart';
-import '../../features/vehicle_daily_log/vehicle_daily_log_screen.dart';
 import '../../features/users/users_screen.dart';
 import '../../features/ledger/ledger_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
@@ -48,7 +46,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/trips',         builder: (ctx, st) => const TripsScreen()),
           GoRoute(path: '/daily-report', builder: (ctx, st) => const DailyReportScreen()),
           GoRoute(path: '/dabar',        builder: (ctx, st) => const DabarScreen()),
-          GoRoute(path: '/water-tanker', builder: (ctx, st) => const WaterTankerScreen()),
           GoRoute(path: '/diesel',        builder: (ctx, st) => const DieselScreen()),
           GoRoute(path: '/machine-work',      builder: (ctx, st) => const MachineWorkScreen()),
           GoRoute(path: '/invoices',           builder: (ctx, st) => const InvoicesScreen()),
@@ -57,7 +54,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/ledger',             builder: (ctx, st) => const LedgerScreen()),
           GoRoute(path: '/reports',            builder: (ctx, st) => const ReportsScreen()),
           GoRoute(path: '/attendance',          builder: (ctx, st) => const AttendanceScreen()),
-          GoRoute(path: '/vehicle-daily-log',  builder: (ctx, st) => const VehicleDailyLogScreen()),
           GoRoute(path: '/employees',          builder: (ctx, st) => const EmployeesScreen()),
           GoRoute(path: '/users',              builder: (ctx, st) => const UsersScreen()),
           GoRoute(path: '/parties',      builder: (ctx, st) => const VendorsScreen()),

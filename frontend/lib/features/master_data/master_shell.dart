@@ -26,11 +26,11 @@ class MasterShell extends StatelessWidget {
 
   static const _routes = [
     '/dashboard',
-    '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
+    '/trips', '/daily-report', '/dabar', '/diesel', '/machine-work', '/reports',
     '/invoices', '/accounts', '/ledger',
-    '/attendance', '/vehicle-daily-log',
+    '/attendance',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
-    '/services',           // 20 — Master Data: Services
+    '/services',           // 18 — Master Data: Services
   ];
 
   int _indexFor(String location) {
@@ -74,13 +74,13 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
       case 'OWNER_ADMIN':
         return true; // sees everything
       case 'OFFICE_ACCOUNTANT':
-        // Hides: Users (13) — OWNER_ADMIN only
-        return index != 13;
+        // Hides: Users (11) — OWNER_ADMIN only
+        return index != 11;
       default:
         // SITE_STAFF or null (loading): operations only
-        // Hides: Finance (8,9,10), Users (13), Employees (14),
-        //        Parties (15), Vehicles (16), Machines (17), Materials (18), Sites (19), Services (20)
-        return !const {8, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20}.contains(index);
+        // Hides: Finance (7,8,9), Users (11), Employees (12),
+        //        Parties (13), Vehicles (14), Machines (15), Materials (16), Sites (17), Services (18)
+        return !const {7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18}.contains(index);
     }
   }
 
@@ -95,8 +95,8 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final showFinance = _visible(8) || _visible(9) || _visible(10);
-    final showAdmin   = _visible(13);
+    final showFinance = _visible(7) || _visible(8) || _visible(9);
+    final showAdmin   = _visible(11);
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -155,40 +155,35 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                 _item(Icons.swap_horiz_outlined, Icons.swap_horiz, 'Trips', 1),
                 _item(Icons.summarize_outlined, Icons.summarize, 'Daily Report', 2),
                 _item(Icons.terrain_outlined, Icons.terrain, 'Dabar', 3),
-                _item(Icons.water_drop_outlined, Icons.water_drop, 'Water Tanker', 4),
-                _item(Icons.local_gas_station_outlined, Icons.local_gas_station, 'Diesel', 5),
-                _item(Icons.construction_outlined, Icons.construction, 'Machine Work', 6),
-                _item(Icons.bar_chart_outlined, Icons.bar_chart, 'Reports', 7),
+                _item(Icons.local_gas_station_outlined, Icons.local_gas_station, 'Diesel', 4),
+                _item(Icons.construction_outlined, Icons.construction, 'Machine Work', 5),
+                _item(Icons.bar_chart_outlined, Icons.bar_chart, 'Reports', 6),
 
                 if (showFinance) ...[
                   const SizedBox(height: 4),
                   _NavSection('Finance'),
-                  _item(Icons.receipt_long_outlined, Icons.receipt_long, 'Invoices', 8),
-                  _item(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Accounts', 9),
+                  _item(Icons.receipt_long_outlined, Icons.receipt_long, 'Invoices', 7),
+                  _item(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Accounts', 8),
                 ],
 
                 const SizedBox(height: 4),
                 _NavSection('Workforce'),
-                _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 11),
-                _item(Icons.badge_outlined, Icons.badge, 'Employees', 14),
-
-                const SizedBox(height: 4),
-                _NavSection('Vehicles'),
-                _item(Icons.directions_car_outlined, Icons.directions_car, 'Vehicle Log', 12),
-                _item(Icons.local_shipping_outlined, Icons.local_shipping, 'Vehicles', 16),
+                _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 10),
+                _item(Icons.badge_outlined, Icons.badge, 'Employees', 12),
 
                 const SizedBox(height: 4),
                 _NavSection('Master Data'),
-                _item(Icons.people_outline, Icons.people, 'Parties', 15),
-                _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 17),
-                _item(Icons.category_outlined, Icons.category, 'Materials', 18),
-                _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 19),
-                _item(Icons.handyman_outlined, Icons.handyman, 'Services', 20),
+                _item(Icons.people_outline, Icons.people, 'Parties', 13),
+                _item(Icons.local_shipping_outlined, Icons.local_shipping, 'Vehicles', 14),
+                _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 15),
+                _item(Icons.category_outlined, Icons.category, 'Materials', 16),
+                _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 17),
+                _item(Icons.handyman_outlined, Icons.handyman, 'Services', 18),
 
                 if (showAdmin) ...[
                   const SizedBox(height: 4),
                   _NavSection('Admin'),
-                  _item(Icons.manage_accounts_outlined, Icons.manage_accounts, 'Users', 13),
+                  _item(Icons.manage_accounts_outlined, Icons.manage_accounts, 'Users', 11),
                 ],
               ],
             ),
@@ -254,11 +249,11 @@ class _NavItem extends StatelessWidget {
 
   static const _routes = [
     '/dashboard',
-    '/trips', '/daily-report', '/dabar', '/water-tanker', '/diesel', '/machine-work', '/reports',
+    '/trips', '/daily-report', '/dabar', '/diesel', '/machine-work', '/reports',
     '/invoices', '/accounts', '/ledger',
-    '/attendance', '/vehicle-daily-log',
+    '/attendance',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
-    '/services',           // 20 — Master Data: Services
+    '/services',           // 18 — Master Data: Services
   ];
 
   @override

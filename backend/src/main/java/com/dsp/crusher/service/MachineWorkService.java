@@ -8,11 +8,13 @@ import com.dsp.crusher.entity.GstInvoice;
 import com.dsp.crusher.entity.GstInvoiceItem;
 import com.dsp.crusher.entity.Machine;
 import com.dsp.crusher.entity.MachineWorkLog;
+import com.dsp.crusher.entity.MachineWorkType;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.MachineRepository;
 import com.dsp.crusher.repository.MachineWorkLogRepository;
+import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.UserRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class MachineWorkService {
 
     private final MachineWorkLogRepository repo;
     private final MachineRepository        machineRepo;
+    private final MachineWorkTypeRepository workTypeRepo;
     private final VendorRepository         vendorRepo;
     private final UserRepository           userRepo;
     private final GstInvoiceRepository     invoiceRepo;
@@ -75,7 +78,6 @@ public class MachineWorkService {
         log.setSiteId(resolveCreateSite(targetSiteId));
         apply(log, req);
         log = repo.save(log);
-        // If rate was provided at creation time and customer is GST-registered, create invoice now
         autoCreateGstInvoice(log);
         return enrich(List.of(repo.save(log))).get(0);
     }
@@ -85,85 +87,61 @@ public class MachineWorkService {
         MachineWorkLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
 
-        Long oldGstInvoiceId  = log.getGstInvoiceId();
+        Long oldGstInvoiceId = log.getGstInvoiceId();
         boolean becomingInternal = "INTERNAL".equals(req.getWorkPurpose());
+
+        // Guard: cannot change rate once GST invoice is locked (GST confirmed)
+        if (oldGstInvoiceId != null && !becomingInternal && req.getRate() != null) {
+            GstInvoice existing = invoiceRepo.findById(oldGstInvoiceId).orElse(null);
+            if (existing != null && "SET".equals(existing.getGstStatus())
+                    && (log.getRate() == null || req.getRate().compareTo(log.getRate()) != 0)) {
+                throw new IllegalStateException(
+                    "GST invoice " + existing.getInvoiceNo() + " is already confirmed. " +
+                    "Rate cannot be changed after GST is locked.");
+            }
+        }
 
         apply(log, req);
 
         if (oldGstInvoiceId != null && becomingInternal) {
-            // Work purpose changed to Internal: deactivate the linked invoice
             invoiceRepo.findById(oldGstInvoiceId).ifPresent(inv -> {
                 inv.setStatus("INACTIVE");
                 invoiceRepo.save(inv);
             });
             log.setGstInvoiceId(null);
         } else if (oldGstInvoiceId != null) {
-            // Still billable: sync invoice amount if invoice is still PENDING (hours may have changed)
             syncPendingInvoiceAmount(log, oldGstInvoiceId);
         } else {
-            // No invoice yet: create one if rate is now SET and customer is GST-registered
             autoCreateGstInvoice(log);
         }
 
         return enrich(List.of(repo.save(log))).get(0);
     }
 
-    @Transactional
-    public void deactivate(Long id) {
-        MachineWorkLog log = repo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
-        log.setStatus("INACTIVE");
-        // Cascade deactivation to any auto-generated GST invoice
-        if (log.getGstInvoiceId() != null) {
-            invoiceRepo.findById(log.getGstInvoiceId()).ifPresent(inv -> {
-                inv.setStatus("INACTIVE");
-                invoiceRepo.save(inv);
-            });
-        }
-        repo.save(log);
-    }
-
-    /**
-     * Sets or updates the rate on a Customer Billable entry, computes totalAmount.
-     *
-     * For GST-registered customers: auto-creates a PENDING GST Invoice on first call.
-     * On subsequent rate edits: updates the invoice only if it is still PENDING —
-     * a SET (GST-locked) invoice blocks rate changes (GST has already been confirmed).
-     *
-     * GST Invoice always starts PENDING because machines have no configured GST rate.
-     * The user must set the GST rate explicitly via the party account ledger — the same
-     * mechanism used when a material or service has gst_rate_configured = false.
-     */
+    /** Convenience endpoint — same as editing via PUT with a new rate. Kept for API compatibility. */
     @Transactional
     public MachineWorkLogResponse setRate(Long id, BigDecimal rate) {
         MachineWorkLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
-
         if (!"CUSTOMER_BILLABLE".equals(log.getWorkPurpose())) {
             throw new IllegalStateException("Rate can only be set on Customer Billable entries");
         }
-
-        // Guard: once GST is locked (SET), the taxable base cannot change
         if (log.getGstInvoiceId() != null) {
             GstInvoice existing = invoiceRepo.findById(log.getGstInvoiceId()).orElse(null);
             if (existing != null && "SET".equals(existing.getGstStatus())) {
                 throw new IllegalStateException(
-                        "GST invoice " + existing.getInvoiceNo() + " is already locked. " +
-                        "Rate cannot be changed after GST is confirmed.");
+                    "GST invoice " + existing.getInvoiceNo() + " is already confirmed. " +
+                    "Rate cannot be changed after GST is locked.");
             }
         }
-
         log.setRatePrev(log.getRate());
         log.setRate(rate);
         log.setRateStatus("SET");
         log.setRateSetBy(getCurrentUserName());
         log.setRateSetAt(LocalDateTime.now());
-
         if (log.getTotalHours() != null) {
             log.setTotalAmount(rate.multiply(log.getTotalHours()).setScale(2, RoundingMode.HALF_UP));
         }
-
-        // Auto-create or sync GST invoice for GST-registered customers
         if (log.getCustomerId() != null && log.getTotalAmount() != null) {
             Vendor customer = vendorRepo.findById(log.getCustomerId()).orElse(null);
             if (customer != null && Boolean.TRUE.equals(customer.getGstRegistered())) {
@@ -176,8 +154,21 @@ public class MachineWorkService {
                 }
             }
         }
-
         return enrich(List.of(repo.save(log))).get(0);
+    }
+
+    @Transactional
+    public void deactivate(Long id) {
+        MachineWorkLog log = repo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
+        log.setStatus("INACTIVE");
+        if (log.getGstInvoiceId() != null) {
+            invoiceRepo.findById(log.getGstInvoiceId()).ifPresent(inv -> {
+                inv.setStatus("INACTIVE");
+                invoiceRepo.save(inv);
+            });
+        }
+        repo.save(log);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -186,16 +177,27 @@ public class MachineWorkService {
         log.setLogDate(req.getLogDate());
         log.setMachineId(req.getMachineId());
         log.setWorkDescription(req.getWorkDescription());
-        log.setMode(req.getMode() != null ? req.getMode() : "BUCKET");
-        log.setOpeningReading(req.getOpeningReading());
-        log.setClosingReading(req.getClosingReading());
+        log.setWorkTypeId(req.getWorkTypeId());
         log.setNotes(req.getNotes());
 
+        // Resolve mode from work type label when workTypeId provided
+        if (req.getWorkTypeId() != null) {
+            workTypeRepo.findById(req.getWorkTypeId())
+                    .ifPresent(wt -> log.setMode(wt.getLabel()));
+        } else {
+            log.setMode(req.getMode());
+        }
+
+        // Compute hours
         BigDecimal hours = null;
         if (req.getOpeningReading() != null && req.getClosingReading() != null) {
             hours = req.getClosingReading().subtract(req.getOpeningReading());
+            log.setOpeningReading(req.getOpeningReading());
+            log.setClosingReading(req.getClosingReading());
             log.setTotalHours(hours.compareTo(BigDecimal.ZERO) >= 0 ? hours : BigDecimal.ZERO);
         } else {
+            log.setOpeningReading(req.getOpeningReading());
+            log.setClosingReading(req.getClosingReading());
             log.setTotalHours(null);
         }
 
@@ -204,25 +206,19 @@ public class MachineWorkService {
 
         if ("CUSTOMER_BILLABLE".equals(purpose)) {
             log.setCustomerId(req.getCustomerId());
-            if (!"SET".equals(log.getRateStatus())) {
-                if (req.getRate() != null) {
-                    log.setRate(req.getRate());
-                    log.setRateStatus("SET");
-                    log.setRateSetBy(getCurrentUserName());
-                    log.setRateSetAt(LocalDateTime.now());
-                    BigDecimal h = log.getTotalHours();
-                    if (h != null) {
-                        log.setTotalAmount(req.getRate().multiply(h).setScale(2, RoundingMode.HALF_UP));
-                    }
-                } else {
-                    log.setRateStatus("PENDING");
-                    log.setTotalAmount(null);
+            if (req.getRate() != null) {
+                log.setRate(req.getRate());
+                log.setRateStatus("SET");
+                log.setRateSetBy(getCurrentUserName());
+                log.setRateSetAt(LocalDateTime.now());
+                BigDecimal h = log.getTotalHours();
+                if (h != null) {
+                    log.setTotalAmount(req.getRate().multiply(h).setScale(2, RoundingMode.HALF_UP));
                 }
             } else {
-                // Rate is locked: re-compute totalAmount if hours changed
-                if (log.getRate() != null && log.getTotalHours() != null) {
-                    log.setTotalAmount(log.getRate().multiply(log.getTotalHours()).setScale(2, RoundingMode.HALF_UP));
-                }
+                log.setRate(null);
+                log.setRateStatus("PENDING");
+                log.setTotalAmount(null);
             }
         } else {
             log.setCustomerId(null);
@@ -232,11 +228,9 @@ public class MachineWorkService {
             log.setRateSetBy(null);
             log.setRateSetAt(null);
             log.setRatePrev(null);
-            // gstInvoiceId is cleared by update() when switching to INTERNAL
         }
     }
 
-    /** Creates a GST invoice for the log if not yet created, rate is SET, and customer is GST-registered. */
     private void autoCreateGstInvoice(MachineWorkLog log) {
         if (!"SET".equals(log.getRateStatus())) return;
         if (log.getTotalAmount() == null || log.getCustomerId() == null) return;
@@ -250,7 +244,6 @@ public class MachineWorkService {
         log.setGstInvoiceId(inv.getId());
     }
 
-    /** Updates a PENDING invoice's line item amount when the rate or hours change. SET invoices are untouched. */
     private void syncPendingInvoiceAmount(MachineWorkLog log, Long invoiceId) {
         if (log.getTotalAmount() == null) return;
         invoiceRepo.findById(invoiceId).ifPresent(inv -> {
@@ -276,33 +269,57 @@ public class MachineWorkService {
         Machine machine = machineRepo.findById(log.getMachineId()).orElse(null);
         String machineName = machine != null ? machine.getName() : "Machine";
 
+        // Resolve GST defaults from work type
+        BigDecimal gstRate = BigDecimal.ZERO;
+        if (log.getWorkTypeId() != null) {
+            MachineWorkType wt = workTypeRepo.findById(log.getWorkTypeId()).orElse(null);
+            if (wt != null && wt.getDefaultGstRate() != null
+                    && wt.getDefaultGstRate().compareTo(BigDecimal.ZERO) > 0) {
+                gstRate = wt.getDefaultGstRate();
+            }
+        }
+        BigDecimal halfGst = gstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
+        BigDecimal subtotal = log.getTotalAmount();
+        BigDecimal sgstAmt = subtotal.multiply(halfGst)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        BigDecimal cgstAmt = sgstAmt;
+        BigDecimal grandTotal = subtotal.add(sgstAmt).add(cgstAmt);
+        String gstStatus = gstRate.compareTo(BigDecimal.ZERO) > 0 ? "SET" : "PENDING";
+
         GstInvoice inv = new GstInvoice();
         inv.setTenantId(TenantContext.get());
         inv.setVendorId(log.getCustomerId());
         inv.setInvoiceDate(log.getLogDate());
         inv.setInvoiceNo(nextInvoiceNo(log.getLogDate()));
-        inv.setNotes("Auto-generated from Machine Work — set GST rate in party account to confirm");
-        inv.setSgstRate(BigDecimal.ZERO);
-        inv.setCgstRate(BigDecimal.ZERO);
-        inv.setSubtotal(log.getTotalAmount());
-        inv.setSgstAmount(BigDecimal.ZERO);
-        inv.setCgstAmount(BigDecimal.ZERO);
-        inv.setGrandTotal(log.getTotalAmount());
-        inv.setGstStatus("PENDING");
+        inv.setNotes(gstStatus.equals("SET")
+                ? "Auto-generated from Machine Work"
+                : "Auto-generated from Machine Work — set GST rate in party account to confirm");
+        inv.setSgstRate(halfGst);
+        inv.setCgstRate(halfGst);
+        inv.setSubtotal(subtotal);
+        inv.setSgstAmount(sgstAmt);
+        inv.setCgstAmount(cgstAmt);
+        inv.setGrandTotal(grandTotal);
+        inv.setGstStatus(gstStatus);
 
         GstInvoiceItem item = new GstInvoiceItem();
         item.setInvoice(inv);
         item.setDescription(buildItemDescription(log, machineName));
         item.setRate(log.getRate());
         item.setQuantityBrass(log.getTotalHours());
-        item.setAmount(log.getTotalAmount());
+        item.setAmount(subtotal);
         inv.getItems().add(item);
 
         return inv;
     }
 
     private String buildItemDescription(MachineWorkLog log, String machineName) {
-        StringBuilder sb = new StringBuilder(machineName).append(" — Machine Work");
+        StringBuilder sb = new StringBuilder(machineName);
+        if (log.getMode() != null && !log.getMode().isBlank()) {
+            sb.append(" — ").append(log.getMode());
+        } else {
+            sb.append(" — Machine Work");
+        }
         if (log.getTotalHours() != null) {
             sb.append(" (").append(log.getTotalHours().stripTrailingZeros().toPlainString()).append(" hrs");
             if (log.getRate() != null) {
@@ -347,6 +364,7 @@ public class MachineWorkService {
             r.setMachineId(log.getMachineId());
             r.setWorkDescription(log.getWorkDescription());
             r.setMode(log.getMode());
+            r.setWorkTypeId(log.getWorkTypeId());
             r.setOpeningReading(log.getOpeningReading());
             r.setClosingReading(log.getClosingReading());
             r.setTotalHours(log.getTotalHours());
@@ -363,18 +381,15 @@ public class MachineWorkService {
             if (log.getGstInvoiceId() != null) {
                 r.setGstInvoiceStatus(invoiceStatuses.get(log.getGstInvoiceId()));
             }
-
             Machine m = machines.get(log.getMachineId());
             if (m != null) {
                 r.setMachineName(m.getName());
                 r.setMachineType(m.getMachineType());
             }
-
             if (log.getCustomerId() != null) {
                 Vendor cust = customers.get(log.getCustomerId());
                 if (cust != null) r.setCustomerName(cust.getName());
             }
-
             return r;
         }).collect(Collectors.toList());
     }

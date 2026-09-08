@@ -1,7 +1,7 @@
 package com.dsp.crusher.controller;
 
 import com.dsp.crusher.dto.VehicleRequest;
-import com.dsp.crusher.entity.Vehicle;
+import com.dsp.crusher.dto.VehicleResponse;
 import com.dsp.crusher.service.VehicleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,33 +23,33 @@ public class VehicleController {
     private final VehicleService service;
 
     @GetMapping
-    @Operation(summary = "List all active vehicles")
-    public List<Vehicle> list() {
+    @Operation(summary = "List all active vehicles with linked machine info")
+    public List<VehicleResponse> list() {
         return service.listActive();
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get vehicle by ID")
-    public Vehicle get(@PathVariable Long id) {
+    public VehicleResponse get(@PathVariable Long id) {
         return service.getById(id);
     }
 
     @PostMapping
     @Operation(summary = "Add a new vehicle")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
-    public ResponseEntity<Vehicle> create(@Valid @RequestBody VehicleRequest req) {
+    public ResponseEntity<VehicleResponse> create(@Valid @RequestBody VehicleRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "Update vehicle")
     @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
-    public Vehicle update(@PathVariable Long id, @Valid @RequestBody VehicleRequest req) {
+    public VehicleResponse update(@PathVariable Long id, @Valid @RequestBody VehicleRequest req) {
         return service.update(id, req);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Deactivate vehicle")
+    @Operation(summary = "Deactivate vehicle (blocked if linked machine is active)")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);

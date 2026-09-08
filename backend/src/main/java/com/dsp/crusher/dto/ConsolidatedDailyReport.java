@@ -12,7 +12,6 @@ public class ConsolidatedDailyReport {
 
     private TripsSection trips;
     private DabarSection dabar;
-    private WaterTankerSection waterTanker;
     private DieselSection diesel;
     private MachineSection machine;
     private AttendanceSection attendance;
@@ -52,15 +51,6 @@ public class ConsolidatedDailyReport {
         private int entryCount;
         private int totalTrips;
         private BigDecimal totalBrass;
-    }
-
-    @Data
-    public static class WaterTankerSection {
-        private int entryCount;
-        private BigDecimal totalHours;
-        private BigDecimal totalKm;
-        private int totalTrips;
-        private BigDecimal totalAmount;
     }
 
     @Data

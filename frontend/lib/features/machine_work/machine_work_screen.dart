@@ -18,18 +18,56 @@ String _apiError(dynamic err) {
   return err.toString();
 }
 
+final _fmt = DateFormat('yyyy-MM-dd');
+
+// ── period helpers ────────────────────────────────────────────────────────────
+
+List<DateTime> _resolveMWRange(String mode, DateTime anchor, List<DateTime> custom) {
+  switch (mode) {
+    case 'week':
+      final mon = anchor.subtract(Duration(days: anchor.weekday - 1));
+      return [mon, mon.add(const Duration(days: 6))];
+    case 'month':
+      return [DateTime(anchor.year, anchor.month, 1),
+              DateTime(anchor.year, anchor.month + 1, 0)];
+    case 'year':
+      return [DateTime(anchor.year, 1, 1), DateTime(anchor.year, 12, 31)];
+    case 'custom':
+      return custom;
+    default: // day
+      return [anchor, anchor];
+  }
+}
+
+String _mwRangeKey(String mode, DateTime anchor, List<DateTime> custom, int? siteId) {
+  final r = _resolveMWRange(mode, anchor, custom);
+  return '${_fmt.format(r[0])}|${_fmt.format(r[1])}|${siteId ?? ''}';
+}
+
+String _mwPeriodLabel(String mode, DateTime anchor, List<DateTime> custom) {
+  switch (mode) {
+    case 'week':   return 'this week';
+    case 'month':  return 'this month';
+    case 'year':   return 'this year';
+    case 'custom':
+      final r = _resolveMWRange('custom', anchor, custom);
+      return '${DateFormat('d MMM').format(r[0])} – ${DateFormat('d MMM yyyy').format(r[1])}';
+    default:       return 'today';
+  }
+}
+
 // ── providers ────────────────────────────────────────────────────────────────
 
-final _dateProvider = StateProvider<DateTime>((ref) => DateTime.now());
+final _mwDateProvider   = StateProvider<DateTime>((ref) => DateTime.now());
+final _mwModeProvider   = StateProvider<String>((ref) => 'day');
+final _mwCustomProvider = StateProvider<List<DateTime>>((ref) => [DateTime.now(), DateTime.now()]);
 
-// Key is "date|siteId" so the provider refires when either changes.
+// key = "from|to|siteId"  (same pattern as Diesel / Dabar)
 final _logsProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, key) async {
   final parts  = key.split('|');
-  final date   = parts[0];
-  final siteId = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
-  final params = <String, dynamic>{'from': date, 'to': date};
-  if (siteId != null) params['siteId'] = siteId;
+  final params = <String, dynamic>{'from': parts[0], 'to': parts[1]};
+  if (parts[2].isNotEmpty) params['siteId'] = parts[2];
   final res = await ref.read(apiClientProvider).get('/api/machine-work', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
@@ -55,11 +93,12 @@ class MachineWorkScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selectedDate = ref.watch(_dateProvider);
-    final siteId      = ref.watch(selectedSiteIdProvider);
-    final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final logsKey = '$dateKey|${siteId ?? ''}';
-    final logs = ref.watch(_logsProvider(logsKey));
+    final date   = ref.watch(_mwDateProvider);
+    final mode   = ref.watch(_mwModeProvider);
+    final custom = ref.watch(_mwCustomProvider);
+    final siteId = ref.watch(selectedSiteIdProvider);
+    final key    = _mwRangeKey(mode, date, custom, siteId);
+    final logs   = ref.watch(_logsProvider(key));
 
     return Scaffold(
       appBar: AppBar(
@@ -67,22 +106,25 @@ class MachineWorkScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_logsProvider(logsKey)),
+            onPressed: () => ref.invalidate(_logsProvider(key)),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate, siteId),
+        onPressed: () => _showForm(context, ref, null, date, siteId),
         icon: const Icon(Icons.add),
         label: const Text('Add Entry'),
       ),
       body: Column(
         children: [
-          AppDateBar(
-            selectedDate: selectedDate,
-            onPick: (d) => ref.read(_dateProvider.notifier).state = d,
+          _MWDateRangeBar(
+            selectedDate: date,
+            mode: mode,
+            custom: custom,
+            onDateChanged: (d) => ref.read(_mwDateProvider.notifier).state = d,
+            onModeChanged: (m) => ref.read(_mwModeProvider.notifier).state = m,
+            onCustomChanged: (r) => ref.read(_mwCustomProvider.notifier).state = r,
           ),
-          // Remind admin users to pick a site before creating entries
           if (siteId == null)
             Material(
               color: Colors.orange.shade50,
@@ -100,8 +142,9 @@ class MachineWorkScreen extends ConsumerWidget {
             ),
           logs.when(
             loading: () => const SizedBox(),
-            error: (_, s) => const SizedBox(),
-            data: (data) => _SummaryBar(logs: data),
+            error:   (_, _s) => const SizedBox(),
+            data: (data) => _SummaryBar(
+                logs: data, mode: mode, date: date, custom: custom),
           ),
           Expanded(
             child: logs.when(
@@ -111,19 +154,19 @@ class MachineWorkScreen extends ConsumerWidget {
                 if (data.isEmpty) {
                   return AppEmptyState(
                     icon: Icons.construction_outlined,
-                    message: 'No machine work entries for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                    message: 'No machine work entries ${_emptyMsg(mode, date)}',
                     hint: 'Tap + to add an entry',
                   );
                 }
                 return ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: data.length,
-                  separatorBuilder: (_, idx) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _i) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
-                    onEdit: () => _showForm(context, ref, data[i], selectedDate, siteId),
-                    onDelete: () => _confirmDelete(context, ref, data[i], logsKey),
-                    onSetRate: () => _showSetRateDialog(context, ref, data[i], logsKey),
+                    showDate: mode != 'day',
+                    onEdit:   () => _showForm(context, ref, data[i], date, siteId),
+                    onDelete: () => _confirmDelete(context, ref, data[i], key),
                   ),
                 );
               },
@@ -134,9 +177,24 @@ class MachineWorkScreen extends ConsumerWidget {
     );
   }
 
+  String _emptyMsg(String mode, DateTime date) {
+    switch (mode) {
+      case 'week':   return 'this week';
+      case 'month':  return 'in ${DateFormat('MMMM yyyy').format(date)}';
+      case 'year':   return 'in ${DateFormat('yyyy').format(date)}';
+      case 'custom': return 'for this range';
+      default:       return 'for ${DateFormat('d MMM yyyy').format(date)}';
+    }
+  }
+
   void _showForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic>? log,
       DateTime date, int? siteId) {
-    final logsKey = '${DateFormat('yyyy-MM-dd').format(date)}|${siteId ?? ''}';
+    final key = _mwRangeKey(
+      ref.read(_mwModeProvider),
+      ref.read(_mwDateProvider),
+      ref.read(_mwCustomProvider),
+      siteId,
+    );
     showDialog(
       context: ctx,
       barrierDismissible: false,
@@ -144,117 +202,13 @@ class MachineWorkScreen extends ConsumerWidget {
         existing: log,
         defaultDate: date,
         siteId: siteId,
-        onSaved: () => ref.invalidate(_logsProvider(logsKey)),
-      ),
-    );
-  }
-
-  void _showSetRateDialog(BuildContext ctx, WidgetRef ref,
-      Map<String, dynamic> log, String dateKey) {
-    final totalHours = (log['totalHours'] as num?)?.toDouble();
-    final isSet = (log['rateStatus'] as String?) == 'SET';
-    final currentRate = isSet ? (log['rate'] as num?)?.toDouble() : null;
-    final rateCtrl = TextEditingController(text: currentRate?.toString() ?? '');
-    double? previewTotal = (currentRate != null && totalHours != null)
-        ? currentRate * totalHours : null;
-
-    showDialog(
-      context: ctx,
-      builder: (_) => StatefulBuilder(
-        builder: (dctx, setS) {
-          void updatePreview(String v) {
-            final r = double.tryParse(v);
-            setS(() => previewTotal =
-                (r != null && totalHours != null) ? r * totalHours : null);
-          }
-
-          return AlertDialog(
-            title: Text('${isSet ? 'Edit' : 'Set'} Rate — ${log['machineName'] ?? 'Machine Work'}'),
-            content: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (totalHours != null)
-                Text('${totalHours.toStringAsFixed(2)} hrs of work recorded',
-                    style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: rateCtrl,
-                autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Rate ₹/hr',
-                  prefixText: '₹',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: updatePreview,
-              ),
-              if (previewTotal != null) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Total amount:'),
-                        Text(
-                          '₹${_numFmt.format(previewTotal)}',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade700,
-                              fontSize: 15),
-                        ),
-                      ]),
-                ),
-              ],
-            ]),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(dctx),
-                  child: const Text('Cancel')),
-              FilledButton(
-                onPressed: rateCtrl.text.isNotEmpty
-                    ? () async {
-                        Navigator.pop(dctx);
-                        try {
-                          await ref.read(apiClientProvider).post(
-                            '/api/machine-work/${log['id']}/set-rate',
-                            data: null,
-                            params: {'rate': rateCtrl.text},
-                          );
-                          ref.invalidate(_logsProvider(dateKey));
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                              content: Text(isSet
-                                  ? 'Rate updated to ₹${rateCtrl.text}/hr'
-                                  : 'Rate set to ₹${rateCtrl.text}/hr — entry locked'),
-                              backgroundColor: Colors.green,
-                            ));
-                          }
-                        } catch (e) {
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                              content: Text('Failed: ${_apiError(e)}'),
-                              backgroundColor: Colors.red,
-                            ));
-                          }
-                        }
-                      }
-                    : null,
-                child: Text(isSet ? 'Update' : 'Apply & Lock'),
-              ),
-            ],
-          );
-        },
+        onSaved: () => ref.invalidate(_logsProvider(key)),
       ),
     );
   }
 
   void _confirmDelete(BuildContext ctx, WidgetRef ref,
-      Map<String, dynamic> log, String dateKey) {
+      Map<String, dynamic> log, String rangeKey) {
     final machineName = log['machineName'] ?? 'this entry';
     showDialog(
       context: ctx,
@@ -272,9 +226,16 @@ class MachineWorkScreen extends ConsumerWidget {
               Navigator.pop(dialogCtx);
               try {
                 await ref.read(apiClientProvider).delete('/api/machine-work/${log['id']}');
-              } catch (_) { return; }
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  content: Text('Delete failed: ${_apiError(e)}'),
+                  backgroundColor: Colors.red,
+                ));
+                return;
+              }
               if (!ctx.mounted) return;
-              ref.invalidate(_logsProvider(dateKey));
+              ref.invalidate(_logsProvider(rangeKey));
             },
             child: const Text('Delete'),
           ),
@@ -284,11 +245,166 @@ class MachineWorkScreen extends ConsumerWidget {
   }
 }
 
+// ── period navigation bar ─────────────────────────────────────────────────────
+
+class _MWDateRangeBar extends StatelessWidget {
+  final DateTime selectedDate;
+  final String mode;
+  final List<DateTime> custom;
+  final ValueChanged<DateTime> onDateChanged;
+  final ValueChanged<String> onModeChanged;
+  final ValueChanged<List<DateTime>> onCustomChanged;
+
+  const _MWDateRangeBar({
+    required this.selectedDate,
+    required this.mode,
+    required this.custom,
+    required this.onDateChanged,
+    required this.onModeChanged,
+    required this.onCustomChanged,
+  });
+
+  void _prev() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.subtract(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month - 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year - 1, 1, 1)); break;
+      default:      onDateChanged(selectedDate.subtract(const Duration(days: 1))); break;
+    }
+  }
+
+  void _next() {
+    switch (mode) {
+      case 'week':  onDateChanged(selectedDate.add(const Duration(days: 7))); break;
+      case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month + 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year + 1, 1, 1)); break;
+      default:      onDateChanged(selectedDate.add(const Duration(days: 1))); break;
+    }
+  }
+
+  String _label() {
+    final range = _resolveMWRange(mode, selectedDate, custom);
+    switch (mode) {
+      case 'week':
+        return '${DateFormat('d MMM').format(range[0])} – ${DateFormat('d MMM yyyy').format(range[1])}';
+      case 'month':
+        return DateFormat('MMMM yyyy').format(selectedDate);
+      case 'year':
+        return DateFormat('yyyy').format(selectedDate);
+      case 'custom':
+        return '${DateFormat('d MMM').format(range[0])} – ${DateFormat('d MMM yyyy').format(range[1])}';
+      default:
+        return DateFormat('EEEE, d MMMM yyyy').format(selectedDate);
+    }
+  }
+
+  Future<void> _pickCustom(BuildContext context) async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: DateTimeRange(start: custom[0], end: custom[1]),
+    );
+    if (picked != null) {
+      onCustomChanged([picked.start, picked.end]);
+      onModeChanged('custom');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final showArrows = mode != 'custom';
+
+    return Container(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Mode chips
+        Row(children: [
+          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(m.$2),
+                selected: mode == m.$1,
+                onSelected: (_) => onModeChanged(m.$1),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                labelStyle: TextStyle(fontSize: 12,
+                    color: mode == m.$1 ? cs.onPrimary : null),
+                selectedColor: cs.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+            ),
+          InkWell(
+            onTap: () => _pickCustom(context),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: mode == 'custom' ? cs.primary : null,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: mode == 'custom' ? cs.primary : cs.outline.withValues(alpha: 0.4)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.date_range_outlined, size: 14,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface),
+                const SizedBox(width: 4),
+                Text('Custom', style: TextStyle(fontSize: 12,
+                    color: mode == 'custom' ? cs.onPrimary : cs.onSurface)),
+              ]),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 4),
+        Row(children: [
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: _prev,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          Expanded(
+            child: GestureDetector(
+              onTap: mode == 'day'
+                  ? () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 30)),
+                      );
+                      if (d != null) onDateChanged(d);
+                    }
+                  : mode == 'custom' ? () => _pickCustom(context) : null,
+              child: Text(_label(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            ),
+          ),
+          if (showArrows)
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: _next,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+        ]),
+      ]),
+    );
+  }
+}
+
 // ── summary bar ──────────────────────────────────────────────────────────────
 
 class _SummaryBar extends StatelessWidget {
   final List<Map<String, dynamic>> logs;
-  const _SummaryBar({required this.logs});
+  final String mode;
+  final DateTime date;
+  final List<DateTime> custom;
+  const _SummaryBar({required this.logs, required this.mode, required this.date, required this.custom});
 
   @override
   Widget build(BuildContext context) {
@@ -305,6 +421,7 @@ class _SummaryBar extends StatelessWidget {
         if (amt != null) totalBillable += (amt as num).toDouble();
       }
     }
+    final period = _mwPeriodLabel(mode, date, custom);
     final cs = Theme.of(context).colorScheme;
     return Container(
       color: cs.primary.withValues(alpha: 0.08),
@@ -313,7 +430,7 @@ class _SummaryBar extends StatelessWidget {
         children: [
           const Icon(Icons.construction, size: 18),
           const SizedBox(width: 8),
-          Text('${logs.length} ${logs.length == 1 ? 'entry' : 'entries'}',
+          Text('${logs.length} ${logs.length == 1 ? 'entry' : 'entries'} $period',
               style: const TextStyle(fontWeight: FontWeight.w600)),
           const Spacer(),
           if (totalHours > 0) ...[
@@ -339,20 +456,19 @@ class _SummaryBar extends StatelessWidget {
 
 class _LogCard extends StatelessWidget {
   final Map<String, dynamic> log;
+  final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback onSetRate;
   const _LogCard({
     required this.log,
+    this.showDate = false,
     required this.onEdit,
     required this.onDelete,
-    required this.onSetRate,
   });
 
   @override
   Widget build(BuildContext context) {
-    final mode = (log['mode'] ?? 'BUCKET') as String;
-    final modeColor = mode == 'BREAKER' ? Colors.orange : Colors.blue;
+    final mode = (log['mode'] as String?)?.trim() ?? '';
     final machineName = log['machineName'] ?? '—';
     final machineType = log['machineType'] ?? '';
     final desc = (log['workDescription'] as String?)?.trim() ?? '';
@@ -360,6 +476,7 @@ class _LogCard extends StatelessWidget {
     final closing = log['closingReading'];
     final totalHours = log['totalHours'];
     final notes = (log['notes'] as String?)?.trim() ?? '';
+    final logDateStr = log['logDate'] as String?;
 
     final workPurpose = (log['workPurpose'] ?? 'INTERNAL') as String;
     final isBillable = workPurpose == 'CUSTOMER_BILLABLE';
@@ -383,28 +500,29 @@ class _LogCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                // Mode badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: modeColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
+                if (mode.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(mode,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue)),
                   ),
-                  child: Text(mode,
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: modeColor)),
-                ),
-                if (isBillable) ...[
                   const SizedBox(width: 6),
+                ],
+                if (isBillable) ...[
                   _BillableBadge(
                     isPendingRate: isPendingRate,
                     isGstPending: isGstPending,
                     isGstSet: isGstSet,
                   ),
+                  const SizedBox(width: 8),
                 ],
-                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -418,11 +536,17 @@ class _LogCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Right side: hours or billable total
+                // Date badge for non-day modes
+                if (showDate && logDateStr != null) ...[
+                  Text(
+                    DateFormat('d MMM').format(DateTime.parse(logDateStr)),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 if (isBillable && totalAmount != null)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.purple.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
@@ -437,8 +561,7 @@ class _LogCard extends StatelessWidget {
                   )
                 else if (totalHours != null)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.green.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
@@ -455,14 +578,9 @@ class _LogCard extends StatelessWidget {
                   onSelected: (v) {
                     if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
-                    if (v == 'set_rate') onSetRate();
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    if (isBillable)
-                      PopupMenuItem(
-                          value: 'set_rate',
-                          child: Text(isPendingRate ? 'Set Rate' : 'Edit Rate')),
                     const PopupMenuItem(
                         value: 'delete',
                         child: Text('Delete',
@@ -477,13 +595,11 @@ class _LogCard extends StatelessWidget {
                 Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),
                 const SizedBox(width: 4),
                 Text(customerName,
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
                 if (rate != null && rateStatus == 'SET') ...[
                   const SizedBox(width: 8),
                   Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.purple.shade600)),
+                      style: TextStyle(fontSize: 12, color: Colors.purple.shade600)),
                 ],
               ]),
             ],
@@ -502,16 +618,14 @@ class _LogCard extends StatelessWidget {
                   _Reading(label: 'Closing', value: closing),
                   if (totalHours != null && isBillable) ...[
                     const SizedBox(width: 16),
-                    _Reading(
-                        label: 'Hours',
-                        value: (totalHours as num).toDouble()),
+                    _Reading(label: 'Hours', value: (totalHours as num).toDouble()),
                   ],
                 ],
               ),
             ],
             if (isPendingRate) ...[
               const SizedBox(height: 6),
-              Text('Tap ⋮ → Set Rate to lock this entry',
+              Text('Tap ⋮ → Edit to set the rate for this entry',
                   style: TextStyle(
                       fontSize: 11,
                       color: Colors.orange.shade700,
@@ -633,7 +747,10 @@ class _LogFormState extends ConsumerState<_LogForm> {
   final _formKey = GlobalKey<FormState>();
   late DateTime _date;
   int? _machineId;
-  String _mode = 'BUCKET';
+  String? _mode;
+  int? _workTypeId;
+  List<Map<String, dynamic>> _currentWorkTypes = [];
+  bool _workTypesInitialized = false;
   final _descCtrl = TextEditingController();
   final _openCtrl = TextEditingController();
   final _closeCtrl = TextEditingController();
@@ -643,10 +760,8 @@ class _LogFormState extends ConsumerState<_LogForm> {
   double? _previewHours;
   double? _previewTotal;
 
-  // Customer Billable
   String _workPurpose = 'INTERNAL';
   int? _customerId;
-  bool _rateIsLocked = false;  // true when editing a SET entry
 
   @override
   void initState() {
@@ -657,7 +772,8 @@ class _LogFormState extends ConsumerState<_LogForm> {
         : widget.defaultDate;
     if (e != null) {
       _machineId = e['machineId'] as int?;
-      _mode = (e['mode'] as String?) ?? 'BUCKET';
+      _mode = e['mode'] as String?;
+      _workTypeId = e['workTypeId'] as int?;
       _descCtrl.text = (e['workDescription'] as String?) ?? '';
       final open = e['openingReading'];
       final close = e['closingReading'];
@@ -668,7 +784,6 @@ class _LogFormState extends ConsumerState<_LogForm> {
       _customerId = e['customerId'] as int?;
       final rate = e['rate'];
       if (rate != null) _rateCtrl.text = rate.toString();
-      _rateIsLocked = (e['rateStatus'] as String?) == 'SET';
     }
     _openCtrl.addListener(_updatePreview);
     _closeCtrl.addListener(_updatePreview);
@@ -698,10 +813,60 @@ class _LogFormState extends ConsumerState<_LogForm> {
     super.dispose();
   }
 
+  void _onMachineSelected(int? machineId, List<Map<String, dynamic>> allMachines) {
+    if (machineId == null) {
+      setState(() {
+        _machineId = null;
+        _currentWorkTypes = [];
+        _mode = null;
+        _workTypeId = null;
+      });
+      return;
+    }
+
+    final machine = allMachines.firstWhere(
+      (m) => m['id'] == machineId,
+      orElse: () => {},
+    );
+    final types = (machine['workTypes'] as List<dynamic>? ?? [])
+        .map((wt) => Map<String, dynamic>.from(wt as Map))
+        .toList();
+
+    setState(() {
+      _machineId = machineId;
+      _currentWorkTypes = types;
+      if (types.isEmpty) {
+        _mode = null;
+        _workTypeId = null;
+      } else if (types.length == 1) {
+        _selectWorkType(types[0]);
+      } else {
+        if (_workTypeId != null && types.any((wt) => wt['id'] == _workTypeId)) {
+          // keep current selection
+        } else {
+          _selectWorkType(types[0]);
+        }
+      }
+    });
+  }
+
+  void _selectWorkType(Map<String, dynamic> wt, {bool userTriggered = false}) {
+    _mode = wt['label'] as String?;
+    _workTypeId = wt['id'] as int?;
+    final defaultRate = wt['defaultRate'];
+    if (userTriggered) {
+      _rateCtrl.text = defaultRate != null
+          ? (defaultRate as num).toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '')
+          : '';
+      _updatePreview();
+    } else if (_rateCtrl.text.isEmpty && defaultRate != null) {
+      _rateCtrl.text = (defaultRate as num).toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '');
+      _updatePreview();
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    // For new entries, a site must be selected — SITE_STAFF get it from JWT,
-    // but OWNER_ADMIN/OFFICE_ACCOUNTANT must choose one in the sidebar first.
     if (widget.existing == null && widget.siteId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Select a site from the sidebar before adding entries'),
@@ -714,18 +879,15 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final body = {
       'logDate': DateFormat('yyyy-MM-dd').format(_date),
       'machineId': _machineId,
-      'workDescription':
-          _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+      'workDescription': _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       'mode': _mode,
+      'workTypeId': _workTypeId,
       'openingReading': double.tryParse(_openCtrl.text),
       'closingReading': double.tryParse(_closeCtrl.text),
       'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       'workPurpose': _workPurpose,
-      'customerId':
-          _workPurpose == 'CUSTOMER_BILLABLE' ? _customerId : null,
-      'rate': (_workPurpose == 'CUSTOMER_BILLABLE' &&
-              _rateCtrl.text.isNotEmpty &&
-              !_rateIsLocked)
+      'customerId': _workPurpose == 'CUSTOMER_BILLABLE' ? _customerId : null,
+      'rate': (_workPurpose == 'CUSTOMER_BILLABLE' && _rateCtrl.text.isNotEmpty)
           ? double.tryParse(_rateCtrl.text)
           : null,
     };
@@ -733,8 +895,6 @@ class _LogFormState extends ConsumerState<_LogForm> {
     final e = widget.existing;
     try {
       if (e == null) {
-        // Pass siteId so the backend can assign the entry to the correct site.
-        // Required for OWNER_ADMIN/OFFICE_ACCOUNTANT — SITE_STAFF gets it from JWT.
         final params = widget.siteId != null
             ? <String, dynamic>{'siteId': '${widget.siteId}'}
             : null;
@@ -775,8 +935,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: 18, height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEdit ? 'Update' : 'Save'),
         ),
@@ -787,7 +946,6 @@ class _LogFormState extends ConsumerState<_LogForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Work Purpose toggle
             const SectionLabel('Work Purpose'),
             SegmentedButton<String>(
               segments: const [
@@ -806,22 +964,19 @@ class _LogFormState extends ConsumerState<_LogForm> {
             ),
             const SizedBox(height: 14),
 
-            // Customer picker (billable only)
             if (isBillable) ...[
               vendors.when(
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text('Error loading customers: $e'),
                 data: (list) {
-                  final active =
-                      list.where((v) => v['status'] == 'ACTIVE').toList();
+                  final active = list.where((v) => v['status'] == 'ACTIVE').toList();
                   return SearchablePicker(
                     items: active,
                     itemLabel: (v) => v['name'] as String,
                     fieldLabel: 'Customer *',
                     value: _customerId,
                     onChanged: (v) => setState(() => _customerId = v),
-                    validator: (v) =>
-                        v == null ? 'Select a customer' : null,
+                    validator: (v) => v == null ? 'Select a customer' : null,
                   );
                 },
               ),
@@ -843,39 +998,54 @@ class _LogFormState extends ConsumerState<_LogForm> {
               },
             ),
             const SizedBox(height: 12),
+
             machines.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
               data: (list) {
-                final active =
-                    list.where((m) => m['status'] == 'ACTIVE').toList();
+                final active = list.where((m) => m['status'] == 'ACTIVE').toList();
+                if (!_workTypesInitialized && _machineId != null) {
+                  _workTypesInitialized = true;
+                  final machine = active.firstWhere(
+                      (m) => m['id'] == _machineId, orElse: () => {});
+                  final types = (machine['workTypes'] as List<dynamic>? ?? [])
+                      .map((wt) => Map<String, dynamic>.from(wt as Map)).toList();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _currentWorkTypes = types);
+                  });
+                }
                 return SearchablePicker(
                   items: active,
                   itemLabel: (m) => m['name'] as String,
                   fieldLabel: 'Machine *',
                   value: _machineId,
-                  onChanged: (v) => setState(() => _machineId = v),
+                  onChanged: (v) => _onMachineSelected(v, active),
                   validator: (v) => v == null ? 'Select a machine' : null,
                 );
               },
             ),
-            const SectionLabel('Mode'),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                    value: 'BUCKET',
-                    label: Text('Bucket'),
-                    icon: Icon(Icons.crop_square)),
-                ButtonSegment(
-                    value: 'BREAKER',
-                    label: Text('Breaker'),
-                    icon: Icon(Icons.hardware)),
-              ],
-              selected: {_mode},
-              onSelectionChanged: (s) =>
-                  setState(() => _mode = s.first),
-            ),
-            const SizedBox(height: 12),
+
+            if (_currentWorkTypes.length >= 2) ...[
+              const SectionLabel('Mode'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _currentWorkTypes.map((wt) {
+                  final label = wt['label'] as String;
+                  return ChoiceChip(
+                    label: Text(label),
+                    selected: _mode == label,
+                    onSelected: (_) {
+                      setState(() {
+                        _selectWorkType(wt, userTriggered: true);
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+            ],
+
             TextFormField(
               controller: _descCtrl,
               decoration: const InputDecoration(
@@ -889,18 +1059,14 @@ class _LogFormState extends ConsumerState<_LogForm> {
               children: [
                 Expanded(child: TextFormField(
                   controller: _openCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Opening Reading'),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Opening Reading'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 )),
                 const SizedBox(width: 12),
                 Expanded(child: TextFormField(
                   controller: _closeCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Closing Reading'),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Closing Reading'),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
                     final c = double.tryParse(v);
@@ -916,8 +1082,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
             if (_previewHours != null) ...[
               const SizedBox(height: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -932,8 +1097,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
                           fontWeight: FontWeight.bold)),
                   if (_previewTotal != null) ...[
                     const SizedBox(width: 12),
-                    const Text('·  Total: ',
-                        style: TextStyle(color: Colors.green)),
+                    const Text('·  Total: ', style: TextStyle(color: Colors.green)),
                     Text(
                         '₹${_numFmt.format(_previewTotal!)}',
                         style: TextStyle(
@@ -945,44 +1109,23 @@ class _LogFormState extends ConsumerState<_LogForm> {
               ),
             ],
 
-            // Rate field (billable only, hidden if rate is locked)
             if (isBillable) ...[
               const SectionLabel('Rate'),
-              if (_rateIsLocked)
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.lock_outline, size: 16,
-                        color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                        'Rate locked: ₹${_rateCtrl.text}/hr',
-                        style: const TextStyle(color: Colors.grey)),
-                  ]),
-                )
-              else
-                TextFormField(
-                  controller: _rateCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Rate ₹/hr (leave blank to decide later)',
-                    prefixText: '₹',
-                    helperText:
-                        'If left blank, entry is saved as Rate: Pending',
-                  ),
+              TextFormField(
+                controller: _rateCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Rate ₹/hr',
+                  prefixText: '₹',
+                  helperText: 'Leave blank to save as Rate: Pending',
                 ),
+              ),
             ],
 
             const SizedBox(height: 12),
             TextFormField(
               controller: _notesCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Notes (optional)'),
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
               maxLines: 2,
             ),
           ],

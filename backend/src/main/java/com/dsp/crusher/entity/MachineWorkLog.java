@@ -31,8 +31,11 @@ public class MachineWorkLog {
     @Column(name = "work_description", length = 500)
     private String workDescription;
 
-    @Column(nullable = false, length = 20)
-    private String mode = "BUCKET";
+    @Column(length = 100)
+    private String mode;
+
+    @Column(name = "work_type_id")
+    private Long workTypeId;
 
     @Column(name = "opening_reading", precision = 10, scale = 2)
     private BigDecimal openingReading;

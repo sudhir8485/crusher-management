@@ -22,7 +22,6 @@ public class DailyReportService {
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
     private final DabarEntryRepository dabarRepo;
-    private final WaterTankerLogRepository tankerRepo;
     private final DieselReceiptRepository receiptRepo;
     private final DieselUsageRepository usageRepo;
     private final MachineWorkLogRepository machineRepo;
@@ -37,7 +36,6 @@ public class DailyReportService {
         report.setDate(date);
         report.setTrips(buildTrips(date, siteId));
         report.setDabar(buildDabar(date, siteId));
-        report.setWaterTanker(buildWaterTanker(date, siteId));
         report.setDiesel(buildDiesel(date, siteId));
         report.setMachine(buildMachine(date, siteId));
         report.setAttendance(buildAttendance(date, siteId));
@@ -112,36 +110,6 @@ public class DailyReportService {
         s.setEntryCount(entries.size());
         s.setTotalTrips(trips);
         s.setTotalBrass(brass);
-        return s;
-    }
-
-    // ── Water Tanker ──────────────────────────────────────────────────────────
-
-    private WaterTankerSection buildWaterTanker(LocalDate date, Long siteId) {
-        List<WaterTankerLog> logs = tankerRepo.findByDateAndSite(date, siteId);
-        BigDecimal hours  = BigDecimal.ZERO;
-        BigDecimal km     = BigDecimal.ZERO;
-        BigDecimal amount = BigDecimal.ZERO;
-        int trips = 0;
-        for (WaterTankerLog l : logs) {
-            if (l.getHoursWorked() != null) hours  = hours.add(l.getHoursWorked());
-            if (l.getKmRun()       != null) km     = km.add(l.getKmRun());
-            if (l.getTripsCount()  != null) trips += l.getTripsCount();
-            if (l.getRate() != null) {
-                BigDecimal rate = l.getRate();
-                if (l.getHoursWorked() != null) {
-                    amount = amount.add(l.getHoursWorked().multiply(rate));
-                } else if (l.getTripsCount() != null) {
-                    amount = amount.add(rate.multiply(java.math.BigDecimal.valueOf(l.getTripsCount())));
-                }
-            }
-        }
-        WaterTankerSection s = new WaterTankerSection();
-        s.setEntryCount(logs.size());
-        s.setTotalHours(hours);
-        s.setTotalKm(km);
-        s.setTotalTrips(trips);
-        s.setTotalAmount(amount);
         return s;
     }
 

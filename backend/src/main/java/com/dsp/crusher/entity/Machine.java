@@ -29,6 +29,9 @@ public class Machine {
     @Column(name = "machine_type", length = 100)
     private String machineType;
 
+    @Column(name = "linked_vehicle_id")
+    private Long linkedVehicleId;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
