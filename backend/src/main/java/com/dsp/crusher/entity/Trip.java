@@ -145,4 +145,20 @@ public class Trip {
      *  Set at creation/update time; never retroactively changed. */
     @Column(name = "material_suppressed", nullable = false)
     private boolean materialSuppressed = false;
+
+    // ── Auto-invoice linkage (mirrors machine_work_logs.gst_invoice_id) ───────
+
+    /** GST invoice auto-created on save for GST-registered parties. Null for non-GST or ₹0 trips. */
+    @Column(name = "gst_invoice_id")
+    private Long gstInvoiceId;
+
+    /** TRUE once this trip has been processed by auto-invoice logic (set after migration V30).
+     *  FALSE on all historical trips — keeps them out of the direct-debit ledger view. */
+    @Column(name = "auto_invoiced", nullable = false)
+    private boolean autoInvoiced = false;
+
+    /** VendorPayment (TRANSPORT_CREDIT) auto-created when a VENDOR-owned vehicle is used.
+     *  Records that DSP owes the vehicle owner for the haul. Cascades to INACTIVE on trip delete. */
+    @Column(name = "transport_payment_id")
+    private Long transportPaymentId;
 }

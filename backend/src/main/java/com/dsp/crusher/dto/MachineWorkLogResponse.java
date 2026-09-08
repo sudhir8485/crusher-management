@@ -34,6 +34,7 @@ public class MachineWorkLogResponse {
     private String rateSetBy;
     private LocalDateTime rateSetAt;
 
-    private Long gstInvoiceId;
+    private Long   gstInvoiceId;
     private String gstInvoiceStatus;  // PENDING | SET | null
+    private Long   transportPaymentId;
 }

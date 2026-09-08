@@ -52,5 +52,13 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
     // Today's invoice count
     long countByInvoiceDateAndStatus(LocalDate date, String status);
 
+    // Batch: total invoiced per vendor (for accounts list)
+    @Query("SELECT i.vendorId, COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.vendorId IN :vendorIds AND i.status = 'ACTIVE' GROUP BY i.vendorId")
+    List<Object[]> sumGrandTotalByVendorIds(@Param("vendorIds") List<Long> vendorIds);
+
+    // Batch: last invoice date per vendor (for accounts list last-activity)
+    @Query("SELECT i.vendorId, MAX(i.invoiceDate) FROM GstInvoice i WHERE i.vendorId IN :vendorIds AND i.status = 'ACTIVE' GROUP BY i.vendorId")
+    List<Object[]> lastInvoiceDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
+
     boolean existsByVendorId(Long vendorId);
 }

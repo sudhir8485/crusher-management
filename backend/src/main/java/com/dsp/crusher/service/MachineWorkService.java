@@ -9,13 +9,17 @@ import com.dsp.crusher.entity.GstInvoiceItem;
 import com.dsp.crusher.entity.Machine;
 import com.dsp.crusher.entity.MachineWorkLog;
 import com.dsp.crusher.entity.MachineWorkType;
+import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.entity.Vendor;
+import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.MachineRepository;
 import com.dsp.crusher.repository.MachineWorkLogRepository;
 import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.UserRepository;
+import com.dsp.crusher.repository.VehicleRepository;
+import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,12 +38,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MachineWorkService {
 
-    private final MachineWorkLogRepository repo;
-    private final MachineRepository        machineRepo;
+    private final MachineWorkLogRepository  repo;
+    private final MachineRepository         machineRepo;
     private final MachineWorkTypeRepository workTypeRepo;
-    private final VendorRepository         vendorRepo;
-    private final UserRepository           userRepo;
-    private final GstInvoiceRepository     invoiceRepo;
+    private final VendorRepository          vendorRepo;
+    private final UserRepository            userRepo;
+    private final GstInvoiceRepository      invoiceRepo;
+    private final VehicleRepository         vehicleRepo;
+    private final VendorPaymentRepository   paymentRepo;
 
     public List<MachineWorkLogResponse> list(LocalDate from, LocalDate to, Long siteId) {
         Long sid = effectiveSiteId(siteId);
@@ -79,6 +85,7 @@ public class MachineWorkService {
         apply(log, req);
         log = repo.save(log);
         autoCreateGstInvoice(log);
+        createTransportPaymentIfNeeded(log);
         return enrich(List.of(repo.save(log))).get(0);
     }
 
@@ -109,10 +116,15 @@ public class MachineWorkService {
                 invoiceRepo.save(inv);
             });
             log.setGstInvoiceId(null);
+            deactivateTransportPayment(log);
+            log.setTransportPaymentId(null);
         } else if (oldGstInvoiceId != null) {
             syncPendingInvoiceAmount(log, oldGstInvoiceId);
+            syncTransportPayment(log);
         } else {
             autoCreateGstInvoice(log);
+            if (log.getTransportPaymentId() != null) syncTransportPayment(log);
+            else createTransportPaymentIfNeeded(log);
         }
 
         return enrich(List.of(repo.save(log))).get(0);
@@ -154,6 +166,8 @@ public class MachineWorkService {
                 }
             }
         }
+        if (log.getTransportPaymentId() != null) syncTransportPayment(log);
+        else createTransportPaymentIfNeeded(log);
         return enrich(List.of(repo.save(log))).get(0);
     }
 
@@ -168,6 +182,7 @@ public class MachineWorkService {
                 invoiceRepo.save(inv);
             });
         }
+        deactivateTransportPayment(log);
         repo.save(log);
     }
 
@@ -262,6 +277,68 @@ public class MachineWorkService {
             inv.setCgstAmount(BigDecimal.ZERO);
             inv.setGrandTotal(log.getTotalAmount());
             invoiceRepo.save(inv);
+        });
+    }
+
+    // ── Transport credit to machine's vehicle owner ───────────────────────────
+
+    private void createTransportPaymentIfNeeded(MachineWorkLog log) {
+        if (!"SET".equals(log.getRateStatus())) return;
+        if (log.getTotalAmount() == null || log.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) return;
+        if (log.getTransportPaymentId() != null) return; // idempotent
+
+        Machine machine = machineRepo.findById(log.getMachineId()).orElse(null);
+        if (machine == null) return;
+
+        // Resolve the vendor who owns the machine:
+        // Priority 1: machine.vendorId (machine is directly vendor-owned, e.g. Comosko owned by ABC Construction)
+        // Priority 2: machine.linkedVehicleId → vehicle.vendorId (machine mounted on a vendor vehicle)
+        Long ownerVendorId = null;
+        if ("VENDOR".equals(machine.getOwner()) && machine.getVendorId() != null) {
+            ownerVendorId = machine.getVendorId();
+        } else if (machine.getLinkedVehicleId() != null) {
+            Vehicle vehicle = vehicleRepo.findById(machine.getLinkedVehicleId()).orElse(null);
+            if (vehicle != null && "VENDOR".equals(vehicle.getOwner()) && vehicle.getVendorId() != null) {
+                ownerVendorId = vehicle.getVendorId();
+            }
+        }
+        if (ownerVendorId == null) return;
+
+        VendorPayment p = new VendorPayment();
+        p.setTenantId(log.getTenantId());
+        p.setVendorId(ownerVendorId);
+        p.setPaymentDate(log.getLogDate());
+        p.setAmount(log.getTotalAmount());
+        p.setPaymentMode("TRANSPORT_CREDIT");
+        String machineName = machine.getName() != null ? machine.getName() : "Machine";
+        p.setNotes("Machine hire: " + machineName
+                + (log.getTotalHours() != null
+                   ? " — " + log.getTotalHours().stripTrailingZeros().toPlainString() + " hrs"
+                   : "")
+                + " (machine work #" + log.getId() + ")");
+        p = paymentRepo.save(p);
+        log.setTransportPaymentId(p.getId());
+    }
+
+    private void syncTransportPayment(MachineWorkLog log) {
+        if (log.getTransportPaymentId() == null) return;
+        paymentRepo.findById(log.getTransportPaymentId()).ifPresent(p -> {
+            if (log.getTotalAmount() == null || log.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                p.setStatus("INACTIVE");
+            } else {
+                p.setAmount(log.getTotalAmount());
+                p.setPaymentDate(log.getLogDate());
+                p.setStatus("ACTIVE");
+            }
+            paymentRepo.save(p);
+        });
+    }
+
+    private void deactivateTransportPayment(MachineWorkLog log) {
+        if (log.getTransportPaymentId() == null) return;
+        paymentRepo.findById(log.getTransportPaymentId()).ifPresent(p -> {
+            p.setStatus("INACTIVE");
+            paymentRepo.save(p);
         });
     }
 
@@ -381,6 +458,7 @@ public class MachineWorkService {
             if (log.getGstInvoiceId() != null) {
                 r.setGstInvoiceStatus(invoiceStatuses.get(log.getGstInvoiceId()));
             }
+            r.setTransportPaymentId(log.getTransportPaymentId());
             Machine m = machines.get(log.getMachineId());
             if (m != null) {
                 r.setMachineName(m.getName());

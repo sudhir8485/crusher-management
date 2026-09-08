@@ -319,6 +319,24 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         setCell(row, 1, 'Payable: Pending — rate not set', pendingStyle());
         for (var c in [0, 2, 3, 4, 5, 6]) setCell(row, c, '', pendingStyle());
         row++;
+      } else if ((e['voucherType'] as String?) == 'Delivery' && debit != null) {
+        totalDebit += debit;
+        setCell(row, 0, dateStr,      mainRowStyle(debit: true));
+        setCell(row, 1, particulars,  mainRowStyle(debit: true));
+        setCell(row, 2, '',           mainRowStyle(debit: true));
+        setCell(row, 3, 'Delivery',   mainRowStyle(debit: true));
+        setCell(row, 4, debit,        mainRowStyle(debit: true));
+        setCell(row, 5, '',           mainRowStyle(debit: true));
+        setCell(row, 6, balXl(runBal), mainRowStyle(debit: true));
+        row++;
+        for (final d in details) {
+          final label  = d['label']  as String? ?? '';
+          final amount = (d['amount'] as num?)?.toDouble();
+          setCell(row, 1, label,  subStyle());
+          if (amount != null) setCell(row, 2, amount, subStyle());
+          for (var c in [0, 3, 4, 5, 6]) setCell(row, c, '', subStyle());
+          row++;
+        }
       } else if (!isSales && !isJobWorkEntry && credit != null) {
         totalCredit += credit;
         setCell(row, 0, dateStr,       mainRowStyle(debit: false));
@@ -628,6 +646,41 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             c(''), c(''), c(''), c(''), c(''),
           ],
         ));
+      } else if ((e['voucherType'] as String?) == 'Delivery' && debit != null) {
+        rows.add(pw.TableRow(
+          decoration: pw.BoxDecoration(color: PdfColors.teal50),
+          children: [
+            c(dateStr),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Text(particulars, style: bold()),
+              ])),
+            c(''),
+            c('Delivery', b: true),
+            c(n(debit), b: true, a: pw.TextAlign.right),
+            c(''),
+            bal(runBal),
+          ],
+        ));
+        for (final d in details) {
+          final label  = d['label']  as String? ?? '';
+          final amount = (d['amount'] as num?)?.toDouble();
+          rows.add(pw.TableRow(
+            decoration: const pw.BoxDecoration(color: PdfColors.grey50),
+            children: [
+              c(''),
+              pw.Padding(
+                padding: const pw.EdgeInsets.fromLTRB(14, 1, 4, 1),
+                child: pw.Text(label, style: small())),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                child: pw.Text(amount != null ? n(amount) : '', style: small(),
+                    textAlign: pw.TextAlign.right)),
+              c(''), c(''), c(''), c(''),
+            ],
+          ));
+        }
       } else if (!isSales && credit != null) {
         rows.add(pw.TableRow(
           decoration: const pw.BoxDecoration(color: PdfColors.green50),
@@ -1206,6 +1259,7 @@ class _EntryCard extends StatelessWidget {
     final isMachineWork      = voucherType == 'MachineWork';
     final isJobWork          = voucherType == 'JobWork';
     final isTransportPayable = voucherType == 'TransportPayable';
+    final isDelivery         = voucherType == 'Delivery';
     final debit     = (entry['debit']  as num?)?.toDouble();
     final credit    = (entry['credit'] as num?)?.toDouble();
     final balance   = (entry['runningBalance'] as num?)?.toDouble() ?? 0;
@@ -1232,6 +1286,7 @@ class _EntryCard extends StatelessWidget {
         : isMachineWork ? Colors.lightBlue.shade50
         : isJobWork ? Colors.purple.shade50
         : isTransportPayable ? Colors.deepOrange.shade50
+        : isDelivery ? Colors.teal.shade50
         : Colors.green.shade50;
 
     VoidCallback? onTap;
@@ -1277,6 +1332,11 @@ class _EntryCard extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 6),
                     child: Icon(Icons.local_shipping_outlined, size: 14,
                         color: Colors.deepOrange.shade600)),
+                if (isDelivery)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.swap_horiz_outlined, size: 14,
+                        color: Colors.teal.shade600)),
                 Expanded(
                   child: Text(
                     (isSales || isJobWork)
@@ -1312,18 +1372,20 @@ class _EntryCard extends StatelessWidget {
                     : isMachineWork ? 'Machine Work'
                     : isJobWork ? 'Job Work'
                     : isTransportPayable ? 'Transport'
+                    : isDelivery ? 'Delivery'
                     : 'Received',
                 style: TextStyle(fontSize: 10,
                     color: isSales ? Colors.orange.shade700
                         : isMachineWork ? Colors.blueGrey.shade600
                         : isJobWork ? Colors.purple.shade600
                         : isTransportPayable ? Colors.deepOrange.shade600
+                        : isDelivery ? Colors.teal.shade700
                         : Colors.green.shade700),
               ),
               const SizedBox(height: 2),
               Text(
                 isTransportPayable ? '—'
-                    : (isMachineWork)
+                    : (isMachineWork || isDelivery)
                         ? (debit != null ? fmtCurr(debit) : '—')
                         : (isSales || isJobWork)
                             ? fmtCurr(debit ?? 0)
@@ -1334,6 +1396,7 @@ class _EntryCard extends StatelessWidget {
                       : isMachineWork ? Colors.blueGrey.shade700
                       : isJobWork ? Colors.purple.shade700
                       : isTransportPayable ? Colors.deepOrange.shade700
+                      : isDelivery ? Colors.teal.shade800
                       : Colors.green.shade700,
                 ),
               ),
@@ -1342,7 +1405,7 @@ class _EntryCard extends StatelessWidget {
         ),
 
         // Sub-rows: GST breakdown (Sales) or rate info (MachineWork)
-        if ((isSales || isMachineWork || isJobWork || isTransportPayable) && !isPending && details.isNotEmpty)
+        if ((isSales || isMachineWork || isJobWork || isTransportPayable || isDelivery) && !isPending && details.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
             child: Column(
@@ -1364,7 +1427,7 @@ class _EntryCard extends StatelessWidget {
             ),
           ),
 
-        if ((isSales || isMachineWork || isJobWork || isTransportPayable) && isPending)
+        if ((isSales || isMachineWork || isJobWork || isTransportPayable || isDelivery) && isPending)
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
             child: Text(

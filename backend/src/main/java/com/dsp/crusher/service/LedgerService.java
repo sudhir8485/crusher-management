@@ -9,7 +9,9 @@ import com.dsp.crusher.entity.JobWorkInvoice;
 import com.dsp.crusher.entity.JobWorkInvoiceItem;
 import com.dsp.crusher.entity.Machine;
 import com.dsp.crusher.entity.MachineWorkLog;
+import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.entity.TransportPayable;
+import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.entity.VendorPayment;
@@ -18,7 +20,9 @@ import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.JobWorkInvoiceRepository;
 import com.dsp.crusher.repository.MachineRepository;
 import com.dsp.crusher.repository.MachineWorkLogRepository;
+import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.TransportPayableRepository;
+import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VehicleRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
@@ -46,18 +50,21 @@ public class LedgerService {
     private final JobWorkInvoiceRepository    jobWorkInvoiceRepo;
     private final TransportPayableRepository  transportPayableRepo;
     private final VehicleRepository           vehicleRepo;
+    private final TripRepository              tripRepo;
+    private final MaterialRepository          materialRepo;
 
     public VendorLedgerResponse vendorLedger(Long vendorId, LocalDate from, LocalDate to) {
 
         Vendor vendor = vendorRepo.findById(vendorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vendor not found: " + vendorId));
 
-        // ── Opening balance: (invoices + job-work + machine work SET) − payments before 'from' ─
+        // ── Opening balance: (invoices + job-work + machine work SET + direct trips) − payments before 'from' ─
         BigDecimal openingDebit  = invoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
         BigDecimal openingJw     = jobWorkInvoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
         BigDecimal openingMw     = machineWorkRepo.sumTotalAmountByCustomerBefore(vendorId, from);
+        BigDecimal openingTrip   = tripRepo.sumAutoInvoicedDirectByVendorBefore(vendorId, from);
         BigDecimal openingCredit = paymentRepo.sumAmountByVendorBefore(vendorId, from);
-        BigDecimal openingBalance = openingDebit.add(openingJw).add(openingMw).subtract(openingCredit);
+        BigDecimal openingBalance = openingDebit.add(openingJw).add(openingMw).add(openingTrip).subtract(openingCredit);
 
         // ── Invoices within range ────────────────────────────────────────────
         List<GstInvoice> invoices = invoiceRepo.findWithItemsByVendorAndDateRange(vendorId, from, to);
@@ -249,6 +256,55 @@ public class LedgerService {
             entries.add(e);
         }
 
+        // ── Build direct trip debit entries (non-GST parties, auto_invoiced=true, V30+) ─
+        List<Trip> directTrips = tripRepo.findAutoInvoicedDirectByVendorAndDateRange(vendorId, from, to);
+
+        // Pre-load material names for direct trips
+        List<Long> directTripMatIds = directTrips.stream()
+                .filter(t -> t.getMaterialId() != null)
+                .map(Trip::getMaterialId).distinct().collect(Collectors.toList());
+        Map<Long, Material> directTripMaterials = directTripMatIds.isEmpty() ? Map.of() :
+                materialRepo.findAllById(directTripMatIds).stream()
+                        .collect(Collectors.toMap(Material::getId, m -> m));
+
+        for (Trip trip : directTrips) {
+            LedgerEntry e = new LedgerEntry();
+            e.setDate(trip.getTripDate());
+            e.setVoucherType("Delivery");
+            e.setSourceId(trip.getId());
+            e.setDebit(trip.getTotalBill());
+
+            Material tripMat = trip.getMaterialId() != null
+                    ? directTripMaterials.get(trip.getMaterialId()) : null;
+            String matName = tripMat != null ? tripMat.getName() : null;
+            e.setParticulars(trip.isMaterialSuppressed() || matName == null
+                    ? "Transport Charges" : matName);
+
+            List<DetailLine> details = new ArrayList<>();
+            boolean hasMat = !trip.isMaterialSuppressed()
+                    && trip.getMaterialAmount() != null
+                    && trip.getMaterialAmount().compareTo(BigDecimal.ZERO) > 0;
+            boolean hasTrans = trip.getTransportationCharge() != null
+                    && trip.getTransportationCharge().compareTo(BigDecimal.ZERO) > 0;
+
+            if (hasMat) {
+                DetailLine d = new DetailLine();
+                d.setLabel(matName + (trip.getBillableQuantity() != null
+                        ? " — " + trip.getBillableQuantity().stripTrailingZeros().toPlainString()
+                          + " " + trip.getQuantityUnit() : ""));
+                d.setAmount(trip.getMaterialAmount());
+                details.add(d);
+            }
+            if (hasTrans) {
+                DetailLine d = new DetailLine();
+                d.setLabel("Transport");
+                d.setAmount(trip.getTransportationCharge());
+                details.add(d);
+            }
+            e.setDetails(details);
+            entries.add(e);
+        }
+
         // ── Build transport payable entries (Dabar) ──────────────────────────
         List<TransportPayable> transportPayables =
                 transportPayableRepo.findByPartyIdAndEntryDateBetweenAndStatus(vendorId, from, to, "ACTIVE");
@@ -287,8 +343,9 @@ public class LedgerService {
             LedgerEntry e = new LedgerEntry();
             e.setDate(pmt.getPaymentDate());
             String particulars = switch (pmt.getPaymentMode()) {
-                case "DIESEL_ADVANCE" -> "Diesel Advance";
-                case "DIESEL_CREDIT"  -> "Diesel Credit";
+                case "DIESEL_ADVANCE"    -> "Diesel Advance";
+                case "DIESEL_CREDIT"     -> "Diesel Credit";
+                case "TRANSPORT_CREDIT"  -> "Transport (Vehicle Hire)";
                 default -> {
                     String base = "By " + pmt.getPaymentMode();
                     yield (pmt.getReferenceNo() != null && !pmt.getReferenceNo().isBlank())

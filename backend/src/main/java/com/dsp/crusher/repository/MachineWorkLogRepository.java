@@ -53,6 +53,14 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
     @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.gstInvoiceId IS NULL AND m.logDate < :before AND m.status = 'ACTIVE'")
     java.math.BigDecimal sumTotalAmountByCustomerBefore(@Param("customerId") Long customerId, @Param("before") LocalDate before);
 
+    // Batch: total billable amount per customer (SET rate, not yet invoiced via GST invoice)
+    @Query("SELECT m.customerId, COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId IN :customerIds AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.gstInvoiceId IS NULL AND m.status = 'ACTIVE' GROUP BY m.customerId")
+    List<Object[]> sumBillableAmountByCustomerIds(@Param("customerIds") List<Long> customerIds);
+
+    // Batch: last machine work log date per customer (for accounts list last-activity)
+    @Query("SELECT m.customerId, MAX(m.logDate) FROM MachineWorkLog m WHERE m.customerId IN :customerIds AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.status = 'ACTIVE' GROUP BY m.customerId")
+    List<Object[]> lastLogDateByCustomerIds(@Param("customerIds") List<Long> customerIds);
+
     boolean existsByMachineId(Long machineId);
     boolean existsByCustomerId(Long customerId);
 }

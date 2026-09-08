@@ -75,4 +75,12 @@ public class TripResponse {
 
     /** True when material amount was suppressed because the trip's party is the CLIENT_SITE owner. */
     private boolean materialSuppressed;
+
+    // ── Auto-invoice (mirrors Machine Work) ──────────────────────────────────
+    private Long    gstInvoiceId;
+    private String  gstInvoiceStatus;  // SET | PENDING | null
+    private boolean autoInvoiced;
+
+    // ── Transport credit to vehicle owner ────────────────────────────────────
+    private Long transportPaymentId;
 }

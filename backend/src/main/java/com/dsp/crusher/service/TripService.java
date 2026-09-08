@@ -5,12 +5,16 @@ import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.DailyReportResponse;
 import com.dsp.crusher.dto.TripRequest;
 import com.dsp.crusher.dto.TripResponse;
+import com.dsp.crusher.entity.GstInvoice;
+import com.dsp.crusher.entity.GstInvoiceItem;
 import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.entity.Site;
 import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vehicle;
 import com.dsp.crusher.entity.Vendor;
+import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
+import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.SiteRepository;
 import com.dsp.crusher.repository.TripRepository;
@@ -35,13 +39,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TripService {
 
-    private final TripRepository tripRepo;
-    private final VehicleRepository vehicleRepo;
-    private final MaterialRepository materialRepo;
-    private final VendorRepository vendorRepo;
+    private final TripRepository          tripRepo;
+    private final VehicleRepository       vehicleRepo;
+    private final MaterialRepository      materialRepo;
+    private final VendorRepository        vendorRepo;
     private final VendorPaymentRepository paymentRepo;
-    private final UserRepository userRepo;
-    private final SiteRepository siteRepo;
+    private final UserRepository          userRepo;
+    private final SiteRepository          siteRepo;
+    private final GstInvoiceRepository    invoiceRepo;
+    private final InvoiceNumberingService numbering;
 
     // ── List queries ──────────────────────────────────────────────────────────
 
@@ -107,6 +113,9 @@ public class TripService {
         t.setSiteId(resolveCreateSite(targetSiteId));
         t.setCreatedByName(getCurrentUserName());
         applyRequest(t, req);
+        t = tripRepo.save(t);
+        autoCreateGstInvoice(t);
+        createTransportPaymentIfNeeded(t);
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
 
@@ -115,8 +124,35 @@ public class TripService {
         validate(req);
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
+
+        Long oldInvoiceId = t.getGstInvoiceId();
+
+        // Guard: cannot change billing once GST invoice is locked (mirrors MachineWorkService)
+        if (oldInvoiceId != null) {
+            GstInvoice existing = invoiceRepo.findById(oldInvoiceId).orElse(null);
+            if (existing != null && "SET".equals(existing.getGstStatus())) {
+                throw new IllegalStateException(
+                    "GST invoice " + existing.getInvoiceNo() +
+                    " is already confirmed. Edit the invoice directly if a correction is needed.");
+            }
+        }
+
         t.setUpdatedByName(getCurrentUserName());
         applyRequest(t, req);
+
+        if (oldInvoiceId != null) {
+            syncPendingTripInvoice(t, oldInvoiceId);
+        } else if (!t.isAutoInvoiced()) {
+            autoCreateGstInvoice(t);
+        }
+
+        // Sync transport payment: update amount if changed, create if new vendor vehicle
+        if (t.getTransportPaymentId() != null) {
+            syncTransportPayment(t);
+        } else {
+            createTransportPaymentIfNeeded(t);
+        }
+
         return enrich(List.of(tripRepo.save(t))).get(0);
     }
 
@@ -125,6 +161,13 @@ public class TripService {
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
         t.setStatus("INACTIVE");
+        if (t.getGstInvoiceId() != null) {
+            invoiceRepo.findById(t.getGstInvoiceId()).ifPresent(inv -> {
+                inv.setStatus("INACTIVE");
+                invoiceRepo.save(inv);
+            });
+        }
+        deactivateTransportPayment(t);
         tripRepo.save(t);
     }
 
@@ -335,6 +378,167 @@ public class TripService {
         }
     }
 
+    // ── Transport credit to vehicle owner (mirrors DieselService.createDieselPaymentIfNeeded) ─
+
+    private void createTransportPaymentIfNeeded(Trip t) {
+        if (t.getVehicleId() == null) return;
+        if (t.getTransportationCharge() == null
+                || t.getTransportationCharge().compareTo(BigDecimal.ZERO) <= 0) return;
+        if (t.getTransportPaymentId() != null) return; // idempotent
+
+        Vehicle vehicle = vehicleRepo.findById(t.getVehicleId()).orElse(null);
+        if (vehicle == null || !"VENDOR".equals(vehicle.getOwner())
+                || vehicle.getVendorId() == null) return;
+
+        VendorPayment p = new VendorPayment();
+        p.setTenantId(t.getTenantId());
+        p.setVendorId(vehicle.getVendorId());
+        p.setPaymentDate(t.getTripDate());
+        p.setAmount(t.getTransportationCharge());
+        p.setPaymentMode("TRANSPORT_CREDIT");
+        String plate = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
+        p.setNotes("Transport for Trip #" + t.getId()
+                + " — " + plate
+                + (t.getDspChallanNo() != null && !t.getDspChallanNo().isBlank()
+                   ? " (Challan " + t.getDspChallanNo() + ")" : ""));
+        p = paymentRepo.save(p);
+        t.setTransportPaymentId(p.getId());
+    }
+
+    private void syncTransportPayment(Trip t) {
+        if (t.getTransportPaymentId() == null) return;
+        paymentRepo.findById(t.getTransportPaymentId()).ifPresent(p -> {
+            if (t.getTransportationCharge() == null
+                    || t.getTransportationCharge().compareTo(BigDecimal.ZERO) <= 0) {
+                // Transport removed — deactivate the payment
+                p.setStatus("INACTIVE");
+            } else {
+                p.setAmount(t.getTransportationCharge());
+                p.setPaymentDate(t.getTripDate());
+                p.setStatus("ACTIVE");
+            }
+            paymentRepo.save(p);
+        });
+    }
+
+    private void deactivateTransportPayment(Trip t) {
+        if (t.getTransportPaymentId() == null) return;
+        paymentRepo.findById(t.getTransportPaymentId()).ifPresent(p -> {
+            p.setStatus("INACTIVE");
+            paymentRepo.save(p);
+        });
+    }
+
+    // ── Auto-invoice (mirrors MachineWorkService pattern) ────────────────────
+
+    private void autoCreateGstInvoice(Trip t) {
+        if (t.getTotalBill() == null || t.getTotalBill().compareTo(BigDecimal.ZERO) <= 0) return;
+        if (t.getVendorId() == null) return;   // ONE_TIME or no party
+        if (t.isAutoInvoiced()) return;         // idempotent
+
+        Vendor vendor = vendorRepo.findById(t.getVendorId()).orElse(null);
+        if (vendor == null) return;
+
+        t.setAutoInvoiced(true);
+
+        if (Boolean.TRUE.equals(vendor.getGstRegistered())) {
+            GstInvoice inv = buildTripInvoice(t);
+            inv = invoiceRepo.save(inv);
+            t.setGstInvoiceId(inv.getId());
+        }
+        // Non-GST: autoInvoiced=true, gstInvoiceId=null → direct ledger debit, no invoice doc
+    }
+
+    private void syncPendingTripInvoice(Trip t, Long invoiceId) {
+        if (t.getTotalBill() == null) return;
+        invoiceRepo.findById(invoiceId).ifPresent(inv -> {
+            if (!"PENDING".equals(inv.getGstStatus())) return;
+            String matName = t.getMaterialId() != null
+                    ? materialRepo.findById(t.getMaterialId()).map(Material::getName).orElse("Material")
+                    : "Material";
+            if (!inv.getItems().isEmpty()) {
+                GstInvoiceItem item = inv.getItems().get(0);
+                item.setDescription(buildTripItemDescription(t, matName));
+                item.setQuantityBrass(t.getBillableQuantity());
+                item.setRate(t.getSaleRate());
+                item.setAmount(t.getTotalBill());
+                item.setMaterialId(t.getMaterialId());
+            }
+            inv.setSubtotal(t.getTotalBill());
+            inv.setSgstAmount(BigDecimal.ZERO);
+            inv.setCgstAmount(BigDecimal.ZERO);
+            inv.setGrandTotal(t.getTotalBill());
+            invoiceRepo.save(inv);
+        });
+    }
+
+    private GstInvoice buildTripInvoice(Trip t) {
+        Material mat = t.getMaterialId() != null
+                ? materialRepo.findById(t.getMaterialId()).orElse(null) : null;
+        String matName = mat != null ? mat.getName() : "Material";
+        String hsnCode = mat != null ? mat.getHsnCode() : null;
+        boolean gstConfigured = mat != null && mat.isGstRateConfigured();
+
+        BigDecimal gstRate = t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO;
+        BigDecimal halfGst = gstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
+        BigDecimal subtotal   = t.getTotalBill();
+        BigDecimal sgstAmt    = subtotal.multiply(halfGst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        BigDecimal cgstAmt    = sgstAmt;
+        BigDecimal grandTotal = subtotal.add(sgstAmt).add(cgstAmt);
+        String gstStatus = gstConfigured ? "SET" : "PENDING";
+
+        GstInvoice inv = new GstInvoice();
+        inv.setTenantId(TenantContext.get());
+        inv.setVendorId(t.getVendorId());
+        inv.setInvoiceDate(t.getTripDate());
+        inv.setInvoiceNo(numbering.nextInvoiceNo(t.getTripDate()));
+        inv.setSgstRate(halfGst);
+        inv.setCgstRate(halfGst);
+        inv.setSubtotal(subtotal);
+        inv.setSgstAmount(sgstAmt);
+        inv.setCgstAmount(cgstAmt);
+        inv.setGrandTotal(grandTotal);
+        inv.setGstStatus(gstStatus);
+        inv.setNotes("Auto-generated from Trip"
+                + (t.getDspChallanNo() != null && !t.getDspChallanNo().isBlank()
+                   ? " — Challan " + t.getDspChallanNo() : ""));
+
+        GstInvoiceItem item = new GstInvoiceItem();
+        item.setInvoice(inv);
+        item.setDescription(buildTripItemDescription(t, matName));
+        item.setHsn(hsnCode);
+        item.setQuantityBrass(t.getBillableQuantity());
+        item.setRate(t.getSaleRate());
+        item.setMaterialId(t.getMaterialId());
+        item.setAmount(subtotal);
+        inv.getItems().add(item);
+
+        return inv;
+    }
+
+    private String buildTripItemDescription(Trip t, String matName) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasMat = !t.isMaterialSuppressed()
+                && t.getMaterialAmount() != null
+                && t.getMaterialAmount().compareTo(BigDecimal.ZERO) > 0;
+        boolean hasTrans = t.getTransportationCharge() != null
+                && t.getTransportationCharge().compareTo(BigDecimal.ZERO) > 0;
+        if (hasMat) {
+            sb.append(matName);
+            if (t.getBillableQuantity() != null)
+                sb.append(" — ").append(t.getBillableQuantity().stripTrailingZeros().toPlainString())
+                  .append(" ").append(t.getQuantityUnit());
+            if (t.getSaleRate() != null)
+                sb.append(" @ ₹").append(t.getSaleRate().stripTrailingZeros().toPlainString());
+            if (hasTrans) sb.append(" + Transport");
+        } else if (hasTrans) {
+            sb.append("Transport Charges");
+        } else {
+            sb.append("Material Supply");
+        }
+        return sb.toString();
+    }
+
     // ── Enrich ────────────────────────────────────────────────────────────────
 
     private List<TripResponse> enrich(List<Trip> trips) {
@@ -359,6 +563,14 @@ public class TripService {
             paymentRepo.sumByVendorIds(vendorIds)
                     .forEach(row -> totalPaidMap.put((Long) row[0], (BigDecimal) row[1]));
         }
+
+        // Batch-load GST invoice statuses for auto-invoiced trips
+        List<Long> invoiceIds = trips.stream()
+                .filter(t -> t.getGstInvoiceId() != null)
+                .map(Trip::getGstInvoiceId).distinct().collect(Collectors.toList());
+        Map<Long, String> invoiceStatusMap = invoiceIds.isEmpty() ? Map.of() :
+                invoiceRepo.findAllById(invoiceIds).stream()
+                        .collect(Collectors.toMap(GstInvoice::getId, GstInvoice::getGstStatus));
 
         return trips.stream().map(t -> {
             TripResponse r = new TripResponse();
@@ -445,6 +657,13 @@ public class TripService {
 
             // Material suppression flag — set when trip party is the CLIENT_SITE owner
             r.setMaterialSuppressed(t.isMaterialSuppressed());
+
+            // Auto-invoice linkage
+            r.setAutoInvoiced(t.isAutoInvoiced());
+            r.setGstInvoiceId(t.getGstInvoiceId());
+            if (t.getGstInvoiceId() != null)
+                r.setGstInvoiceStatus(invoiceStatusMap.get(t.getGstInvoiceId()));
+            r.setTransportPaymentId(t.getTransportPaymentId());
 
             return r;
         }).collect(Collectors.toList());

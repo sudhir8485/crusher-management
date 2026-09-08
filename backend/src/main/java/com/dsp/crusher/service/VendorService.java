@@ -12,6 +12,7 @@ import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.JobWorkInvoiceRepository;
+import com.dsp.crusher.repository.MachineWorkLogRepository;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
@@ -31,12 +32,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class VendorService {
 
-    private final VendorRepository       repo;
-    private final GstInvoiceRepository   invoiceRepo;
-    private final VendorPaymentRepository paymentRepo;
-    private final TripRepository          tripRepo;
-    private final MaterialRepository      materialRepo;
+    private final VendorRepository         repo;
+    private final GstInvoiceRepository     invoiceRepo;
+    private final VendorPaymentRepository  paymentRepo;
+    private final TripRepository           tripRepo;
+    private final MaterialRepository       materialRepo;
     private final JobWorkInvoiceRepository jobWorkRepo;
+    private final MachineWorkLogRepository machineWorkRepo;
 
     public List<VendorResponse> listActive() {
         return repo.findByStatusAndIsActiveTrue("ACTIVE").stream()
@@ -68,45 +70,75 @@ public class VendorService {
         return r;
     }
 
-    /** Returns all active vendors with their trip-based outstanding balance and last activity date.
-     *  Used by the Accounts > Parties tab to show color-coded balances in one batch (no N+1). */
+    /** Returns all active vendors with their outstanding balance and last activity date.
+     *  Outstanding = GST invoices + Job-Work invoices + billable Machine Work (SET, not yet invoiced) − payments.
+     *  Matches the same sources used by LedgerService so the list and detail always agree. */
     public List<VendorBalanceResponse> getBalances() {
         List<Vendor> vendors = repo.findByStatus("ACTIVE");
         if (vendors.isEmpty()) return List.of();
 
         List<Long> vendorIds = vendors.stream().map(Vendor::getId).collect(Collectors.toList());
 
-        // Batch: total billed per vendor (from trips)
-        Map<Long, BigDecimal> billedMap = new java.util.HashMap<>();
-        tripRepo.sumTotalBillByVendorIds(vendorIds)
-                .forEach(row -> billedMap.put((Long) row[0], (BigDecimal) row[1]));
+        // Batch: GST invoice totals per vendor
+        Map<Long, BigDecimal> gstMap = new java.util.HashMap<>();
+        invoiceRepo.sumGrandTotalByVendorIds(vendorIds)
+                .forEach(row -> gstMap.put((Long) row[0], (BigDecimal) row[1]));
 
-        // Batch: total paid per vendor (from payments)
+        // Batch: Job-Work invoice totals per vendor
+        Map<Long, BigDecimal> jwMap = new java.util.HashMap<>();
+        jobWorkRepo.sumGrandTotalByVendorIds(vendorIds)
+                .forEach(row -> jwMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: billable machine work totals per vendor (SET rate, not yet converted to invoice)
+        Map<Long, BigDecimal> mwMap = new java.util.HashMap<>();
+        machineWorkRepo.sumBillableAmountByCustomerIds(vendorIds)
+                .forEach(row -> mwMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: auto-invoiced direct trip totals per vendor (non-GST parties, V30+)
+        Map<Long, BigDecimal> tripDirectMap = new java.util.HashMap<>();
+        tripRepo.sumAutoInvoicedDirectByVendorIds(vendorIds)
+                .forEach(row -> tripDirectMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: total paid per vendor
         Map<Long, BigDecimal> paidMap = new java.util.HashMap<>();
         paymentRepo.sumByVendorIds(vendorIds)
                 .forEach(row -> paidMap.put((Long) row[0], (BigDecimal) row[1]));
 
-        // Batch: last trip date per vendor
-        Map<Long, LocalDate> lastTripMap = new java.util.HashMap<>();
-        tripRepo.lastTripDateByVendorIds(vendorIds)
-                .forEach(row -> lastTripMap.put((Long) row[0], (LocalDate) row[1]));
+        // Batch: last dates per vendor (for last-activity display)
+        Map<Long, LocalDate> lastGstMap = new java.util.HashMap<>();
+        invoiceRepo.lastInvoiceDateByVendorIds(vendorIds)
+                .forEach(row -> lastGstMap.put((Long) row[0], (LocalDate) row[1]));
 
-        // Batch: last payment date per vendor
-        Map<Long, LocalDate> lastPaymentMap = new java.util.HashMap<>();
+        Map<Long, LocalDate> lastJwMap = new java.util.HashMap<>();
+        jobWorkRepo.lastInvoiceDateByVendorIds(vendorIds)
+                .forEach(row -> lastJwMap.put((Long) row[0], (LocalDate) row[1]));
+
+        Map<Long, LocalDate> lastMwMap = new java.util.HashMap<>();
+        machineWorkRepo.lastLogDateByCustomerIds(vendorIds)
+                .forEach(row -> lastMwMap.put((Long) row[0], (LocalDate) row[1]));
+
+        Map<Long, LocalDate> lastTripDirectMap = new java.util.HashMap<>();
+        tripRepo.lastAutoInvoicedDirectDateByVendorIds(vendorIds)
+                .forEach(row -> lastTripDirectMap.put((Long) row[0], (LocalDate) row[1]));
+
+        Map<Long, LocalDate> lastPayMap = new java.util.HashMap<>();
         paymentRepo.lastPaymentDateByVendorIds(vendorIds)
-                .forEach(row -> lastPaymentMap.put((Long) row[0], (LocalDate) row[1]));
+                .forEach(row -> lastPayMap.put((Long) row[0], (LocalDate) row[1]));
 
         List<VendorBalanceResponse> result = new ArrayList<>();
         for (Vendor v : vendors) {
-            BigDecimal billed = billedMap.getOrDefault(v.getId(), BigDecimal.ZERO);
-            BigDecimal paid   = paidMap.getOrDefault(v.getId(), BigDecimal.ZERO);
-            LocalDate lastTrip = lastTripMap.get(v.getId());
-            LocalDate lastPay  = lastPaymentMap.get(v.getId());
-            LocalDate lastActivity = null;
-            if (lastTrip != null && lastPay != null)
-                lastActivity = lastTrip.isAfter(lastPay) ? lastTrip : lastPay;
-            else if (lastTrip != null) lastActivity = lastTrip;
-            else if (lastPay  != null) lastActivity = lastPay;
+            BigDecimal gst        = gstMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal jw         = jwMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal mw         = mwMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal tripDirect = tripDirectMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal paid       = paidMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+
+            LocalDate lastActivity = latestDate(
+                    lastGstMap.get(v.getId()),
+                    lastJwMap.get(v.getId()),
+                    lastMwMap.get(v.getId()),
+                    lastTripDirectMap.get(v.getId()),
+                    lastPayMap.get(v.getId()));
 
             VendorBalanceResponse r = new VendorBalanceResponse();
             r.setVendorId(v.getId());
@@ -115,11 +147,19 @@ public class VendorService {
             r.setGstin(v.getGstin());
             r.setGstRegistered(v.getGstRegistered());
             r.setIsRegular(v.getIsRegular());
-            r.setOutstanding(billed.subtract(paid));
+            r.setOutstanding(gst.add(jw).add(mw).add(tripDirect).subtract(paid));
             r.setLastActivityDate(lastActivity);
             result.add(r);
         }
         return result;
+    }
+
+    private static LocalDate latestDate(LocalDate... dates) {
+        LocalDate max = null;
+        for (LocalDate d : dates) {
+            if (d != null && (max == null || d.isAfter(max))) max = d;
+        }
+        return max;
     }
 
     /** Khatabook-style unified statement: trips (BILLED) + payments (RECEIVED) with running balance. */

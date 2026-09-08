@@ -84,4 +84,9 @@ public class MachineWorkLog {
     /** FK to the auto-generated GST invoice for this entry (null for INTERNAL or non-GST parties). */
     @Column(name = "gst_invoice_id")
     private Long gstInvoiceId;
+
+    /** VendorPayment (TRANSPORT_CREDIT) auto-created when machine is linked to a VENDOR-owned vehicle
+     *  and rate_status = SET. Records what DSP owes the vehicle owner for the machine hire. */
+    @Column(name = "transport_payment_id")
+    private Long transportPaymentId;
 }
