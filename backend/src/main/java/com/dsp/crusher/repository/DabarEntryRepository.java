@@ -18,6 +18,9 @@ public interface DabarEntryRepository extends JpaRepository<DabarEntry, Long> {
     @Query("SELECT d FROM DabarEntry d WHERE d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' AND (:siteId IS NULL OR d.siteId = :siteId) ORDER BY d.entryDate DESC, d.id DESC")
     List<DabarEntry> findByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 
+    @Query("SELECT d FROM DabarEntry d WHERE d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' AND (:siteId IS NULL OR d.siteId = :siteId) AND (:vehicleId IS NULL OR d.vehicleId = :vehicleId) AND (:vendorId IS NULL OR d.vendorId = :vendorId) ORDER BY d.entryDate ASC, d.id ASC")
+    List<DabarEntry> findByDateRangeAndFilters(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId, @Param("vehicleId") Long vehicleId, @Param("vendorId") Long vendorId);
+
     /** All active dabar entries at a specific site in a date range — for auto-qty calculation in Job-Work invoices. */
     @Query("SELECT d FROM DabarEntry d WHERE d.siteId = :siteId AND d.entryDate BETWEEN :from AND :to AND d.status = 'ACTIVE' ORDER BY d.entryDate ASC, d.id ASC")
     List<DabarEntry> findBySiteAndDateRange(@Param("siteId") Long siteId, @Param("from") LocalDate from, @Param("to") LocalDate to);

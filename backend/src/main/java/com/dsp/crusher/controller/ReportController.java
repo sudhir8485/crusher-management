@@ -33,20 +33,22 @@ public class ReportController {
     @GetMapping("/machine-work")
     public ReportResponse machineWork(
             @RequestParam(required = false) Long machineId,
+            @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.machineWorkReport(machineId, effectiveFrom, effectiveTo);
+        return service.machineWorkReport(machineId, siteId, effectiveFrom, effectiveTo);
     }
 
     @GetMapping("/diesel")
     public ReportResponse diesel(
+            @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.dieselReport(effectiveFrom, effectiveTo);
+        return service.dieselReport(siteId, effectiveFrom, effectiveTo);
     }
 
     @GetMapping("/trips")
@@ -54,10 +56,34 @@ public class ReportController {
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) Long materialId,
             @RequestParam(required = false) Long vendorId,
+            @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.tripsReport(vehicleId, materialId, vendorId, effectiveFrom, effectiveTo);
+        return service.tripsReport(vehicleId, materialId, vendorId, siteId, effectiveFrom, effectiveTo);
+    }
+
+    @GetMapping("/dabar")
+    public ReportResponse dabar(
+            @RequestParam(required = false) Long vehicleId,
+            @RequestParam(required = false) Long vendorId,
+            @RequestParam(required = false) Long siteId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
+        LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
+        return service.dabarReport(vehicleId, vendorId, siteId, effectiveFrom, effectiveTo);
+    }
+
+    @GetMapping("/attendance")
+    public ReportResponse attendance(
+            @RequestParam(required = false) Long employeeId,
+            @RequestParam(required = false) Long siteId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
+        LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
+        return service.attendanceReport(employeeId, siteId, effectiveFrom, effectiveTo);
     }
 }

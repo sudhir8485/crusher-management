@@ -6,6 +6,7 @@ import com.dsp.crusher.dto.ReportResponse.Row;
 import com.dsp.crusher.dto.ReportResponse.Summary;
 import com.dsp.crusher.entity.*;
 import com.dsp.crusher.repository.*;
+import com.dsp.crusher.entity.Employee;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,6 +29,9 @@ public class ReportService {
     private final TripRepository tripRepo;
     private final MaterialRepository materialRepo;
     private final VendorRepository vendorRepo;
+    private final DabarEntryRepository dabarRepo;
+    private final AttendanceRepository attendanceRepo;
+    private final EmployeeRepository employeeRepo;
 
     private Long effectiveSiteId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -36,10 +40,15 @@ public class ReportService {
         return isSiteStaff ? SiteContext.get() : null;
     }
 
+    private Long resolvedSiteId(Long paramSiteId) {
+        Long forced = effectiveSiteId();
+        return forced != null ? forced : paramSiteId;
+    }
+
     // ── Machine Work Report ───────────────────────────────────────────────────
 
-    public ReportResponse machineWorkReport(Long machineId, LocalDate from, LocalDate to) {
-        Long siteId = effectiveSiteId();
+    public ReportResponse machineWorkReport(Long machineId, Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
 
         List<MachineWorkLog> logs;
         String filterLabel;
@@ -103,8 +112,8 @@ public class ReportService {
 
     // ── Diesel Report ─────────────────────────────────────────────────────────
 
-    public ReportResponse dieselReport(LocalDate from, LocalDate to) {
-        Long siteId = effectiveSiteId();
+    public ReportResponse dieselReport(Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
 
         BigDecimal openingReceived = receiptRepo.sumReceivedBeforeAndSite(from, siteId);
         BigDecimal openingUsed     = usageRepo.sumUsedBeforeAndSite(from, siteId);
@@ -194,8 +203,8 @@ public class ReportService {
     // ── Trips Report ──────────────────────────────────────────────────────────
 
     public ReportResponse tripsReport(Long vehicleId, Long materialId, Long vendorId,
-                                       LocalDate from, LocalDate to) {
-        Long siteId = effectiveSiteId();
+                                       Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
 
         List<Trip> trips;
         String filterLabel;
@@ -263,6 +272,123 @@ public class ReportService {
 
         ReportResponse res = new ReportResponse();
         res.setReportType("TRIPS");
+        res.setFromDate(from);
+        res.setToDate(to);
+        res.setFilterLabel(filterLabel);
+        res.setSummary(summary);
+        res.setRows(rows);
+        return res;
+    }
+
+    // ── Dabar Report ──────────────────────────────────────────────────────────
+
+    public ReportResponse dabarReport(Long vehicleId, Long vendorId, Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
+
+        List<DabarEntry> entries = dabarRepo.findByDateRangeAndFilters(from, to, siteId, vehicleId, vendorId);
+
+        Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
+                .collect(Collectors.toMap(Vehicle::getId, v -> v));
+        Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
+                .collect(Collectors.toMap(Vendor::getId, v -> v));
+
+        String filterLabel = "All Dabar";
+        if (vehicleId != null) {
+            Vehicle v = vehicleMap.get(vehicleId);
+            filterLabel = v != null ? (v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber()) : "Vehicle " + vehicleId;
+        } else if (vendorId != null) {
+            Vendor vnd = vendorMap.get(vendorId);
+            filterLabel = vnd != null ? vnd.getName() : "Vendor " + vendorId;
+        }
+
+        BigDecimal totalBrass = BigDecimal.ZERO;
+        int totalTrips = 0;
+        List<Row> rows = new ArrayList<>();
+
+        for (DabarEntry d : entries) {
+            Vehicle v = d.getVehicleId() != null ? vehicleMap.get(d.getVehicleId()) : null;
+            Vendor vnd = d.getVendorId() != null ? vendorMap.get(d.getVendorId()) : null;
+
+            String vehicleName = v != null ? (v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber()) : "—";
+            String vendorName = vnd != null ? vnd.getName() : "—";
+
+            BigDecimal brass = d.getQuantityBrass() != null ? d.getQuantityBrass() : BigDecimal.ZERO;
+            int trips = d.getTripsCount() != null ? d.getTripsCount() : 0;
+            totalBrass = totalBrass.add(brass);
+            totalTrips += trips;
+
+            Row row = new Row();
+            row.setDate(d.getEntryDate());
+            row.setCol1(vehicleName);
+            row.setCol2(vendorName);
+            row.setCol3(trips > 0 ? String.valueOf(trips) : "—");
+            row.setCol4(brass.compareTo(BigDecimal.ZERO) > 0 ? brass.toPlainString() + " Brass" : "—");
+            row.setCol5(d.getNotes() != null ? d.getNotes() : "");
+            rows.add(row);
+        }
+
+        Summary summary = new Summary();
+        summary.setTotalRows(rows.size());
+        summary.setTripCount(totalTrips);
+        summary.setTotalBrass(totalBrass);
+
+        ReportResponse res = new ReportResponse();
+        res.setReportType("DABAR");
+        res.setFromDate(from);
+        res.setToDate(to);
+        res.setFilterLabel(filterLabel);
+        res.setSummary(summary);
+        res.setRows(rows);
+        return res;
+    }
+
+    // ── Attendance Report ─────────────────────────────────────────────────────
+
+    public ReportResponse attendanceReport(Long employeeId, Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
+
+        List<AttendanceRecord> records = attendanceRepo.findByDateRangeAndFilters(from, to, siteId, employeeId);
+
+        Map<Long, Employee> employeeMap = employeeRepo.findAll().stream()
+                .collect(Collectors.toMap(Employee::getId, e -> e));
+
+        String filterLabel = "All Employees";
+        if (employeeId != null) {
+            Employee emp = employeeMap.get(employeeId);
+            filterLabel = emp != null ? emp.getName() : "Employee " + employeeId;
+        }
+
+        int presentCount = 0, absentCount = 0, halfDayCount = 0, leaveCount = 0;
+        List<Row> rows = new ArrayList<>();
+
+        for (AttendanceRecord r : records) {
+            Employee emp = employeeMap.get(r.getEmployeeId());
+            String empName = emp != null ? emp.getName() : "Employee " + r.getEmployeeId();
+
+            switch (r.getStatus() != null ? r.getStatus() : "") {
+                case "PRESENT"  -> presentCount++;
+                case "ABSENT"   -> absentCount++;
+                case "HALF_DAY" -> halfDayCount++;
+                case "LEAVE"    -> leaveCount++;
+            }
+
+            Row row = new Row();
+            row.setDate(r.getAttendanceDate());
+            row.setCol1(empName);
+            row.setCol2(r.getStatus() != null ? r.getStatus() : "—");
+            row.setCol3(r.getNotes() != null ? r.getNotes() : "");
+            rows.add(row);
+        }
+
+        Summary summary = new Summary();
+        summary.setTotalRows(rows.size());
+        summary.setPresentCount(presentCount);
+        summary.setAbsentCount(absentCount);
+        summary.setHalfDayCount(halfDayCount);
+        summary.setLeaveCount(leaveCount);
+
+        ReportResponse res = new ReportResponse();
+        res.setReportType("ATTENDANCE");
         res.setFromDate(from);
         res.setToDate(to);
         res.setFilterLabel(filterLabel);

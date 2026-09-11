@@ -21,6 +21,9 @@ public interface AttendanceRepository extends JpaRepository<AttendanceRecord, Lo
     List<AttendanceRecord> findByAttendanceDateBetweenOrderByAttendanceDateAscEmployeeIdAsc(
             LocalDate from, LocalDate to);
 
+    @Query("SELECT a FROM AttendanceRecord a WHERE a.attendanceDate BETWEEN :from AND :to AND (:siteId IS NULL OR a.siteId = :siteId) AND (:employeeId IS NULL OR a.employeeId = :employeeId) ORDER BY a.attendanceDate ASC, a.employeeId ASC")
+    List<AttendanceRecord> findByDateRangeAndFilters(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId, @Param("employeeId") Long employeeId);
+
     // For wage summary: count by status in a date range for one employee
     @Query("SELECT a.status, COUNT(a) FROM AttendanceRecord a " +
            "WHERE a.employeeId = :empId AND a.attendanceDate BETWEEN :from AND :to " +

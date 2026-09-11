@@ -31,14 +31,6 @@ _DR _range(_Preset p) {
   };
 }
 
-// ── Dashboard summary provider (for tiles) ────────────────────────────────────
-
-final _dashSummaryProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  final res = await ref.read(apiClientProvider).get('/api/dashboard');
-  return Map<String, dynamic>.from(res.data as Map);
-});
-
 // ── Master data providers ─────────────────────────────────────────────────────
 
 final _vehiclesProvider =
@@ -62,6 +54,18 @@ final _materialsProvider =
 final _vendorsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final res = await ref.read(apiClientProvider).get('/api/parties');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
+final _sitesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/sites');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
+final _employeesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/employees');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -116,7 +120,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 5, vsync: this);
     _tabs.addListener(() => setState(() {}));
   }
 
@@ -127,37 +131,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
   }
 
   static const _tabLabels = [
-    ('Vehicles', Icons.directions_car_outlined),
-    ('Machines', Icons.construction_outlined),
-    ('Diesel',   Icons.local_gas_station_outlined),
-    ('Trips',    Icons.swap_horiz_outlined),
+    ('Trips',        Icons.swap_horiz_outlined),
+    ('Dabar',        Icons.terrain_outlined),
+    ('Diesel',       Icons.local_gas_station_outlined),
+    ('Machine Work', Icons.construction_outlined),
+    ('Attendance',   Icons.people_outline),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final dashAsync = ref.watch(_dashSummaryProvider);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reports'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(_dashSummaryProvider),
-          ),
-        ],
       ),
       body: Column(
         children: [
-          // ── Summary Tiles ────────────────────────────────────────────────
-          dashAsync.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (_, __) => const SizedBox.shrink(),
-            data: (d) => _SummaryTiles(data: d, onTabSelect: _tabs.animateTo),
-          ),
           // ── Tab Bar ──────────────────────────────────────────────────────
           TabBar(
             controller: _tabs,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             tabs: _tabLabels
                 .map((t) => Tab(icon: Icon(t.$2, size: 18), text: t.$1))
                 .toList(),
@@ -167,163 +160,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
             child: TabBarView(
               controller: _tabs,
               children: const [
-                _VehicleReportTab(),
-                _MachineReportTab(),
-                _DieselReportTab(),
                 _TripsReportTab(),
+                _DabarReportTab(),
+                _DieselReportTab(),
+                _MachineWorkReportTab(),
+                _AttendanceReportTab(),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Summary Tiles ─────────────────────────────────────────────────────────────
-
-class _SummaryTiles extends StatelessWidget {
-  final Map<String, dynamic> data;
-  final void Function(int) onTabSelect;
-  const _SummaryTiles({required this.data, required this.onTabSelect});
-
-  @override
-  Widget build(BuildContext context) {
-    final totalInv     = (data['totalInvoiced'] as num?)?.toDouble() ?? 0;
-    final totalPaid    = (data['totalPaymentsLinked'] as num?)?.toDouble() ?? 0;
-    final outstanding  = (data['totalOutstanding'] as num?)?.toDouble() ?? 0;
-    final dieselBal    = (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
-    final dieselIn     = (data['dieselTotalReceived'] as num?)?.toDouble() ?? 0;
-    final dieselOut    = (data['dieselTotalUsed'] as num?)?.toDouble() ?? 0;
-    final todayTrips   = data['todayTripCount'] as int? ?? 0;
-    final todayBrass   = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
-    final monthInv     = (data['monthlyInvoiceTotal'] as num?)?.toDouble() ?? 0;
-    final monthInvCnt  = data['monthlyInvoiceCount'] as int? ?? 0;
-    final monthPay     = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
-    final receivables  = List<Map<String, dynamic>>.from(data['receivableParties'] as List? ?? []);
-
-    final currFmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
-    final numFmt2 = NumberFormat('#,##0.##');
-
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _Tile(
-              icon: Icons.receipt_long,
-              color: Colors.purple,
-              title: 'Sales (All Time)',
-              lines: [
-                currFmt.format(totalInv),
-                'Collected: ${currFmt.format(totalPaid)}',
-                'This month: ${currFmt.format(monthInv)} ($monthInvCnt inv)',
-              ],
-              onView: null,
-            ),
-            const SizedBox(width: 8),
-            _Tile(
-              icon: Icons.account_balance_wallet,
-              color: outstanding > 0 ? Colors.red : Colors.green,
-              title: 'Receivables',
-              lines: [
-                currFmt.format(outstanding),
-                '${receivables.length} parties pending',
-                'Month payments: ${currFmt.format(monthPay)}',
-              ],
-              onView: null,
-            ),
-            const SizedBox(width: 8),
-            _Tile(
-              icon: Icons.local_gas_station,
-              color: dieselBal < 100 ? Colors.orange : Colors.teal,
-              title: 'Diesel',
-              lines: [
-                '${numFmt2.format(dieselBal)} L available',
-                'In: ${numFmt2.format(dieselIn)} L',
-                'Out: ${numFmt2.format(dieselOut)} L',
-              ],
-              onView: () => onTabSelect(2),
-            ),
-            const SizedBox(width: 8),
-            _Tile(
-              icon: Icons.swap_horiz,
-              color: Colors.blue,
-              title: 'Trips (Today)',
-              lines: [
-                '$todayTrips trip${todayTrips == 1 ? '' : 's'}',
-                todayBrass > 0 ? '${numFmt2.format(todayBrass)} Brass' : 'No brass today',
-              ],
-              onView: () => onTabSelect(3),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Tile extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final List<String> lines;
-  final VoidCallback? onView;
-  const _Tile({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.lines,
-    required this.onView,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 180,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(title,
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600])),
-            ),
-          ]),
-          const SizedBox(height: 6),
-          ...lines.asMap().entries.map((e) => Text(
-                e.value,
-                style: TextStyle(
-                  fontSize: e.key == 0 ? 14 : 11,
-                  fontWeight: e.key == 0 ? FontWeight.bold : FontWeight.normal,
-                  color: e.key == 0 ? color : Colors.grey[600],
-                ),
-              )),
-          if (onView != null) ...[
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: onView,
-              child: Text('View Report →',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: color,
-                      fontWeight: FontWeight.w600)),
-            ),
-          ],
         ],
       ),
     );
@@ -464,7 +308,7 @@ class _ReportTable extends StatelessWidget {
               TextButton.icon(
                 onPressed: () => _exportPdf(context),
                 icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
-                label: const Text('PDF', style: TextStyle(fontSize: 12)),
+                label: const Text('Print', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
@@ -514,23 +358,30 @@ class _ReportTable extends StatelessWidget {
     }
 
     switch (rtype) {
-      case 'VEHICLE_LOG':
-        add('Total KM',    '${_numFm.format(sum['totalKm'] ?? 0)} km', Colors.teal);
-        add('Total Trips', '${sum['totalTrips'] ?? 0}', Colors.blue);
+      case 'TRIPS':
+        add('Trips',       '${sum['tripCount'] ?? 0}', Colors.blue);
+        add('Total Brass', '${_numFm.format(sum['totalBrass'] ?? 0)} Brass', Colors.green);
         add('Entries',     '${sum['totalRows'] ?? 0}', Colors.grey);
-      case 'MACHINE_WORK':
-        add('Total Hours',   '${_numFm.format(sum['totalHours'] ?? 0)} hrs', Colors.orange);
-        add('Bucket',        '${_numFm.format(sum['bucketHours'] ?? 0)} hrs', Colors.blue);
-        add('Breaker',       '${_numFm.format(sum['breakerHours'] ?? 0)} hrs', Colors.orange);
-        add('Entries',       '${sum['totalRows'] ?? 0}', Colors.grey);
+      case 'DABAR':
+        add('Trips',       '${sum['tripCount'] ?? 0}', Colors.teal);
+        add('Total Brass', '${_numFm.format(sum['totalBrass'] ?? 0)} Brass', Colors.green);
+        add('Entries',     '${sum['totalRows'] ?? 0}', Colors.grey);
       case 'DIESEL':
         add('Opening Stock', '${_numFm.format(sum['openingStock'] ?? 0)} L', Colors.grey);
         add('Received',      '${_numFm.format(sum['totalReceived'] ?? 0)} L', Colors.green);
         add('Used',          '${_numFm.format(sum['totalUsed'] ?? 0)} L', Colors.red);
         add('Closing Stock', '${_numFm.format(sum['closingStock'] ?? 0)} L', Colors.teal);
-      case 'TRIPS':
-        add('Trips',     '${sum['tripCount'] ?? 0}', Colors.blue);
-        add('Total Brass', '${_numFm.format(sum['totalBrass'] ?? 0)} Brass', Colors.green);
+      case 'MACHINE_WORK':
+        add('Total Hours', '${_numFm.format(sum['totalHours'] ?? 0)} hrs', Colors.orange);
+        add('Bucket',      '${_numFm.format(sum['bucketHours'] ?? 0)} hrs', Colors.blue);
+        add('Breaker',     '${_numFm.format(sum['breakerHours'] ?? 0)} hrs', Colors.orange);
+        add('Entries',     '${sum['totalRows'] ?? 0}', Colors.grey);
+      case 'ATTENDANCE':
+        add('Present',  '${sum['presentCount'] ?? 0}', Colors.green);
+        add('Absent',   '${sum['absentCount'] ?? 0}', Colors.red);
+        add('Half Day', '${sum['halfDayCount'] ?? 0}', Colors.orange);
+        add('Leave',    '${sum['leaveCount'] ?? 0}', Colors.blue);
+        add('Records',  '${sum['totalRows'] ?? 0}', Colors.grey);
     }
 
     return Wrap(children: chips);
@@ -722,10 +573,11 @@ class _ReportTable extends StatelessWidget {
 
   String _summaryText(String rtype, Map<String, dynamic> sum) {
     return switch (rtype) {
-      'VEHICLE_LOG'  => 'Total KM: ${_numFm.format(sum['totalKm'] ?? 0)} km | Trips: ${sum['totalTrips'] ?? 0}',
-      'MACHINE_WORK' => 'Total: ${_numFm.format(sum['totalHours'] ?? 0)} hrs | Bucket: ${_numFm.format(sum['bucketHours'] ?? 0)} | Breaker: ${_numFm.format(sum['breakerHours'] ?? 0)}',
-      'DIESEL'       => 'Opening: ${_numFm.format(sum['openingStock'] ?? 0)} L | Received: ${_numFm.format(sum['totalReceived'] ?? 0)} L | Used: ${_numFm.format(sum['totalUsed'] ?? 0)} L | Closing: ${_numFm.format(sum['closingStock'] ?? 0)} L',
       'TRIPS'        => 'Trips: ${sum['tripCount'] ?? 0} | Total Brass: ${_numFm.format(sum['totalBrass'] ?? 0)} Brass',
+      'DABAR'        => 'Trips: ${sum['tripCount'] ?? 0} | Total Brass: ${_numFm.format(sum['totalBrass'] ?? 0)} Brass',
+      'DIESEL'       => 'Opening: ${_numFm.format(sum['openingStock'] ?? 0)} L | Received: ${_numFm.format(sum['totalReceived'] ?? 0)} L | Used: ${_numFm.format(sum['totalUsed'] ?? 0)} L | Closing: ${_numFm.format(sum['closingStock'] ?? 0)} L',
+      'MACHINE_WORK' => 'Total: ${_numFm.format(sum['totalHours'] ?? 0)} hrs | Bucket: ${_numFm.format(sum['bucketHours'] ?? 0)} | Breaker: ${_numFm.format(sum['breakerHours'] ?? 0)}',
+      'ATTENDANCE'   => 'Present: ${sum['presentCount'] ?? 0} | Absent: ${sum['absentCount'] ?? 0} | Half Day: ${sum['halfDayCount'] ?? 0} | Leave: ${sum['leaveCount'] ?? 0}',
       _              => '',
     };
   }
@@ -885,207 +737,26 @@ class _DateRangeFilterState extends State<_DateRangeFilter> {
       );
 }
 
-// ── Vehicle tab ───────────────────────────────────────────────────────────────
+// ── Site picker helper ────────────────────────────────────────────────────────
 
-class _VehicleReportTab extends ConsumerStatefulWidget {
-  const _VehicleReportTab();
-
-  @override
-  ConsumerState<_VehicleReportTab> createState() => _VehicleReportTabState();
-}
-
-class _VehicleReportTabState extends ConsumerState<_VehicleReportTab> {
-  int? _vehicleId;
-  _ReportKey? _key;
-  DateTime _from = _range(_Preset.thisMonth).from;
-  DateTime _to   = _range(_Preset.thisMonth).to;
-
-  void _load() {
-    final params = <String, String>{
-      'from': DateFormat('yyyy-MM-dd').format(_from),
-      'to':   DateFormat('yyyy-MM-dd').format(_to),
-    };
-    if (_vehicleId != null) params['vehicleId'] = _vehicleId.toString();
-    setState(() => _key = _ReportKey('/api/reports/vehicle-log', params));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vehicles = ref.watch(_vehiclesProvider);
-    return _ReportShell(
-      reportKey: _key,
-      headers: const ['Vehicle', 'From', 'To', 'KM', 'Day/Night', 'Total Trips', 'Diesel Note'],
-      reportTitle: 'Vehicle Daily Log Report',
-      filterLabel: _vehicleId == null ? 'All Vehicles' : 'Vehicle $_vehicleId',
-      filterRow: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          vehicles.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (e, _) => Text('$e'),
-            data: (list) => Row(
-              children: [
-                Expanded(
-                  child: SearchablePicker(
-                    items: list.where((v) => v['status'] == 'ACTIVE').toList(),
-                    itemLabel: (v) =>
-                        '${v['displayName'] ?? v['plateNumber']}',
-                    fieldLabel: 'Vehicle',
-                    value: _vehicleId,
-                    clearable: true,
-                    clearLabel: 'All Vehicles',
-                    onChanged: (v) => setState(() => _vehicleId = v),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: _load,
-                  icon: const Icon(Icons.search, size: 16),
-                  label: const Text('Load'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
-        ],
+Widget _sitePickerAsync(
+  AsyncValue<List<Map<String, dynamic>>> sitesAsync,
+  int? siteId,
+  void Function(int?) onChanged,
+) =>
+    sitesAsync.when(
+      loading: () => const SizedBox(height: 40, child: LinearProgressIndicator()),
+      error: (e, _) => Text('$e', style: const TextStyle(fontSize: 11)),
+      data: (list) => SearchablePicker(
+        items: list,
+        itemLabel: (s) => s['name'] as String? ?? 'Site ${s['id']}',
+        fieldLabel: 'Site',
+        value: siteId,
+        clearable: true,
+        clearLabel: 'All Sites',
+        onChanged: onChanged,
       ),
     );
-  }
-}
-
-// ── Machine tab ───────────────────────────────────────────────────────────────
-
-class _MachineReportTab extends ConsumerStatefulWidget {
-  const _MachineReportTab();
-
-  @override
-  ConsumerState<_MachineReportTab> createState() => _MachineReportTabState();
-}
-
-class _MachineReportTabState extends ConsumerState<_MachineReportTab> {
-  int? _machineId;
-  _ReportKey? _key;
-  DateTime _from = _range(_Preset.thisMonth).from;
-  DateTime _to   = _range(_Preset.thisMonth).to;
-
-  void _load() {
-    final params = <String, String>{
-      'from': DateFormat('yyyy-MM-dd').format(_from),
-      'to':   DateFormat('yyyy-MM-dd').format(_to),
-    };
-    if (_machineId != null) params['machineId'] = _machineId.toString();
-    setState(() => _key = _ReportKey('/api/reports/machine-work', params));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final machines = ref.watch(_machinesProvider);
-    return _ReportShell(
-      reportKey: _key,
-      headers: const ['Machine', 'Mode', 'Description', 'Opening', 'Closing', 'Hours', 'Notes'],
-      reportTitle: 'Machine Work Report',
-      filterLabel: _machineId == null ? 'All Machines' : 'Machine $_machineId',
-      filterRow: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          machines.when(
-            loading: () => const LinearProgressIndicator(),
-            error: (e, _) => Text('$e'),
-            data: (list) => Row(
-              children: [
-                Expanded(
-                  child: SearchablePicker(
-                    items: list.where((m) => m['status'] == 'ACTIVE').toList(),
-                    itemLabel: (m) => m['name'] as String,
-                    fieldLabel: 'Machine',
-                    value: _machineId,
-                    clearable: true,
-                    clearLabel: 'All Machines',
-                    onChanged: (v) => setState(() => _machineId = v),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: _load,
-                  icon: const Icon(Icons.search, size: 16),
-                  label: const Text('Load'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Diesel tab ────────────────────────────────────────────────────────────────
-
-class _DieselReportTab extends ConsumerStatefulWidget {
-  const _DieselReportTab();
-
-  @override
-  ConsumerState<_DieselReportTab> createState() => _DieselReportTabState();
-}
-
-class _DieselReportTabState extends ConsumerState<_DieselReportTab> {
-  _ReportKey? _key;
-  DateTime _from = _range(_Preset.thisMonth).from;
-  DateTime _to   = _range(_Preset.thisMonth).to;
-
-  void _load() {
-    setState(() => _key = _ReportKey('/api/reports/diesel', {
-          'from': DateFormat('yyyy-MM-dd').format(_from),
-          'to':   DateFormat('yyyy-MM-dd').format(_to),
-        }));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _ReportShell(
-      reportKey: _key,
-      headers: const ['Type', 'Source / Used By', 'Quantity', 'Vendor / Machine', 'Amount', 'Running Stock', 'Notes'],
-      reportTitle: 'Diesel Ledger Report',
-      filterLabel: 'All',
-      filterRow: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text('Diesel report shows all receipts and usage with running stock balance.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Load'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
-        ],
-      ),
-    );
-  }
-}
 
 // ── Trips tab ─────────────────────────────────────────────────────────────────
 
@@ -1100,6 +771,7 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
   int? _vehicleId;
   int? _materialId;
   int? _vendorId;
+  int? _siteId;
   _ReportKey? _key;
   DateTime _from = _range(_Preset.thisMonth).from;
   DateTime _to   = _range(_Preset.thisMonth).to;
@@ -1112,7 +784,16 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
     if (_vehicleId != null)  params['vehicleId']  = _vehicleId.toString();
     if (_materialId != null) params['materialId'] = _materialId.toString();
     if (_vendorId != null)   params['vendorId']   = _vendorId.toString();
+    if (_siteId != null)     params['siteId']     = _siteId.toString();
     setState(() => _key = _ReportKey('/api/reports/trips', params));
+  }
+
+  String get _filterLabel {
+    if (_vehicleId != null)  return 'Vehicle filter';
+    if (_materialId != null) return 'Material filter';
+    if (_vendorId != null)   return 'Party filter';
+    if (_siteId != null)     return 'Site filter';
+    return 'All Trips';
   }
 
   @override
@@ -1120,16 +801,16 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
     final vehicles  = ref.watch(_vehiclesProvider);
     final materials = ref.watch(_materialsProvider);
     final vendors   = ref.watch(_vendorsProvider);
+    final sites     = ref.watch(_sitesProvider);
 
     return _ReportShell(
       reportKey: _key,
-      headers: const ['Vehicle', 'Material', 'Qty (Brass)', 'Vendor', 'Challan', 'Channel', 'Loading Location'],
+      headers: const ['Vehicle', 'Material', 'Qty (Brass)', 'Party', 'Challan', 'Channel', 'Loading Location'],
       reportTitle: 'Trips Report',
       filterLabel: _filterLabel,
       filterRow: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 3 dropdowns in a row
           Row(
             children: [
               Expanded(child: vehicles.when(
@@ -1174,6 +855,8 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
                 ),
               )),
               const SizedBox(width: 8),
+              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: _load,
                 icon: const Icon(Icons.search, size: 16),
@@ -1191,12 +874,327 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
       ),
     );
   }
+}
+
+// ── Dabar tab ─────────────────────────────────────────────────────────────────
+
+class _DabarReportTab extends ConsumerStatefulWidget {
+  const _DabarReportTab();
+
+  @override
+  ConsumerState<_DabarReportTab> createState() => _DabarReportTabState();
+}
+
+class _DabarReportTabState extends ConsumerState<_DabarReportTab> {
+  int? _vehicleId;
+  int? _vendorId;
+  int? _siteId;
+  _ReportKey? _key;
+  DateTime _from = _range(_Preset.thisMonth).from;
+  DateTime _to   = _range(_Preset.thisMonth).to;
+
+  void _load() {
+    final params = <String, String>{
+      'from': DateFormat('yyyy-MM-dd').format(_from),
+      'to':   DateFormat('yyyy-MM-dd').format(_to),
+    };
+    if (_vehicleId != null) params['vehicleId'] = _vehicleId.toString();
+    if (_vendorId != null)  params['vendorId']  = _vendorId.toString();
+    if (_siteId != null)    params['siteId']    = _siteId.toString();
+    setState(() => _key = _ReportKey('/api/reports/dabar', params));
+  }
 
   String get _filterLabel {
-    if (_vehicleId != null)  return 'Vehicle filter';
-    if (_materialId != null) return 'Material filter';
-    if (_vendorId != null)   return 'Vendor filter';
-    return 'All Trips';
+    if (_vehicleId != null) return 'Vehicle filter';
+    if (_vendorId != null)  return 'Party filter';
+    if (_siteId != null)    return 'Site filter';
+    return 'All Dabar';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vehicles = ref.watch(_vehiclesProvider);
+    final vendors  = ref.watch(_vendorsProvider);
+    final sites    = ref.watch(_sitesProvider);
+
+    return _ReportShell(
+      reportKey: _key,
+      headers: const ['Vehicle', 'Party', 'Trips', 'Brass', 'Notes', '', ''],
+      reportTitle: 'Dabar Report',
+      filterLabel: _filterLabel,
+      filterRow: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: vehicles.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('$e'),
+                data: (list) => SearchablePicker(
+                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                  itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
+                  fieldLabel: 'Vehicle',
+                  value: _vehicleId,
+                  clearable: true,
+                  clearLabel: 'All Vehicles',
+                  onChanged: (v) => setState(() => _vehicleId = v),
+                ),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: vendors.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('$e'),
+                data: (list) => SearchablePicker(
+                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                  itemLabel: (v) => v['name'] as String,
+                  fieldLabel: 'Party',
+                  value: _vendorId,
+                  clearable: true,
+                  clearLabel: 'All Parties',
+                  onChanged: (v) => setState(() => _vendorId = v),
+                ),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search, size: 16),
+                label: const Text('Load'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _DateRangeFilter(
+              onChanged: (f, t) => setState(() {
+                    _from = f;
+                    _to = t;
+                  })),
+        ],
+      ),
+    );
   }
 }
 
+// ── Diesel tab ────────────────────────────────────────────────────────────────
+
+class _DieselReportTab extends ConsumerStatefulWidget {
+  const _DieselReportTab();
+
+  @override
+  ConsumerState<_DieselReportTab> createState() => _DieselReportTabState();
+}
+
+class _DieselReportTabState extends ConsumerState<_DieselReportTab> {
+  int? _siteId;
+  _ReportKey? _key;
+  DateTime _from = _range(_Preset.thisMonth).from;
+  DateTime _to   = _range(_Preset.thisMonth).to;
+
+  void _load() {
+    final params = <String, String>{
+      'from': DateFormat('yyyy-MM-dd').format(_from),
+      'to':   DateFormat('yyyy-MM-dd').format(_to),
+    };
+    if (_siteId != null) params['siteId'] = _siteId.toString();
+    setState(() => _key = _ReportKey('/api/reports/diesel', params));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sites = ref.watch(_sitesProvider);
+
+    return _ReportShell(
+      reportKey: _key,
+      headers: const ['Type', 'Source / Used By', 'Quantity', 'Vendor / Machine', 'Amount', 'Running Stock', 'Notes'],
+      reportTitle: 'Diesel Ledger Report',
+      filterLabel: _siteId == null ? 'All Sites' : 'Site filter',
+      filterRow: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search, size: 16),
+                label: const Text('Load'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _DateRangeFilter(
+              onChanged: (f, t) => setState(() {
+                    _from = f;
+                    _to = t;
+                  })),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Machine Work tab ──────────────────────────────────────────────────────────
+
+class _MachineWorkReportTab extends ConsumerStatefulWidget {
+  const _MachineWorkReportTab();
+
+  @override
+  ConsumerState<_MachineWorkReportTab> createState() => _MachineWorkReportTabState();
+}
+
+class _MachineWorkReportTabState extends ConsumerState<_MachineWorkReportTab> {
+  int? _machineId;
+  int? _siteId;
+  _ReportKey? _key;
+  DateTime _from = _range(_Preset.thisMonth).from;
+  DateTime _to   = _range(_Preset.thisMonth).to;
+
+  void _load() {
+    final params = <String, String>{
+      'from': DateFormat('yyyy-MM-dd').format(_from),
+      'to':   DateFormat('yyyy-MM-dd').format(_to),
+    };
+    if (_machineId != null) params['machineId'] = _machineId.toString();
+    if (_siteId != null)    params['siteId']    = _siteId.toString();
+    setState(() => _key = _ReportKey('/api/reports/machine-work', params));
+  }
+
+  String get _filterLabel {
+    if (_machineId != null) return 'Machine filter';
+    if (_siteId != null)    return 'Site filter';
+    return 'All Machines';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final machines = ref.watch(_machinesProvider);
+    final sites    = ref.watch(_sitesProvider);
+
+    return _ReportShell(
+      reportKey: _key,
+      headers: const ['Machine', 'Mode', 'Description', 'Opening', 'Closing', 'Hours', 'Notes'],
+      reportTitle: 'Machine Work Report',
+      filterLabel: _filterLabel,
+      filterRow: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: machines.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('$e'),
+                data: (list) => SearchablePicker(
+                  items: list.where((m) => m['status'] == 'ACTIVE').toList(),
+                  itemLabel: (m) => m['name'] as String,
+                  fieldLabel: 'Machine',
+                  value: _machineId,
+                  clearable: true,
+                  clearLabel: 'All Machines',
+                  onChanged: (v) => setState(() => _machineId = v),
+                ),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search, size: 16),
+                label: const Text('Load'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _DateRangeFilter(
+              onChanged: (f, t) => setState(() {
+                    _from = f;
+                    _to = t;
+                  })),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Attendance tab ────────────────────────────────────────────────────────────
+
+class _AttendanceReportTab extends ConsumerStatefulWidget {
+  const _AttendanceReportTab();
+
+  @override
+  ConsumerState<_AttendanceReportTab> createState() => _AttendanceReportTabState();
+}
+
+class _AttendanceReportTabState extends ConsumerState<_AttendanceReportTab> {
+  int? _employeeId;
+  int? _siteId;
+  _ReportKey? _key;
+  DateTime _from = _range(_Preset.thisMonth).from;
+  DateTime _to   = _range(_Preset.thisMonth).to;
+
+  void _load() {
+    final params = <String, String>{
+      'from': DateFormat('yyyy-MM-dd').format(_from),
+      'to':   DateFormat('yyyy-MM-dd').format(_to),
+    };
+    if (_employeeId != null) params['employeeId'] = _employeeId.toString();
+    if (_siteId != null)     params['siteId']     = _siteId.toString();
+    setState(() => _key = _ReportKey('/api/reports/attendance', params));
+  }
+
+  String get _filterLabel {
+    if (_employeeId != null) return 'Employee filter';
+    if (_siteId != null)     return 'Site filter';
+    return 'All Employees';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final employees = ref.watch(_employeesProvider);
+    final sites     = ref.watch(_sitesProvider);
+
+    return _ReportShell(
+      reportKey: _key,
+      headers: const ['Employee', 'Status', 'Notes', '', '', '', ''],
+      reportTitle: 'Attendance Report',
+      filterLabel: _filterLabel,
+      filterRow: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: employees.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('$e'),
+                data: (list) => SearchablePicker(
+                  items: list.where((e) => e['status'] == 'ACTIVE').toList(),
+                  itemLabel: (e) => e['name'] as String,
+                  fieldLabel: 'Employee',
+                  value: _employeeId,
+                  clearable: true,
+                  clearLabel: 'All Employees',
+                  onChanged: (v) => setState(() => _employeeId = v),
+                ),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search, size: 16),
+                label: const Text('Load'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _DateRangeFilter(
+              onChanged: (f, t) => setState(() {
+                    _from = f;
+                    _to = t;
+                  })),
+        ],
+      ),
+    );
+  }
+}

@@ -6,13 +6,13 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Generic wrapper for all 4 operational reports.
+ * Generic wrapper for all operational reports.
  * Each report type uses a subset of fields.
  */
 @Data
 public class ReportResponse {
 
-    private String reportType;   // VEHICLE_LOG | MACHINE_WORK | DIESEL | TRIPS
+    private String reportType;   // VEHICLE_LOG | MACHINE_WORK | DIESEL | TRIPS | DABAR | ATTENDANCE
     private LocalDate fromDate;
     private LocalDate toDate;
 
@@ -43,9 +43,15 @@ public class ReportResponse {
         private BigDecimal totalUsed;
         private BigDecimal closingStock;
 
-        // Trips / Material
+        // Trips / Dabar
         private int tripCount;
         private BigDecimal totalBrass;
+
+        // Attendance
+        private int presentCount;
+        private int absentCount;
+        private int halfDayCount;
+        private int leaveCount;
     }
 
     @Data
