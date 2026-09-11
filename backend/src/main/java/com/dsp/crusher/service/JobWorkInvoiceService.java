@@ -64,6 +64,7 @@ public class JobWorkInvoiceService {
         inv.setVendorId(site.getLinkedPartyId());
         inv.setInvoiceNo(numbering.nextInvoiceNo(req.getInvoiceDate()));
         apply(inv, req);
+        inv.setCreatedByName(currentUserName());
         JobWorkInvoice saved = invoiceRepo.save(inv);
 
         // Mark all auto-calc records as billed by this invoice
@@ -93,6 +94,7 @@ public class JobWorkInvoiceService {
         inv.setVendorId(site.getLinkedPartyId());
         inv.getItems().clear();
         apply(inv, req);
+        inv.setUpdatedByName(currentUserName());
         JobWorkInvoice saved = invoiceRepo.save(inv);
 
         // Re-mark billing links with updated period/items
@@ -430,6 +432,9 @@ public class JobWorkInvoiceService {
             r.setGstRecalculatedAt(inv.getGstRecalculatedAt());
             r.setGstPrevSgstRate(inv.getGstPrevSgstRate());
             r.setGstPrevCgstRate(inv.getGstPrevCgstRate());
+            r.setCreatedAt(inv.getCreatedAt());
+            r.setCreatedByName(inv.getCreatedByName());
+            r.setUpdatedByName(inv.getUpdatedByName());
 
             Vendor v = vendors.get(inv.getVendorId());
             if (v != null) { r.setVendorName(v.getName()); r.setVendorGstin(v.getGstin()); }

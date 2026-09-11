@@ -214,6 +214,7 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
                     showDate: mode != 'day',
+                    onTap:    () => _showLogDetail(context, data[i]),
                     onEdit:   () => _showForm(context, ref, data[i], date, siteId),
                     onDelete: () => _confirmDelete(context, ref, data[i], key),
                   ),
@@ -508,11 +509,13 @@ class _LogCard extends StatelessWidget {
   final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onTap;
   const _LogCard({
     required this.log,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
+    required this.onTap,
   });
 
   @override
@@ -542,9 +545,12 @@ class _LogCard extends StatelessWidget {
 
     return Card(
       color: (isPendingRate || isGstPending) ? Colors.amber.shade50 : null,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -694,6 +700,62 @@ class _LogCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+      ),
+    );
+  }
+}
+
+// ── log detail dialog ─────────────────────────────────────────────────────────
+
+void _showLogDetail(BuildContext context, Map<String, dynamic> log) {
+  final createdBy = log['createdByName'] as String?;
+  final updatedBy = log['updatedByName'] as String?;
+  final createdTs = log['createdAt'] as String?;
+  if (createdBy == null && createdTs == null) return;
+
+  final name = createdBy ?? '—';
+  final ts   = createdTs != null ? DateTime.tryParse(createdTs) : null;
+  final createdLabel = ts != null ? '$name · ${DateFormat('d MMM yyyy').format(ts)}' : name;
+
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Record Info'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('RECORD INFO',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 8),
+          _MWDetailRow('Entered by', createdLabel),
+          if (updatedBy != null) _MWDetailRow('Last edited by', updatedBy),
+        ],
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+    ),
+  );
+}
+
+class _MWDetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MWDetailRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 100,
+              child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey))),
+          Expanded(
+              child: Text(value,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+        ],
       ),
     );
   }

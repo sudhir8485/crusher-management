@@ -70,6 +70,12 @@ public class GstInvoice {
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Column(name = "created_by_name", length = 200)
+    private String createdByName;
+
+    @Column(name = "updated_by_name", length = 200)
+    private String updatedByName;
+
     // ── Recalculate-GST audit (mirrors createdByName/updatedByName on Trip) ──
     @Column(name = "gst_recalculated_by", length = 100)
     private String gstRecalculatedBy;

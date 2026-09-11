@@ -37,4 +37,8 @@ public class MachineWorkLogResponse {
     private Long   gstInvoiceId;
     private String gstInvoiceStatus;  // PENDING | SET | null
     private Long   transportPaymentId;
+
+    private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
 }

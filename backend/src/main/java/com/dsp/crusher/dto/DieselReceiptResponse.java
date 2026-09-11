@@ -23,4 +23,6 @@ public class DieselReceiptResponse {
     private String advancePartyName;
     private BigDecimal advanceAmount; // the ₹ credited to that party's ledger
     private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
 }

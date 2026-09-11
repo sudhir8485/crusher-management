@@ -14,6 +14,7 @@ import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.DabarEntryRepository;
 import com.dsp.crusher.repository.SiteRepository;
 import com.dsp.crusher.repository.TransportPayableRepository;
+import com.dsp.crusher.repository.UserRepository;
 import com.dsp.crusher.repository.VehicleRepository;
 import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class DabarService {
     private final VendorRepository vendorRepo;
     private final SiteRepository siteRepo;
     private final TransportPayableRepository payableRepo;
+    private final UserRepository userRepo;
 
     public List<DabarEntryResponse> listAll(Long siteId) {
         Long sid = effectiveSiteId(siteId);
@@ -63,6 +65,7 @@ public class DabarService {
         Long siteId = resolveCreateSite(targetSiteId);
         e.setSiteId(siteId);
         apply(e, req);
+        e.setCreatedByName(getCurrentUserName());
         e = repo.save(e); // persist to get the generated ID
         handleTransportPayable(e, req, siteId);
         return enrich(List.of(e)).get(0);
@@ -73,6 +76,7 @@ public class DabarService {
         DabarEntry e = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Dabar entry not found: " + id));
         apply(e, req);
+        e.setUpdatedByName(getCurrentUserName());
         e = repo.save(e);
         handleTransportPayable(e, req, e.getSiteId());
         updatePayableAmount(e.getId(), req);
@@ -164,6 +168,16 @@ public class DabarService {
         return sid;
     }
 
+    private String getCurrentUserName() {
+        try {
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            Long userId = Long.parseLong(principal);
+            return userRepo.findById(userId).map(u -> u.getFullName()).orElse(principal);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void apply(DabarEntry e, DabarEntryRequest req) {
         e.setEntryDate(req.getEntryDate());
         e.setVehicleId(req.getVehicleId());
@@ -200,6 +214,8 @@ public class DabarService {
             r.setQuantityBrass(e.getQuantityBrass());
             r.setNotes(e.getNotes());
             r.setCreatedAt(e.getCreatedAt());
+            r.setCreatedByName(e.getCreatedByName());
+            r.setUpdatedByName(e.getUpdatedByName());
 
             if (e.getVehicleId() != null) {
                 Vehicle v = vehicles.get(e.getVehicleId());

@@ -394,6 +394,7 @@ class _PaymentsListState extends State<_PaymentsList> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _PaymentCard(
                     payment: filtered[i],
+                    onTap: () => _showPaymentDetail(context, filtered[i]),
                     onEdit: () => widget.onEdit(filtered[i]),
                     onDelete: () => widget.onDelete(filtered[i]),
                   ),
@@ -404,13 +405,69 @@ class _PaymentsListState extends State<_PaymentsList> {
   }
 }
 
+// ── Payment detail ────────────────────────────────────────────────────────────
+
+void _showPaymentDetail(BuildContext context, Map<String, dynamic> p) {
+  final createdBy = p['createdByName'] as String?;
+  final updatedBy = p['updatedByName'] as String?;
+  final createdTs = p['createdAt'] as String?;
+  if (createdBy == null && createdTs == null) return;
+
+  final name = createdBy ?? '—';
+  final ts   = createdTs != null ? DateTime.tryParse(createdTs) : null;
+  final createdLabel = ts != null
+      ? '$name · ${DateFormat('d MMM yyyy').format(ts)}' : name;
+
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Record Info'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('RECORD INFO',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 8),
+          _PayDetailRow('Entered by', createdLabel),
+          if (updatedBy != null) _PayDetailRow('Last edited by', updatedBy),
+        ],
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+    ),
+  );
+}
+
+class _PayDetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _PayDetailRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 100,
+              child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey))),
+          Expanded(child: Text(value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Payment card ──────────────────────────────────────────────────────────────
 
 class _PaymentCard extends StatelessWidget {
   final Map<String, dynamic> payment;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _PaymentCard({required this.payment, required this.onEdit, required this.onDelete});
+  final VoidCallback? onTap;
+  const _PaymentCard({required this.payment, required this.onEdit, required this.onDelete, this.onTap});
 
   static const _modeColors = {
     'CASH': Colors.green, 'BANK': Colors.blue,
@@ -478,12 +535,15 @@ class _PaymentCard extends StatelessWidget {
                 // Delay so the popup's exit animation completes before we show
                 // another overlay — prevents lifecycle assertion crashes.
                 await Future.delayed(Duration.zero);
+                if (v == 'details') onTap?.call();
                 if (v == 'edit') onEdit();
                 if (v == 'delete') onDelete();
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'edit', child: Text('Edit')),
-                PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Colors.red))),
+              itemBuilder: (_) => [
+                if (onTap != null)
+                  const PopupMenuItem(value: 'details', child: Text('Details')),
+                const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                const PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Colors.red))),
               ],
             ),
           ]),

@@ -88,6 +88,12 @@ public class JobWorkInvoice {
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Column(name = "created_by_name", length = 200)
+    private String createdByName;
+
+    @Column(name = "updated_by_name", length = 200)
+    private String updatedByName;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<JobWorkInvoiceItem> items = new ArrayList<>();

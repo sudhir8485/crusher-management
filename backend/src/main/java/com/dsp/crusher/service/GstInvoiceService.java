@@ -66,6 +66,7 @@ public class GstInvoiceService {
         inv.setTenantId(TenantContext.get());
         inv.setInvoiceNo(numbering.nextInvoiceNo(req.getInvoiceDate()));
         apply(inv, req);
+        inv.setCreatedByName(getCurrentUserName());
         return enrich(List.of(invoiceRepo.save(inv))).get(0);
     }
 
@@ -75,6 +76,7 @@ public class GstInvoiceService {
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found: " + id));
         inv.getItems().clear();
         apply(inv, req);
+        inv.setUpdatedByName(getCurrentUserName());
         return enrich(List.of(invoiceRepo.save(inv))).get(0);
     }
 
@@ -314,6 +316,9 @@ public class GstInvoiceService {
             r.setGstRecalculatedAt(inv.getGstRecalculatedAt());
             r.setGstPrevSgstRate(inv.getGstPrevSgstRate());
             r.setGstPrevCgstRate(inv.getGstPrevCgstRate());
+            r.setCreatedAt(inv.getCreatedAt());
+            r.setCreatedByName(inv.getCreatedByName());
+            r.setUpdatedByName(inv.getUpdatedByName());
 
             Vendor v = vendors.get(inv.getVendorId());
             if (v != null) {

@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Getter @Setter
 public class VendorPaymentResponse {
@@ -21,4 +22,7 @@ public class VendorPaymentResponse {
     private String allocationSummary;
     private String direction; // RECEIVED | PAID
     private Long transportPayableId;
+    private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
 }

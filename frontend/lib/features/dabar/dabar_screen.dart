@@ -508,6 +508,10 @@ class _DabarListState extends State<_DabarList> {
     final ownerParty = entry['vehicleOwnedByPartyName'] as String?;
     final hasPayable = entry['transportPayableActive'] == true;
 
+    final createdBy = entry['createdByName'] as String?;
+    final updatedBy = entry['updatedByName'] as String?;
+    final createdTs = entry['createdAt'] as String?;
+
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -548,6 +552,18 @@ class _DabarListState extends State<_DabarList> {
                 ),
               ],
             ),
+            if (createdBy != null || createdTs != null) ...[
+              const Divider(height: 20),
+              const Text('RECORD INFO',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const SizedBox(height: 4),
+              _DetailRow(
+                label: 'Entered by',
+                value: _auditLabel(createdBy, createdTs),
+              ),
+              if (updatedBy != null)
+                _DetailRow(label: 'Last edited by', value: updatedBy),
+            ],
           ],
         ),
         actions: [
@@ -701,6 +717,14 @@ class _DabarListState extends State<_DabarList> {
       ],
     );
   }
+}
+
+String _auditLabel(String? name, String? ts) {
+  final n = name ?? '—';
+  if (ts == null) return n;
+  final d = DateTime.tryParse(ts);
+  if (d == null) return n;
+  return '$n · ${DateFormat('d MMM yyyy').format(d)}';
 }
 
 // ── drilldown detail row ──────────────────────────────────────────────────────

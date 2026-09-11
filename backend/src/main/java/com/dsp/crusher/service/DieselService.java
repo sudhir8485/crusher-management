@@ -27,6 +27,7 @@ public class DieselService {
     private final MachineRepository       machineRepo;
     private final VehicleRepository       vehicleRepo;
     private final VendorPaymentRepository paymentRepo;
+    private final UserRepository          userRepo;
 
     // ── Balance ──────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ public class DieselService {
         r.setTenantId(TenantContext.get());
         r.setSiteId(resolveCreateSite(targetSiteId));
         applyReceipt(r, req);
+        r.setCreatedByName(getCurrentUserName());
         receiptRepo.save(r);
         createAdvancePaymentIfNeeded(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
@@ -78,6 +80,7 @@ public class DieselService {
         // Deactivate prior advance payment before re-applying
         deactivateAdvancePayment(r);
         applyReceipt(r, req);
+        r.setUpdatedByName(getCurrentUserName());
         receiptRepo.save(r);
         createAdvancePaymentIfNeeded(r, req);
         return enrichReceipts(List.of(receiptRepo.save(r))).get(0);
@@ -118,6 +121,7 @@ public class DieselService {
         Long sid = resolveCreateSite(targetSiteId);
         u.setSiteId(sid);
         applyUsage(u, req);
+        u.setCreatedByName(getCurrentUserName());
         usageRepo.save(u);
         createDieselPaymentIfNeeded(u, req);
         DieselUsageResponse resp = enrichUsages(List.of(usageRepo.save(u))).get(0);
@@ -133,6 +137,7 @@ public class DieselService {
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel usage not found: " + id));
         deactivateDieselPayment(u);
         applyUsage(u, req);
+        u.setUpdatedByName(getCurrentUserName());
         usageRepo.save(u);
         createDieselPaymentIfNeeded(u, req);
         return enrichUsages(List.of(usageRepo.save(u))).get(0);
@@ -224,6 +229,16 @@ public class DieselService {
         return sid;
     }
 
+    private String getCurrentUserName() {
+        try {
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            Long userId = Long.parseLong(principal);
+            return userRepo.findById(userId).map(u -> u.getFullName()).orElse(principal);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void applyReceipt(DieselReceipt r, DieselReceiptRequest req) {
         r.setReceiptDate(req.getReceiptDate());
         r.setSource(req.getSource());
@@ -269,6 +284,8 @@ public class DieselService {
             res.setInvoiceNo(r.getInvoiceNo());
             res.setNotes(r.getNotes());
             res.setCreatedAt(r.getCreatedAt());
+            res.setCreatedByName(r.getCreatedByName());
+            res.setUpdatedByName(r.getUpdatedByName());
             res.setAdvancePartyId(r.getAdvancePartyId());
             if (r.getVendorId() != null) {
                 Vendor v = vendors.get(r.getVendorId());
@@ -308,6 +325,8 @@ public class DieselService {
                 res.setDieselValue(u.getQuantityLiters().multiply(u.getRatePerLiter()));
             res.setNotes(u.getNotes());
             res.setCreatedAt(u.getCreatedAt());
+            res.setCreatedByName(u.getCreatedByName());
+            res.setUpdatedByName(u.getUpdatedByName());
             res.setHasDieselPayable(u.getDieselPaymentId() != null);
             if (u.getMachineId() != null) {
                 Machine m = machines.get(u.getMachineId());

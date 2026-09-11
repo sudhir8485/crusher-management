@@ -22,6 +22,8 @@ public class DabarEntryResponse {
     private BigDecimal quantityBrass;
     private String notes;
     private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
 
     /** ID of the active transport payable for this entry, or null if no payable. */
     private Long transportPayableId;

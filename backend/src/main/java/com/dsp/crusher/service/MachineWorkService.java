@@ -83,6 +83,7 @@ public class MachineWorkService {
         log.setTenantId(TenantContext.get());
         log.setSiteId(resolveCreateSite(targetSiteId));
         apply(log, req);
+        log.setCreatedByName(getCurrentUserName());
         log = repo.save(log);
         autoCreateGstInvoice(log);
         createTransportPaymentIfNeeded(log);
@@ -127,6 +128,7 @@ public class MachineWorkService {
             else createTransportPaymentIfNeeded(log);
         }
 
+        log.setUpdatedByName(getCurrentUserName());
         return enrich(List.of(repo.save(log))).get(0);
     }
 
@@ -459,6 +461,9 @@ public class MachineWorkService {
                 r.setGstInvoiceStatus(invoiceStatuses.get(log.getGstInvoiceId()));
             }
             r.setTransportPaymentId(log.getTransportPaymentId());
+            r.setCreatedAt(log.getCreatedAt());
+            r.setCreatedByName(log.getCreatedByName());
+            r.setUpdatedByName(log.getUpdatedByName());
             Machine m = machines.get(log.getMachineId());
             if (m != null) {
                 r.setMachineName(m.getName());

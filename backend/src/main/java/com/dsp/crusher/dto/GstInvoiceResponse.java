@@ -40,4 +40,8 @@ public class GstInvoiceResponse {
     private LocalDateTime gstRecalculatedAt;
     private BigDecimal gstPrevSgstRate;
     private BigDecimal gstPrevCgstRate;
+
+    private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
 }

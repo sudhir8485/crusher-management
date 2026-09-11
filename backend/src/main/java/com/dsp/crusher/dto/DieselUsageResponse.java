@@ -25,5 +25,7 @@ public class DieselUsageResponse {
     private boolean hasDieselPayable;      // true when a VendorPayment was auto-created
     private String notes;
     private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
     private boolean stockWarning;          // true when balance goes negative after this usage
 }

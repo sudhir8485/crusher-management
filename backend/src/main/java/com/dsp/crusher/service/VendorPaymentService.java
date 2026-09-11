@@ -2,6 +2,7 @@ package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.PageResponse;
+import com.dsp.crusher.repository.UserRepository;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.entity.GstInvoice;
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +43,7 @@ public class VendorPaymentService {
     private final TripRepository tripRepo;
     private final MaterialRepository materialRepo;
     private final TransportPayableRepository transportPayableRepo;
+    private final UserRepository userRepo;
 
     public PageResponse<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -65,6 +68,7 @@ public class VendorPaymentService {
         VendorPayment p = new VendorPayment();
         p.setTenantId(TenantContext.get());
         apply(p, req);
+        p.setCreatedByName(getCurrentUserName());
         p.setAllocationSummary(computeAllocationSummary(req.getVendorId(), req.getAmount()));
         return enrich(List.of(repo.save(p))).get(0);
     }
@@ -74,6 +78,7 @@ public class VendorPaymentService {
         VendorPayment p = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("VendorPayment not found: " + id));
         apply(p, req);
+        p.setUpdatedByName(getCurrentUserName());
         return enrich(List.of(repo.save(p))).get(0);
     }
 
@@ -160,8 +165,21 @@ public class VendorPaymentService {
             r.setAllocationSummary(p.getAllocationSummary());
             r.setDirection(p.getDirection() != null ? p.getDirection() : "RECEIVED");
             r.setTransportPayableId(p.getTransportPayableId());
+            r.setCreatedAt(p.getCreatedAt());
+            r.setCreatedByName(p.getCreatedByName());
+            r.setUpdatedByName(p.getUpdatedByName());
             return r;
         }).collect(Collectors.toList());
+    }
+
+    private String getCurrentUserName() {
+        try {
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            Long userId = Long.parseLong(principal);
+            return userRepo.findById(userId).map(u -> u.getFullName()).orElse(principal);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ── FIFO allocation summary ───────────────────────────────────────────────

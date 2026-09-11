@@ -464,6 +464,7 @@ class _ReceiptsTab extends ConsumerWidget {
                 itemBuilder: (_, i) => _ReceiptCard(
                   r: list[i],
                   showDate: mode != 'day',
+                  onTap:    () => _showReceiptDetail(context, list[i]),
                   onEdit:   () => _showReceiptForm(context, ref, list[i], date, onChanged),
                   onDelete: () => _confirmDelete(context, ref,
                       '/api/diesel/receipts/${list[i]['id']}', rangeKey, onChanged,
@@ -522,6 +523,7 @@ class _UsagesTab extends ConsumerWidget {
                 itemBuilder: (_, i) => _UsageCard(
                   u: list[i],
                   showDate: mode != 'day',
+                  onTap:    () => _showUsageDetail(context, list[i]),
                   onEdit:   () => _showUsageForm(context, ref, list[i], date, onChanged),
                   onDelete: () => _confirmDelete(context, ref,
                       '/api/diesel/usages/${list[i]['id']}', rangeKey, onChanged,
@@ -655,7 +657,8 @@ class _ReceiptCard extends StatelessWidget {
   final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _ReceiptCard({required this.r, this.showDate = false, required this.onEdit, required this.onDelete});
+  final VoidCallback onTap;
+  const _ReceiptCard({required this.r, this.showDate = false, required this.onEdit, required this.onDelete, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -679,68 +682,77 @@ class _ReceiptCard extends StatelessWidget {
         : isAdvance ? Icons.account_balance_wallet_outlined : Icons.inventory_2_outlined;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: badgeColor.withValues(alpha: 0.15),
-              child: Icon(badgeIcon, color: badgeColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    _SourceBadge(badgeLabel, badgeColor),
-                    if (qty != null) ...[
-                      const SizedBox(width: 8),
-                      Text('${qty.toStringAsFixed(1)} L',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                    ],
-                    if (showDate && dateStr != null) ...[
-                      const Spacer(),
-                      Text(DateFormat('d MMM').format(DateTime.parse(dateStr)),
-                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                    ],
-                  ]),
-                  const SizedBox(height: 4),
-                  if (isAdvance && advanceParty != null)
-                    Text('Party: $advanceParty',
-                        style: TextStyle(fontSize: 13, color: Colors.purple.shade700, fontWeight: FontWeight.w500)),
-                  if (isAdvance && advanceAmount != null)
-                    Text('Advance credited: ₹$advanceAmount',
-                        style: const TextStyle(fontSize: 12, color: Colors.purple)),
-                  if (!isAdvance) ...[
-                    if (vendor != null || inv != null)
-                      Text(
-                        [vendor, if (inv != null) 'Invoice: $inv'].whereType<String>().join('  ·  '),
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    if (rate != null || amount != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          [if (rate != null) '₹$rate/L', if (amount != null) 'Total: ₹$amount'].join('  ·  '),
-                          style: const TextStyle(fontSize: 12, color: Colors.green),
-                        ),
-                      ),
-                  ],
-                  if (r['notes'] != null && (r['notes'] as String).isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(r['notes'], style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                    ),
-                ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: badgeColor.withValues(alpha: 0.15),
+                child: Icon(badgeIcon, color: badgeColor, size: 20),
               ),
-            ),
-            Column(children: [
-              IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-              IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
-            ]),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      _SourceBadge(badgeLabel, badgeColor),
+                      if (qty != null) ...[
+                        const SizedBox(width: 8),
+                        Text('${qty.toStringAsFixed(1)} L',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      ],
+                      if (showDate && dateStr != null) ...[
+                        const Spacer(),
+                        Text(DateFormat('d MMM').format(DateTime.parse(dateStr)),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ]),
+                    const SizedBox(height: 4),
+                    if (isAdvance && advanceParty != null)
+                      Text('Party: $advanceParty',
+                          style: TextStyle(fontSize: 13, color: Colors.purple.shade700, fontWeight: FontWeight.w500)),
+                    if (isAdvance && advanceAmount != null)
+                      Text('Advance credited: ₹$advanceAmount',
+                          style: const TextStyle(fontSize: 12, color: Colors.purple)),
+                    if (!isAdvance) ...[
+                      if (vendor != null || inv != null)
+                        Text(
+                          [vendor, if (inv != null) 'Invoice: $inv'].whereType<String>().join('  ·  '),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      if (rate != null || amount != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            [if (rate != null) '₹$rate/L', if (amount != null) 'Total: ₹$amount'].join('  ·  '),
+                            style: const TextStyle(fontSize: 12, color: Colors.green),
+                          ),
+                        ),
+                    ],
+                    if (r['notes'] != null && (r['notes'] as String).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(r['notes'], style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('Tap for details',
+                          style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
+                    ),
+                  ],
+                ),
+              ),
+              Column(children: [
+                IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+                IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
+              ]),
+            ],
+          ),
         ),
       ),
     );
@@ -773,7 +785,8 @@ class _UsageCard extends StatelessWidget {
   final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _UsageCard({required this.u, this.showDate = false, required this.onEdit, required this.onDelete});
+  final VoidCallback onTap;
+  const _UsageCard({required this.u, this.showDate = false, required this.onEdit, required this.onDelete, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -790,16 +803,19 @@ class _UsageCard extends StatelessWidget {
     final dateStr      = u['usageDate'] as String?;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.red.shade50,
-              child: Icon(machine != null ? Icons.construction : Icons.local_shipping,
-                  color: Colors.red.shade300, size: 20),
-            ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: Colors.red.shade50,
+                child: Icon(machine != null ? Icons.construction : Icons.local_shipping,
+                    color: Colors.red.shade300, size: 20),
+              ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -844,6 +860,11 @@ class _UsageCard extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(u['notes'], style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Tap for details',
+                        style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
+                  ),
                 ],
               ),
             ),
@@ -853,6 +874,106 @@ class _UsageCard extends StatelessWidget {
             ]),
           ],
         ),
+      ),
+      ),
+    );
+  }
+}
+
+// ── detail dialogs ─────────────────────────────────────────────────────────────
+
+String _dieselAuditLabel(String? name, String? ts) {
+  final n = name ?? '—';
+  if (ts == null) return n;
+  final d = DateTime.tryParse(ts);
+  return d != null ? '$n · ${DateFormat('d MMM yyyy').format(d)}' : n;
+}
+
+void _showReceiptDetail(BuildContext context, Map<String, dynamic> r) {
+  final createdBy = r['createdByName'] as String?;
+  final updatedBy = r['updatedByName'] as String?;
+  final createdTs = r['createdAt'] as String?;
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Receipt Details'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DieselDetailRow('Source', r['source'] as String? ?? '—'),
+          if (r['quantityLiters'] != null)
+            _DieselDetailRow('Quantity', '${r['quantityLiters']} L'),
+          if (r['vendorName'] != null) _DieselDetailRow('Vendor', r['vendorName'] as String),
+          if (r['invoiceNo'] != null) _DieselDetailRow('Invoice', r['invoiceNo'] as String),
+          if (r['amount'] != null) _DieselDetailRow('Amount', '₹${r['amount']}'),
+          if (createdBy != null || createdTs != null) ...[
+            const Divider(height: 20),
+            const Text('RECORD INFO',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 4),
+            _DieselDetailRow('Entered by', _dieselAuditLabel(createdBy, createdTs)),
+            if (updatedBy != null) _DieselDetailRow('Last edited by', updatedBy),
+          ],
+        ],
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+    ),
+  );
+}
+
+void _showUsageDetail(BuildContext context, Map<String, dynamic> u) {
+  final createdBy = u['createdByName'] as String?;
+  final updatedBy = u['updatedByName'] as String?;
+  final createdTs = u['createdAt'] as String?;
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Usage Details'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DieselDetailRow('Used by', u['machineName'] as String? ?? u['vehicleDisplayName'] as String? ?? '—'),
+          if (u['quantityLiters'] != null)
+            _DieselDetailRow('Quantity', '${u['quantityLiters']} L'),
+          if (u['ratePerLiter'] != null)
+            _DieselDetailRow('Rate', '₹${u['ratePerLiter']}/L'),
+          if (createdBy != null || createdTs != null) ...[
+            const Divider(height: 20),
+            const Text('RECORD INFO',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const SizedBox(height: 4),
+            _DieselDetailRow('Entered by', _dieselAuditLabel(createdBy, createdTs)),
+            if (updatedBy != null) _DieselDetailRow('Last edited by', updatedBy),
+          ],
+        ],
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+    ),
+  );
+}
+
+class _DieselDetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DieselDetailRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }

@@ -819,6 +819,17 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
                         _TotalRow('GST (Pending)', 0, dim: true),
                       const Divider(),
                       _TotalRow('Grand Total', grandTotal, bold: true),
+                      if ((inv['createdByName'] as String?) != null ||
+                          (inv['createdAt'] as String?) != null) ...[
+                        const Divider(height: 20),
+                        const Text('RECORD INFO',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 4),
+                        _InvoAuditRow('Entered by',
+                            _invAuditLabel(inv['createdByName'] as String?, inv['createdAt'] as String?)),
+                        if ((inv['updatedByName'] as String?) != null)
+                          _InvoAuditRow('Last edited by', inv['updatedByName'] as String),
+                      ],
                     ],
                   ),
                 ),
@@ -999,6 +1010,17 @@ class _JwDetailDialog extends ConsumerWidget {
           _TotalRow('GST (Pending)', 0, dim: true),
         const Divider(),
         _TotalRow('Grand Total', grandTotal, bold: true),
+        if ((inv['createdByName'] as String?) != null ||
+            (inv['createdAt'] as String?) != null) ...[
+          const Divider(height: 20),
+          const Text('RECORD INFO',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 4),
+          _InvoAuditRow('Entered by',
+              _invAuditLabel(inv['createdByName'] as String?, inv['createdAt'] as String?)),
+          if ((inv['updatedByName'] as String?) != null)
+            _InvoAuditRow('Last edited by', inv['updatedByName'] as String),
+        ],
       ]),
     );
   }
@@ -2793,6 +2815,40 @@ class _AutoQtyDrillDown extends StatelessWidget {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ── Audit helpers ─────────────────────────────────────────────────────────────
+
+String _invAuditLabel(String? name, String? ts) {
+  final n = name ?? '—';
+  if (ts == null) return n;
+  final d = DateTime.tryParse(ts);
+  return d != null ? '$n · ${DateFormat('d MMM yyyy').format(d)}' : n;
+}
+
+class _InvoAuditRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InvoAuditRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }

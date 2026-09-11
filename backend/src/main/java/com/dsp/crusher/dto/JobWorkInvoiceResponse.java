@@ -32,5 +32,8 @@ public class JobWorkInvoiceResponse {
     private LocalDateTime gstRecalculatedAt;
     private BigDecimal gstPrevSgstRate;
     private BigDecimal gstPrevCgstRate;
+    private LocalDateTime createdAt;
+    private String createdByName;
+    private String updatedByName;
     private List<JobWorkInvoiceItemResponse> items;
 }
