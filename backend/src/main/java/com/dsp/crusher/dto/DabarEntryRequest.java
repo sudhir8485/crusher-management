@@ -21,4 +21,11 @@ public class DabarEntryRequest {
      * null = no change on update; false = deactivate any existing payable.
      */
     private Boolean createTransportPayable;
+
+    /**
+     * Agreed transport amount to store on the payable (does NOT auto-settle — settlement
+     * happens only via a PAID direction VendorPayment linked to the payable).
+     * null = no change to existing amount.
+     */
+    private java.math.BigDecimal transportPayableAmount;
 }

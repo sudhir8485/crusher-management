@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
@@ -316,7 +317,8 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         setCell(row, 5, '',                   mainRowStyle(debit: true));
         setCell(row, 6, '',                   mainRowStyle(debit: true));
         row++;
-        setCell(row, 1, 'Payable: Pending — rate not set', pendingStyle());
+        final tpLabel = details.isNotEmpty ? (details[0]['label'] as String? ?? 'Payable: Pending') : 'Payable: Pending';
+        setCell(row, 1, tpLabel, pendingStyle());
         for (var c in [0, 2, 3, 4, 5, 6]) setCell(row, c, '', pendingStyle());
         row++;
       } else if ((e['voucherType'] as String?) == 'Delivery' && debit != null) {
@@ -646,13 +648,14 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             c(''),
           ],
         ));
+        final tpLabelPdf = details.isNotEmpty ? (details[0]['label'] as String? ?? 'Payable: Pending') : 'Payable: Pending';
         rows.add(pw.TableRow(
           decoration: const pw.BoxDecoration(color: PdfColors.amber50),
           children: [
             c(''),
             pw.Padding(
               padding: const pw.EdgeInsets.fromLTRB(14, 2, 4, 2),
-              child: pw.Text('Payable: Pending — rate not set',
+              child: pw.Text(tpLabelPdf,
                   style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: PdfColors.deepOrange800))),
             c(''), c(''), c(''), c(''), c(''),
           ],
@@ -739,297 +742,6 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     return pdf.save();
   }
 
-  Future<void> _showSetGstDialog(BuildContext ctx, int invoiceId, String invoiceNo) async {
-    final rateCtrl = TextEditingController();
-    double? previewRate;
-
-    final confirmed = await showDialog<String>(
-      context: ctx,
-      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
-        void updatePreview(String v) {
-          final d = double.tryParse(v);
-          setS(() => previewRate = (d != null && d >= 0 && d <= 28) ? d : null);
-        }
-
-        return AlertDialog(
-          title: Text('Set GST Rate — $invoiceNo'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Enter total GST % (SGST + CGST combined)',
-                style: TextStyle(fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 12),
-            // Common rate chips
-            Wrap(spacing: 8, children: [
-              for (final r in [0, 5, 12, 18, 28])
-                ActionChip(
-                  label: Text('$r%'),
-                  onPressed: () {
-                    rateCtrl.text = r.toString();
-                    updatePreview(r.toString());
-                  },
-                ),
-            ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: rateCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Total GST %',
-                suffixText: '%',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: updatePreview,
-            ),
-            if (previewRate != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                  Text('SGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const Text('+'),
-                  Text('CGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const Text('='),
-                  Text('$previewRate%', style: const TextStyle(fontWeight: FontWeight.bold,
-                      color: Colors.blue)),
-                ]),
-              ),
-            ],
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: previewRate != null
-                  ? () => Navigator.pop(dctx, rateCtrl.text)
-                  : null,
-              child: const Text('Apply & Lock'),
-            ),
-          ],
-        );
-      }),
-    );
-
-    if (confirmed == null || !mounted) return;
-    final rate = double.tryParse(confirmed);
-    if (rate == null) return;
-
-    try {
-      await ref.read(apiClientProvider).post(
-        '/api/invoices/$invoiceId/set-gst-rate',
-        data: null,
-        params: {'rate': rate.toString()},
-      );
-      if (mounted) {
-        ref.invalidate(_ledgerProvider(_key));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('GST set to $rate% on $invoiceNo — invoice locked'),
-          backgroundColor: Colors.green,
-        ));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Failed: $e'),
-        backgroundColor: Colors.red,
-      ));
-    }
-  }
-
-  Future<void> _showSetJobWorkGstDialog(BuildContext ctx, int invoiceId, String invoiceNo) async {
-    final rateCtrl = TextEditingController();
-    double? previewRate;
-
-    final confirmed = await showDialog<String>(
-      context: ctx,
-      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
-        void updatePreview(String v) {
-          final d = double.tryParse(v);
-          setS(() => previewRate = (d != null && d >= 0 && d <= 28) ? d : null);
-        }
-
-        return AlertDialog(
-          title: Text('Set GST Rate — $invoiceNo'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Enter total GST % (SGST + CGST combined)',
-                style: TextStyle(fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, children: [
-              for (final r in [0, 5, 12, 18, 28])
-                ActionChip(
-                  label: Text('$r%'),
-                  onPressed: () {
-                    rateCtrl.text = r.toString();
-                    updatePreview(r.toString());
-                  },
-                ),
-            ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: rateCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Total GST %', suffixText: '%',
-                border: OutlineInputBorder(), isDense: true,
-              ),
-              onChanged: updatePreview,
-            ),
-            if (previewRate != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                    color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                  Text('SGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const Text('+'),
-                  Text('CGST ${(previewRate! / 2).toStringAsFixed(previewRate! % 2 == 0 ? 0 : 1)}%',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const Text('='),
-                  Text('$previewRate%', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                ]),
-              ),
-            ],
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: previewRate != null ? () => Navigator.pop(dctx, rateCtrl.text) : null,
-              child: const Text('Apply & Lock'),
-            ),
-          ],
-        );
-      }),
-    );
-
-    if (confirmed == null || !mounted) return;
-    final rate = double.tryParse(confirmed);
-    if (rate == null) return;
-
-    try {
-      await ref.read(apiClientProvider).post(
-        '/api/job-work-invoices/$invoiceId/set-gst-rate',
-        data: null,
-        params: {'rate': rate.toString()},
-      );
-      if (mounted) {
-        ref.invalidate(_ledgerProvider(_key));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('GST set to $rate% on $invoiceNo — invoice locked'),
-          backgroundColor: Colors.green,
-        ));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed: $e'), backgroundColor: Colors.red));
-    }
-  }
-
-  Future<void> _showSetMachineRateDialog(
-      BuildContext ctx, int machineWorkId, double? totalHours, double? currentRate) async {
-    final rateCtrl = TextEditingController(text: currentRate?.toString() ?? '');
-    final isEditing = currentRate != null;
-    double? previewTotal = (currentRate != null && totalHours != null)
-        ? currentRate * totalHours : null;
-
-    final confirmed = await showDialog<String>(
-      context: ctx,
-      builder: (dctx) => StatefulBuilder(builder: (dctx, setS) {
-        void updatePreview(String v) {
-          final r = double.tryParse(v);
-          setS(() => previewTotal =
-              (r != null && totalHours != null) ? r * totalHours : null);
-        }
-
-        return AlertDialog(
-          title: Text(isEditing ? 'Edit Machine Work Rate' : 'Set Machine Work Rate'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            if (totalHours != null)
-              Text('${totalHours.toStringAsFixed(2)} hrs of work',
-                  style: const TextStyle(fontSize: 13, color: Colors.grey)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: rateCtrl,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Rate ₹/hr',
-                prefixText: '₹',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: updatePreview,
-            ),
-            if (previewTotal != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Total:'),
-                      Text(
-                        '₹${_numFmt.format(previewTotal!)}',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green.shade700,
-                            fontSize: 15),
-                      ),
-                    ]),
-              ),
-            ],
-          ]),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(dctx),
-                child: const Text('Cancel')),
-            FilledButton(
-              onPressed: rateCtrl.text.isNotEmpty
-                  ? () => Navigator.pop(dctx, rateCtrl.text)
-                  : null,
-              child: Text(isEditing ? 'Update' : 'Apply & Lock'),
-            ),
-          ],
-        );
-      }),
-    );
-
-    if (confirmed == null || !mounted) return;
-    final rate = double.tryParse(confirmed);
-    if (rate == null) return;
-
-    try {
-      await ref.read(apiClientProvider).post(
-        '/api/machine-work/$machineWorkId/set-rate',
-        data: null,
-        params: {'rate': rate.toString()},
-      );
-      if (mounted) {
-        ref.invalidate(_ledgerProvider(_key));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isEditing
-              ? 'Rate updated to ₹$rate/hr'
-              : 'Rate set to ₹$rate/hr — entry locked'),
-          backgroundColor: Colors.green,
-        ));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Failed: $e'),
-        backgroundColor: Colors.red,
-      ));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final ledger = ref.watch(_ledgerProvider(_key));
@@ -1055,9 +767,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
               data: data,
               printing: _printing,
               onExport: () => _showExportOptions(data),
-              onSetGst: _showSetGstDialog,
-              onSetJobWorkGst: _showSetJobWorkGstDialog,
-              onSetMachineRate: _showSetMachineRateDialog,
+              onRefresh: () => ref.invalidate(_ledgerProvider(_key)),
               onRecordPayment: () => showRecordPaymentDialog(
                 context, ref,
                 initialVendorId:   widget.vendorId,
@@ -1138,15 +848,12 @@ class _LedgerBody extends StatelessWidget {
   final bool printing;
   final VoidCallback onExport;
   final VoidCallback onRecordPayment;
-  final Future<void> Function(BuildContext, int, String) onSetGst;
-  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
-  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
+  final VoidCallback onRefresh;
 
   const _LedgerBody({
     required this.data, required this.printing,
     required this.onExport, required this.onRecordPayment,
-    required this.onSetGst, required this.onSetJobWorkGst,
-    required this.onSetMachineRate,
+    required this.onRefresh,
   });
 
   @override
@@ -1211,8 +918,7 @@ class _LedgerBody extends StatelessWidget {
                 message: 'No invoices in this period',
                 hint: 'Try a wider date range or create a GST invoice for this party',
               )
-            : _EntryList(entries: displayEntries, onSetGst: onSetGst,
-                onSetJobWorkGst: onSetJobWorkGst, onSetMachineRate: onSetMachineRate),
+            : _EntryList(entries: displayEntries, onRefresh: onRefresh),
       ),
     ]);
   }
@@ -1222,13 +928,8 @@ class _LedgerBody extends StatelessWidget {
 
 class _EntryList extends StatelessWidget {
   final List<Map<String, dynamic>> entries;
-  final Future<void> Function(BuildContext, int, String) onSetGst;
-  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
-  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
-  const _EntryList({
-    required this.entries, required this.onSetGst,
-    required this.onSetJobWorkGst, required this.onSetMachineRate,
-  });
+  final VoidCallback onRefresh;
+  const _EntryList({required this.entries, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -1256,9 +957,7 @@ class _EntryList extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-          ...dayEntries.map((e) => _EntryCard(
-              entry: e, onSetGst: onSetGst, onSetJobWorkGst: onSetJobWorkGst,
-              onSetMachineRate: onSetMachineRate)),
+          ...dayEntries.map((e) => _EntryCard(entry: e, onRefresh: onRefresh)),
         ]);
       },
     );
@@ -1269,13 +968,8 @@ class _EntryList extends StatelessWidget {
 
 class _EntryCard extends StatefulWidget {
   final Map<String, dynamic> entry;
-  final Future<void> Function(BuildContext, int, String) onSetGst;
-  final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
-  final Future<void> Function(BuildContext, int, double?, double?) onSetMachineRate;
-  const _EntryCard({
-    required this.entry, required this.onSetGst,
-    required this.onSetJobWorkGst, required this.onSetMachineRate,
-  });
+  final VoidCallback onRefresh;
+  const _EntryCard({required this.entry, required this.onRefresh});
 
   @override
   State<_EntryCard> createState() => _EntryCardState();
@@ -1283,6 +977,12 @@ class _EntryCard extends StatefulWidget {
 
 class _EntryCardState extends State<_EntryCard> {
   bool _expanded = false;
+
+  void _nav(String route, Map<String, dynamic> extra) {
+    context.push(route, extra: extra).then((_) {
+      if (mounted) widget.onRefresh();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1301,7 +1001,6 @@ class _EntryCardState extends State<_EntryCard> {
     final invoiceNo    = entry['invoiceNo']   as String? ?? '';
     final isPending    = (entry['gstStatus']  as String?) == 'PENDING';
     final sourceId     = entry['sourceId'] as int?;
-    final totalHours   = (entry['totalHours'] as num?)?.toDouble();
     final details   = List<Map<String, dynamic>>.from(
         (entry['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
     final hasDetails = details.isNotEmpty && !isPending;
@@ -1361,16 +1060,25 @@ class _EntryCardState extends State<_EntryCard> {
         : isPayment ? Colors.indigo.shade700
         : Colors.green.shade700;
 
-    // Primary tap action — for collapsible detail OR for pending action dialogs
+    // All entries navigate to their home module; tapping returns here with onRefresh called
+    final entryDate = entry['date'] as String?;
+    final dabarEntryId = entry['dabarEntryId'] as int?;
     VoidCallback onTapHeader;
-    if (sourceId != null && isSales && isPending) {
-      onTapHeader = () => widget.onSetGst(context, sourceId, invoiceNo);
-    } else if (sourceId != null && isJobWork && isPending) {
-      onTapHeader = () => widget.onSetJobWorkGst(context, sourceId, invoiceNo);
+    if (sourceId != null && (isSales || isJobWork)) {
+      onTapHeader = () => _nav(
+        isSales ? '/invoices' : '/invoices',
+        isSales
+          ? {'editGstId': sourceId, 'entryDate': entryDate}
+          : {'editJwId': sourceId, 'entryDate': entryDate},
+      );
     } else if (sourceId != null && isMachineWork) {
-      final currentRate = (debit != null && totalHours != null && totalHours > 0)
-          ? debit / totalHours : null;
-      onTapHeader = () => widget.onSetMachineRate(context, sourceId, totalHours, currentRate);
+      onTapHeader = () => _nav('/machine-work', {'editLogId': sourceId, 'entryDate': entryDate});
+    } else if (sourceId != null && isDelivery) {
+      onTapHeader = () => _nav('/trips', {'editTripId': sourceId, 'entryDate': entryDate});
+    } else if (sourceId != null && (isPayment || voucherType == 'Receipt')) {
+      onTapHeader = () => _nav('/party-payments', {'editPaymentId': sourceId, 'entryDate': entryDate});
+    } else if (isTransportPayable && dabarEntryId != null) {
+      onTapHeader = () => _nav('/dabar', {'editDabarId': dabarEntryId, 'entryDate': entryDate});
     } else if (hasDetails) {
       onTapHeader = () => setState(() => _expanded = !_expanded);
     } else {
@@ -1435,8 +1143,10 @@ class _EntryCardState extends State<_EntryCard> {
                 ),
               ]),
               const SizedBox(width: 4),
-              // Expand chevron (only when there are collapsible details)
-              if (hasDetails || isPending)
+              // chevron_right for all entries that navigate to a home module
+              if (sourceId != null || (isTransportPayable && dabarEntryId != null))
+                Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade500)
+              else if (hasDetails || isPending)
                 AnimatedRotation(
                   turns: _expanded ? 0.5 : 0,
                   duration: const Duration(milliseconds: 150),
@@ -1478,8 +1188,10 @@ class _EntryCardState extends State<_EntryCard> {
                   ? Padding(
                       padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
                       child: Text(
-                        isTransportPayable ? 'Rate not yet set'
-                            : (isSales || isJobWork) ? 'Tap to set GST rate' : 'Tap to set rate',
+                        isTransportPayable ? 'Tap to open Dabar entry and set agreed amount'
+                            : (isSales || isJobWork) ? 'Tap to open Invoice and set GST rate'
+                            : isMachineWork ? 'Tap to open Machine Work entry and set rate'
+                            : 'Tap to view/edit',
                         style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
                             fontStyle: FontStyle.italic),
                       ),

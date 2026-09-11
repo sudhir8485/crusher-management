@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/widgets/app_widgets.dart';
@@ -86,11 +87,60 @@ String _fmtBalance(double v)    => fmtCurr(v.abs());
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-class VendorPaymentsScreen extends ConsumerWidget {
+class VendorPaymentsScreen extends ConsumerStatefulWidget {
   const VendorPaymentsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VendorPaymentsScreen> createState() => _VendorPaymentsScreenState();
+}
+
+class _VendorPaymentsScreenState extends ConsumerState<VendorPaymentsScreen> {
+  bool _extraProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+  }
+
+  void _processExtra() {
+    if (_extraProcessed) return;
+    _extraProcessed = true;
+    final extra = GoRouterState.of(context).extra as Map?;
+    if (extra == null) return;
+    final paymentId = extra['editPaymentId'] as int?;
+    final dateStr   = extra['entryDate']   as String?;
+    if (paymentId == null || dateStr == null) return;
+    // Switch to month mode for the entry's date so the payment appears in the list
+    final date = DateTime.parse(dateStr);
+    final monthKey = _rangeKeyForMode('month', date);
+    ref.read(_paymentsModeProvider.notifier).state = 'month';
+    ref.read(_paymentsAnchorProvider.notifier).state = date;
+    ref.read(_paymentsRangeProvider.notifier).state = monthKey;
+    _scheduleOpenPayment(paymentId, monthKey);
+  }
+
+  Future<void> _scheduleOpenPayment(int paymentId, String rangeKey) async {
+    for (int i = 0; i < 8; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      final payments = ref.read(_paymentsProvider(rangeKey)).valueOrNull;
+      if (payments != null) {
+        final p = payments.where((it) => (it['id'] as int?) == paymentId).firstOrNull;
+        if (p != null) {
+          _showForm(context, ref, p, rangeKey);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Payment not found in current month — try a wider range')),
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final rangeKey = ref.watch(_paymentsRangeProvider);
     final mode     = ref.watch(_paymentsModeProvider);
     final anchor   = ref.watch(_paymentsAnchorProvider);

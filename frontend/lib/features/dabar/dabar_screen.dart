@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
@@ -63,8 +64,58 @@ final _vendorsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
 
 // ── screen ───────────────────────────────────────────────────────────────────
 
-class DabarScreen extends ConsumerWidget {
+class DabarScreen extends ConsumerStatefulWidget {
   const DabarScreen({super.key});
+
+  @override
+  ConsumerState<DabarScreen> createState() => _DabarScreenState();
+}
+
+class _DabarScreenState extends ConsumerState<DabarScreen> {
+  bool _extraProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+  }
+
+  void _processExtra() {
+    if (_extraProcessed) return;
+    _extraProcessed = true;
+    final extra = GoRouterState.of(context).extra as Map?;
+    if (extra == null) return;
+    final dabarId = extra['editDabarId'] as int?;
+    final dateStr = extra['entryDate'] as String?;
+    if (dabarId == null || dateStr == null) return;
+    final date = DateTime.parse(dateStr);
+    ref.read(_dabarModeProvider.notifier).state = 'day';
+    ref.read(_dabarDateProvider.notifier).state = date;
+    _scheduleOpenDabar(dabarId, date);
+  }
+
+  Future<void> _scheduleOpenDabar(int dabarId, DateTime date) async {
+    final siteId = ref.read(selectedSiteIdProvider);
+    final fmt = DateFormat('yyyy-MM-dd');
+    final ds = fmt.format(date);
+    final key = '$ds|$ds|${siteId ?? ''}';
+    for (int i = 0; i < 8; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      final entries = ref.read(_dabarProvider(key)).valueOrNull;
+      if (entries != null) {
+        final entry = entries.where((e) => (e['id'] as int?) == dabarId).firstOrNull;
+        if (entry != null) {
+          _showForm(context, ref, entry, date, key);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Entry not found — check that the correct site is selected')),
+          );
+        }
+        return;
+      }
+    }
+  }
 
   String _rangeKey(String mode, DateTime anchor, List<DateTime> custom, int? siteId) {
     final fmt = DateFormat('yyyy-MM-dd');
@@ -73,7 +124,7 @@ class DabarScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final selectedDate = ref.watch(_dabarDateProvider);
     final mode         = ref.watch(_dabarModeProvider);
     final custom       = ref.watch(_dabarCustomRangeProvider);
@@ -850,6 +901,10 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
   bool _showPayableToggle = false;
   bool _createPayable = false;
   String? _ownerPartyName;
+  late final _payableAmount = TextEditingController(
+    text: widget.existing?['transportPayableAmount']?.toString(),
+  );
+  bool get _payableSettled => widget.existing?['transportPayableSettled'] == true;
 
   @override
   void initState() {
@@ -866,7 +921,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
 
   @override
   void dispose() {
-    _trips.dispose(); _brass.dispose(); _notes.dispose();
+    _trips.dispose(); _brass.dispose(); _notes.dispose(); _payableAmount.dispose();
     super.dispose();
   }
 
@@ -958,6 +1013,15 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       data['createTransportPayable'] = _createPayable;
     } else if (widget.existing != null && widget.existing!['transportPayableActive'] == true) {
       data['createTransportPayable'] = false;
+    }
+
+    // Send agreed amount when updating a payable (update only, not on create)
+    if (widget.existing != null && !_payableSettled) {
+      final amt = _payableAmount.text.trim();
+      if (amt.isNotEmpty) {
+        final parsed = double.tryParse(amt);
+        if (parsed != null) data['transportPayableAmount'] = parsed;
+      }
     }
 
     final api = ref.read(apiClientProvider);
@@ -1090,6 +1154,27 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                   value: _createPayable,
                   onChanged: (v) => setState(() => _createPayable = v),
                   activeThumbColor: Colors.deepOrange,
+                ),
+              ),
+            ],
+            // Show amount field when editing an entry with an active payable
+            if (widget.existing != null && widget.existing!['transportPayableActive'] == true) ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _payableAmount,
+                readOnly: _payableSettled,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Agreed Transport Amount (₹)',
+                  prefixText: '₹',
+                  helperText: _payableSettled
+                      ? 'Settled — cannot edit'
+                      : 'Leave blank if amount not yet agreed',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  suffixIcon: _payableSettled
+                      ? const Icon(Icons.lock_outline, size: 16)
+                      : null,
                 ),
               ),
             ],

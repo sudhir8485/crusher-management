@@ -75,7 +75,19 @@ public class DabarService {
         apply(e, req);
         e = repo.save(e);
         handleTransportPayable(e, req, e.getSiteId());
+        updatePayableAmount(e.getId(), req);
         return enrich(List.of(e)).get(0);
+    }
+
+    private void updatePayableAmount(Long dabarEntryId, DabarEntryRequest req) {
+        if (req.getTransportPayableAmount() == null) return;
+        payableRepo.findBySourceTypeAndSourceEntryIdAndStatus("DABAR", dabarEntryId, "ACTIVE")
+                .ifPresent(p -> {
+                    if (!p.isSettled()) { // never overwrite a settled payable's amount
+                        p.setAmount(req.getTransportPayableAmount());
+                        payableRepo.save(p);
+                    }
+                });
     }
 
     @Transactional
@@ -211,6 +223,8 @@ public class DabarService {
             if (payable != null) {
                 r.setTransportPayableId(payable.getId());
                 r.setTransportPayableActive(true);
+                r.setTransportPayableAmount(payable.getAmount());
+                r.setTransportPayableSettled(payable.isSettled());
             }
             return r;
         }).collect(Collectors.toList());

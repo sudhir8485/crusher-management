@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
@@ -68,8 +69,57 @@ final _vendorsProvider =
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
-class TripsScreen extends ConsumerWidget {
+class TripsScreen extends ConsumerStatefulWidget {
   const TripsScreen({super.key});
+
+  @override
+  ConsumerState<TripsScreen> createState() => _TripsScreenState();
+}
+
+class _TripsScreenState extends ConsumerState<TripsScreen> {
+  bool _extraProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+  }
+
+  void _processExtra() {
+    if (_extraProcessed) return;
+    _extraProcessed = true;
+    final extra = GoRouterState.of(context).extra as Map?;
+    if (extra == null) return;
+    final tripId = extra['editTripId'] as int?;
+    final dateStr = extra['entryDate'] as String?;
+    if (tripId == null || dateStr == null) return;
+    final date = DateTime.parse(dateStr);
+    ref.read(tripsModeProvider.notifier).state = 'day';
+    ref.read(tripsDateProvider.notifier).state = date;
+    _scheduleOpenTrip(tripId, date);
+  }
+
+  Future<void> _scheduleOpenTrip(int tripId, DateTime date) async {
+    final fmt = DateFormat('yyyy-MM-dd');
+    final ds = fmt.format(date);
+    final key = '$ds|$ds';
+    for (int i = 0; i < 8; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      final trips = ref.read(tripsProvider(key)).valueOrNull;
+      if (trips != null) {
+        final trip = trips.where((t) => (t['id'] as int?) == tripId).firstOrNull;
+        if (trip != null) {
+          _showForm(context, ref, trip, date, key);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Entry not found — check that the correct site is selected')),
+          );
+        }
+        return;
+      }
+    }
+  }
 
   String _rangeKey(String mode, DateTime anchor, List<DateTime> custom) {
     final fmt = DateFormat('yyyy-MM-dd');
@@ -78,7 +128,7 @@ class TripsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final selectedDate = ref.watch(tripsDateProvider);
     final mode         = ref.watch(tripsModeProvider);
     final custom       = ref.watch(tripsCustomRangeProvider);

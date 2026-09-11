@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
@@ -84,11 +85,59 @@ String _payStatusLabel(String? s) => switch (s) {
 
 // ── Screen ─────────────────────────────────────────────────────────────────────
 
-class InvoicesScreen extends ConsumerWidget {
+class InvoicesScreen extends ConsumerStatefulWidget {
   const InvoicesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InvoicesScreen> createState() => _InvoicesScreenState();
+}
+
+class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
+  bool _extraProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+  }
+
+  void _processExtra() {
+    if (_extraProcessed) return;
+    _extraProcessed = true;
+    final extra = GoRouterState.of(context).extra as Map?;
+    if (extra == null) return;
+    final gstId = extra['editGstId'] as int?;
+    final jwId  = extra['editJwId']  as int?;
+    if (gstId == null && jwId == null) return;
+    _scheduleOpenInvoice(gstId: gstId, jwId: jwId);
+  }
+
+  Future<void> _scheduleOpenInvoice({int? gstId, int? jwId}) async {
+    for (int i = 0; i < 8; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      final items = ref.read(_allInvoicesProvider).valueOrNull;
+      if (items != null) {
+        Map<String, dynamic>? inv;
+        if (gstId != null) {
+          inv = items.where((it) => it['_src'] == 'gst' && (it['id'] as int?) == gstId).firstOrNull;
+        } else if (jwId != null) {
+          inv = items.where((it) => it['_src'] == 'jw' && (it['id'] as int?) == jwId).firstOrNull;
+        }
+        if (inv != null) {
+          _showEdit(context, ref, inv);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Invoice not found')),
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final asyncItems = ref.watch(_allInvoicesProvider);
 
     return Scaffold(
@@ -1638,7 +1687,7 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
                               : Colors.grey.shade600),
                       const SizedBox(width: 4),
                       Text(!row.isService && hasPicked
-                          ? pickedLabel!
+                          ? (pickedLabel ?? 'Material #${row.materialId}')
                           : 'Select Material',
                           style: TextStyle(fontSize: 11,
                               color: active
@@ -1677,7 +1726,7 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
                               : Colors.grey.shade600),
                       const SizedBox(width: 4),
                       Text(row.isService && hasPicked
-                          ? pickedLabel!
+                          ? (pickedLabel ?? 'Service #${row.serviceId}')
                           : 'Select Service',
                           style: TextStyle(fontSize: 11,
                               color: active
@@ -2515,7 +2564,7 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
                   Icon(Icons.handyman_outlined, size: 14,
                       color: hasService ? (gstPending ? Colors.orange.shade700 : Colors.blue.shade700) : Colors.grey.shade600),
                   const SizedBox(width: 4),
-                  Text(hasService ? row.serviceName! : 'Select Service',
+                  Text(hasService ? (row.serviceName ?? 'Service #${row.serviceId}') : 'Select Service',
                       style: TextStyle(fontSize: 11,
                           color: hasService ? (gstPending ? Colors.orange.shade800 : Colors.blue.shade700) : Colors.grey.shade600)),
                 ]),

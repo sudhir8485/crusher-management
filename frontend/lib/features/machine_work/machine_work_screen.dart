@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
@@ -88,11 +89,59 @@ final _numFmt = NumberFormat('#,##,##0.##');
 
 // ── screen ───────────────────────────────────────────────────────────────────
 
-class MachineWorkScreen extends ConsumerWidget {
+class MachineWorkScreen extends ConsumerStatefulWidget {
   const MachineWorkScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MachineWorkScreen> createState() => _MachineWorkScreenState();
+}
+
+class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
+  bool _extraProcessed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+  }
+
+  void _processExtra() {
+    if (_extraProcessed) return;
+    _extraProcessed = true;
+    final extra = GoRouterState.of(context).extra as Map?;
+    if (extra == null) return;
+    final logId = extra['editLogId'] as int?;
+    final dateStr = extra['entryDate'] as String?;
+    if (logId == null || dateStr == null) return;
+    final date = DateTime.parse(dateStr);
+    ref.read(_mwModeProvider.notifier).state = 'day';
+    ref.read(_mwDateProvider.notifier).state = date;
+    _scheduleOpenLog(logId, date);
+  }
+
+  Future<void> _scheduleOpenLog(int logId, DateTime date) async {
+    final siteId = ref.read(selectedSiteIdProvider);
+    final key = _mwRangeKey('day', date, [date, date], siteId);
+    for (int i = 0; i < 8; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      final logs = ref.read(_logsProvider(key)).valueOrNull;
+      if (logs != null) {
+        final log = logs.where((l) => (l['id'] as int?) == logId).firstOrNull;
+        if (log != null) {
+          _showForm(context, ref, log, date, siteId);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Entry not found — check that the correct site is selected')),
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final date   = ref.watch(_mwDateProvider);
     final mode   = ref.watch(_mwModeProvider);
     final custom = ref.watch(_mwCustomProvider);

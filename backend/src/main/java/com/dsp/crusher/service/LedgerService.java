@@ -323,7 +323,8 @@ public class LedgerService {
             e.setDate(tp.getEntryDate());
             e.setVoucherType("TransportPayable");
             e.setSourceId(tp.getId());
-            e.setGstStatus("PENDING"); // no amount set yet — shown as pending
+            e.setDabarEntryId(tp.getSourceEntryId()); // for frontend navigation to Dabar edit form
+            e.setGstStatus(tp.isSettled() ? "SET" : "PENDING");
 
             String vehicleLabel = "Vehicle";
             if (tp.getVehicleId() != null) {
@@ -332,11 +333,19 @@ public class LedgerService {
             }
             e.setParticulars("Dabar Transport — " + vehicleLabel);
 
-            // No debit/credit until rate is set — tracking entry only
-            DetailLine pending = new DetailLine();
-            pending.setLabel("Payable: Pending — rate not set");
-            pending.setAmount(null);
-            e.setDetails(List.of(pending));
+            // Track agreed amount if set; debit only appears when settled via PAID payment
+            DetailLine dl = new DetailLine();
+            if (tp.isSettled() && tp.getAmount() != null) {
+                dl.setLabel("Settled — ₹" + tp.getAmount().stripTrailingZeros().toPlainString());
+                dl.setAmount(null);
+            } else if (tp.getAmount() != null) {
+                dl.setLabel("Agreed amount: ₹" + tp.getAmount().stripTrailingZeros().toPlainString() + " — pending settlement");
+                dl.setAmount(null);
+            } else {
+                dl.setLabel("Payable: Pending — tap to set agreed amount");
+                dl.setAmount(null);
+            }
+            e.setDetails(List.of(dl));
             entries.add(e);
         }
 

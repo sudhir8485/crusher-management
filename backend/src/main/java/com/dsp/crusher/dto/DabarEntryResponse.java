@@ -27,4 +27,8 @@ public class DabarEntryResponse {
     private Long transportPayableId;
     /** True when transport payable tracking is active for this entry. */
     private Boolean transportPayableActive;
+    /** Agreed transport amount stored on the payable; null if not yet agreed. */
+    private java.math.BigDecimal transportPayableAmount;
+    /** True when the payable has been settled via a PAID direction VendorPayment. */
+    private Boolean transportPayableSettled;
 }
