@@ -48,6 +48,16 @@ final _vendorTripBalanceProvider =
   return Map<String, dynamic>.from(res.data as Map);
 });
 
+// Unsettled transport payables for the selected vendor (PAID direction)
+final _unsettledPayablesProvider =
+    FutureProvider.autoDispose.family<List<Map<String, dynamic>>, int>(
+        (ref, vendorId) async {
+  final res = await ref
+      .read(apiClientProvider)
+      .get('/api/parties/$vendorId/unsettled-payables');
+  return List<Map<String, dynamic>>.from(res.data as List);
+});
+
 final _dateFmt = DateFormat('d MMM yyyy');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,7 +80,7 @@ String _rangeKeyForMode(String mode, DateTime anchor) {
   }
 }
 
-String _balanceLabel(double v) => v < 0 ? 'Advance' : 'Outstanding';
+String _balanceLabel(double v) => v < 0 ? 'Payable' : 'Receivable';
 Color  _balanceColor(double v)  => v < 0 ? Colors.blue.shade700 : Colors.orange.shade800;
 String _fmtBalance(double v)    => fmtCurr(v.abs());
 
@@ -563,7 +573,10 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
   String  _vendorName = '';
   int?    _invoiceId;
   late DateTime _date;
-  String  _mode = 'CASH';
+  String  _mode      = 'CASH';
+  String  _direction = 'RECEIVED'; // RECEIVED | PAID
+  int?    _transportPayableId;
+  String? _transportPayableLabel;
   final _amtCtrl   = TextEditingController();
   final _refCtrl   = TextEditingController();
   final _notesCtrl = TextEditingController();
@@ -579,6 +592,8 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
       _vendorName = e['vendorName']   as String? ?? '';
       _invoiceId  = e['invoiceId']    as int?;
       _mode       = e['paymentMode']  as String? ?? 'CASH';
+      _direction  = e['direction']    as String? ?? 'RECEIVED';
+      _transportPayableId = e['transportPayableId'] as int?;
       _amtCtrl.text  = (e['amount']      as num? ?? 0).toString();
       _refCtrl.text  = e['referenceNo']  as String? ?? '';
       _notesCtrl.text = e['notes']       as String? ?? '';
@@ -654,6 +669,8 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
       'paymentDate': DateFormat('yyyy-MM-dd').format(_date),
       'amount':      double.parse(_amtCtrl.text),
       'paymentMode': _mode,
+      'direction':   _direction,
+      if (_transportPayableId != null) 'transportPayableId': _transportPayableId,
       if (_refCtrl.text.trim().isNotEmpty)   'referenceNo': _refCtrl.text.trim(),
       if (_notesCtrl.text.trim().isNotEmpty) 'notes':       _notesCtrl.text.trim(),
     };
@@ -689,9 +706,14 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
     final balance  = balAsync?.valueOrNull;
     final outstanding = (balance?['outstanding'] as num?)?.toDouble() ?? 0;
     final enteredAmt  = double.tryParse(_amtCtrl.text) ?? 0;
-    final preview     = (balance != null && enteredAmt > 0)
+    final isPaid      = _direction == 'PAID';
+    // FIFO preview only meaningful for RECEIVED direction
+    final preview     = (!isPaid && balance != null && enteredAmt > 0)
         ? _computeFifoPreview(balance, enteredAmt) : <_AllocLine>[];
-    final newBalance  = outstanding - enteredAmt;
+    // For RECEIVED: outstanding decreases; for PAID: balance increases (toward 0 from negative)
+    final newBalance  = isPaid ? outstanding + enteredAmt : outstanding - enteredAmt;
+    final payablesAsync = (_vendorId != null && isPaid)
+        ? ref.watch(_unsettledPayablesProvider(_vendorId!)) : null;
 
     return AppDialog(
       title: isEdit ? 'Edit Payment' : 'Record Payment',
@@ -779,6 +801,88 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
                     ]),
                   );
+                },
+              ),
+            ],
+
+            // ── Direction toggle ────────────────────────────────────────
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: _DirectionToggleButton(
+                  selected: _direction == 'RECEIVED',
+                  label: 'Received from Party',
+                  icon: Icons.arrow_downward_rounded,
+                  color: Colors.green.shade700,
+                  onTap: () => setState(() {
+                    _direction = 'RECEIVED';
+                    _transportPayableId = null;
+                    _transportPayableLabel = null;
+                  }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _DirectionToggleButton(
+                  selected: _direction == 'PAID',
+                  label: 'Paid to Party',
+                  icon: Icons.arrow_upward_rounded,
+                  color: Colors.indigo.shade700,
+                  onTap: () => setState(() { _direction = 'PAID'; }),
+                ),
+              ),
+            ]),
+
+            // ── Transport payable selector (PAID direction only) ────────
+            if (isPaid && _vendorId != null) ...[
+              const SizedBox(height: 10),
+              payablesAsync!.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (payables) {
+                  if (payables.isEmpty) return const SizedBox.shrink();
+                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Link to a pending payable (optional):',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    ...payables.map((p) {
+                      final id = p['id'] as int?;
+                      final label = '${p['vehicleLabel']} — ${p['entryDate']}';
+                      final selected = _transportPayableId == id;
+                      return InkWell(
+                        onTap: () => setState(() {
+                          if (selected) {
+                            _transportPayableId = null;
+                            _transportPayableLabel = null;
+                          } else {
+                            _transportPayableId = id;
+                            _transportPayableLabel = label;
+                          }
+                        }),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: selected ? Colors.indigo.shade50 : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: selected ? Colors.indigo.shade300 : Colors.grey.shade300,
+                            ),
+                          ),
+                          child: Row(children: [
+                            Icon(Icons.local_shipping_outlined, size: 14,
+                                color: selected ? Colors.indigo.shade600 : Colors.grey.shade500),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(label,
+                                style: TextStyle(fontSize: 12,
+                                    color: selected ? Colors.indigo.shade700 : Colors.grey.shade700))),
+                            if (selected)
+                              Icon(Icons.check_circle, size: 14, color: Colors.indigo.shade600),
+                          ]),
+                        ),
+                      );
+                    }),
+                  ]);
                 },
               ),
             ],
@@ -891,4 +995,44 @@ class _AllocLine {
   final String text;
   final String type; // 'full' | 'partial' | 'advance'
   const _AllocLine(this.text, this.type);
+}
+
+class _DirectionToggleButton extends StatelessWidget {
+  final bool selected;
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _DirectionToggleButton({
+    required this.selected, required this.label,
+    required this.icon, required this.color, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.10) : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color.withValues(alpha: 0.6) : Colors.grey.shade300,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 16, color: selected ? color : Colors.grey.shade500),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(
+            fontSize: 12, fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: selected ? color : Colors.grey.shade600,
+          )),
+        ]),
+      ),
+    );
+  }
 }

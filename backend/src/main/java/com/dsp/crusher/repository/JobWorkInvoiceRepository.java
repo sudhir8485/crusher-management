@@ -56,5 +56,9 @@ public interface JobWorkInvoiceRepository extends JpaRepository<JobWorkInvoice, 
     @Query("SELECT i.vendorId, MAX(i.invoiceDate) FROM JobWorkInvoice i WHERE i.vendorId IN :vendorIds AND i.status = 'ACTIVE' GROUP BY i.vendorId")
     List<Object[]> lastInvoiceDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
+    // All-time sum for a single vendor (for getTripBalance outstanding)
+    @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM JobWorkInvoice i WHERE i.vendorId = :vendorId AND i.status = 'ACTIVE'")
+    BigDecimal sumAllGrandTotalByVendorId(@Param("vendorId") Long vendorId);
+
     boolean existsByVendorId(Long vendorId);
 }

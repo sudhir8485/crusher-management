@@ -337,6 +337,17 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
           for (var c in [0, 3, 4, 5, 6]) setCell(row, c, '', subStyle());
           row++;
         }
+      } else if ((e['voucherType'] as String?) == 'Payment' && debit != null) {
+        // PAID direction: DSP pays party — debit entry in ledger
+        totalDebit += debit;
+        setCell(row, 0, dateStr,       mainRowStyle(debit: true));
+        setCell(row, 1, particulars,   mainRowStyle(debit: true));
+        setCell(row, 2, '',            mainRowStyle(debit: true));
+        setCell(row, 3, 'Paid Out',    mainRowStyle(debit: true));
+        setCell(row, 4, debit,         mainRowStyle(debit: true));
+        setCell(row, 5, '',            mainRowStyle(debit: true));
+        setCell(row, 6, balXl(runBal), mainRowStyle(debit: true));
+        row++;
       } else if (!isSales && !isJobWorkEntry && credit != null) {
         totalCredit += credit;
         setCell(row, 0, dateStr,       mainRowStyle(debit: false));
@@ -354,7 +365,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
     setCell(row, 1, 'Balance',  totalStyle());
-    setCell(row, 3, isOwed ? 'Outstanding' : isAdvance ? 'Advance' : 'Settled', totalStyle());
+    setCell(row, 3, isOwed ? 'Receivable' : isAdvance ? 'Payable' : 'Settled', totalStyle());
     setCell(row, 4, isOwed ? closing : 0.0, totalStyle());
     setCell(row, 5, isAdvance ? closing.abs() : 0.0, totalStyle());
     setCell(row, 6, balXl(closing), totalStyle());
@@ -402,7 +413,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
 
     String rs(double v) => '₹${_numFmt.format(v)}';
     String n(double v)  => _numFmt.format(v);
-    String balStr(double v) => v > 0.5 ? rs(v) : v < -0.5 ? 'Adv ${rs(v.abs())}' : '₹0';
+    String balStr(double v) => v > 0.5 ? rs(v) : v < -0.5 ? 'Payable ${rs(v.abs())}' : '₹0';
 
     pw.TextStyle bold({double size = 8.5}) => pw.TextStyle(font: fontBold, fontSize: size);
     pw.TextStyle reg({double size = 8.5, PdfColor? color}) =>
@@ -447,8 +458,8 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         pw.Text('Invoiced: ${rs(totalDebit)}', style: reg(size: 8, color: PdfColors.orange900)),
         pw.Text('Received: ${rs(totalCred)}', style: reg(size: 8, color: PdfColors.green800)),
         pw.Text(
-          isOwed    ? 'Outstanding: ${rs(closing)}'
-            : isAdvance ? 'Advance: ${rs(closing.abs())}'
+          isOwed    ? 'Receivable: ${rs(closing)}'
+            : isAdvance ? 'Payable: ${rs(closing.abs())}'
             : 'Settled Up',
           style: bold(size: 8).copyWith(color: balColor)),
       ]),
@@ -681,6 +692,20 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             ],
           ));
         }
+      } else if ((e['voucherType'] as String?) == 'Payment' && debit != null) {
+        // PAID direction: DSP pays party — debit entry (reduces payable)
+        rows.add(pw.TableRow(
+          decoration: pw.BoxDecoration(color: PdfColors.indigo50),
+          children: [
+            c(dateStr),
+            c(particulars, b: true),
+            c(''),
+            c('Paid Out'),
+            c(n(debit), b: true, a: pw.TextAlign.right),
+            c(''),
+            bal(runBal),
+          ],
+        ));
       } else if (!isSales && credit != null) {
         rows.add(pw.TableRow(
           decoration: const pw.BoxDecoration(color: PdfColors.green50),
@@ -1132,8 +1157,8 @@ class _LedgerBody extends StatelessWidget {
 
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
-    final balLabel  = isOwed    ? 'Owes ${fmtCurr(closing)}'
-        : isAdvance ? 'Advance ${fmtCurr(closing.abs())}'
+    final balLabel  = isOwed    ? 'Receivable ${fmtCurr(closing)}'
+        : isAdvance ? 'Payable ${fmtCurr(closing.abs())}'
         : 'Settled Up';
     final balColor  = isOwed    ? Colors.orange.shade800
         : isAdvance ? Colors.blue.shade700
@@ -1240,9 +1265,9 @@ class _EntryList extends StatelessWidget {
   }
 }
 
-// ── Entry card — invoice with GST sub-rows, or payment ───────────────────────
+// ── Entry card — collapsible; tap header to expand/collapse detail rows ────────
 
-class _EntryCard extends StatelessWidget {
+class _EntryCard extends StatefulWidget {
   final Map<String, dynamic> entry;
   final Future<void> Function(BuildContext, int, String) onSetGst;
   final Future<void> Function(BuildContext, int, String) onSetJobWorkGst;
@@ -1253,13 +1278,22 @@ class _EntryCard extends StatelessWidget {
   });
 
   @override
+  State<_EntryCard> createState() => _EntryCardState();
+}
+
+class _EntryCardState extends State<_EntryCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
     final voucherType        = (entry['voucherType'] as String?) ?? '';
     final isSales            = voucherType == 'Sales';
     final isMachineWork      = voucherType == 'MachineWork';
     final isJobWork          = voucherType == 'JobWork';
     final isTransportPayable = voucherType == 'TransportPayable';
     final isDelivery         = voucherType == 'Delivery';
+    final isPayment          = voucherType == 'Payment'; // DSP pays party (PAID direction)
     final debit     = (entry['debit']  as num?)?.toDouble();
     final credit    = (entry['credit'] as num?)?.toDouble();
     final balance   = (entry['runningBalance'] as num?)?.toDouble() ?? 0;
@@ -1270,174 +1304,190 @@ class _EntryCard extends StatelessWidget {
     final totalHours   = (entry['totalHours'] as num?)?.toDouble();
     final details   = List<Map<String, dynamic>>.from(
         (entry['details'] as List? ?? []).map((d) => Map<String, dynamic>.from(d as Map)));
+    final hasDetails = details.isNotEmpty && !isPending;
 
     final balIsOwed = balance > 0.5;
     final balIsAdv  = balance < -0.5;
-    final balText   = balIsOwed ? 'Bal. ${fmtCurr(balance)}'
-        : balIsAdv  ? 'Adv. ${fmtCurr(balance.abs())}'
+    final balText   = balIsOwed ? 'Receivable ${fmtCurr(balance)}'
+        : balIsAdv  ? 'Payable ${fmtCurr(balance.abs())}'
         : 'Settled';
     final balColor  = balIsOwed ? Colors.orange.shade700
         : balIsAdv  ? Colors.blue.shade700
         : Colors.green.shade700;
 
+    // Card background: pending = amber, payment-out = indigo tint, receipt = green tint, debit types = white/light
     final cardBg = isPending
         ? Colors.amber.shade50
+        : isPayment ? Colors.indigo.shade50
         : isSales ? Colors.white
         : isMachineWork ? Colors.lightBlue.shade50
         : isJobWork ? Colors.purple.shade50
         : isTransportPayable ? Colors.deepOrange.shade50
         : isDelivery ? Colors.teal.shade50
-        : Colors.green.shade50;
+        : Colors.green.shade50; // Receipt
 
-    VoidCallback? onTap;
-    if (sourceId != null) {
-      if (isSales && isPending) {
-        onTap = () => onSetGst(context, sourceId, invoiceNo);
-      } else if (isJobWork && isPending) {
-        onTap = () => onSetJobWorkGst(context, sourceId, invoiceNo);
-      } else if (isMachineWork) {
-        final currentRate = (debit != null && totalHours != null && totalHours > 0)
-            ? debit / totalHours : null;
-        onTap = () => onSetMachineRate(context, sourceId, totalHours, currentRate);
-      }
+    // Left icon per type
+    IconData? typeIcon;
+    Color? typeIconColor;
+    if (isMachineWork)      { typeIcon = Icons.construction_outlined;    typeIconColor = Colors.blueGrey.shade600; }
+    else if (isJobWork)     { typeIcon = Icons.build_circle_outlined;    typeIconColor = Colors.purple.shade600; }
+    else if (isTransportPayable) { typeIcon = Icons.local_shipping_outlined; typeIconColor = Colors.deepOrange.shade600; }
+    else if (isDelivery)    { typeIcon = Icons.swap_horiz_outlined;      typeIconColor = Colors.teal.shade600; }
+    else if (isPayment)     { typeIcon = Icons.arrow_upward_rounded;     typeIconColor = Colors.indigo.shade600; }
+
+    // Right-side type label + color
+    final (typeLabel, typeLabelColor) = isSales
+        ? ('Billed', Colors.orange.shade700)
+        : isMachineWork  ? ('Machine Work', Colors.blueGrey.shade600)
+        : isJobWork      ? ('Job Work',     Colors.purple.shade600)
+        : isTransportPayable ? ('Transport', Colors.deepOrange.shade600)
+        : isDelivery     ? ('Delivery',     Colors.teal.shade700)
+        : isPayment      ? ('Paid Out',     Colors.indigo.shade700)
+        : ('Received', Colors.green.shade700);
+
+    // Amount to display on the right
+    final displayAmt = isTransportPayable ? null
+        : (isMachineWork || isDelivery || isPayment)
+            ? debit
+            : (isSales || isJobWork)
+                ? (debit ?? 0.0)
+                : credit;
+
+    final amtColor = isSales ? Colors.orange.shade800
+        : isMachineWork ? Colors.blueGrey.shade700
+        : isJobWork ? Colors.purple.shade700
+        : isTransportPayable ? Colors.deepOrange.shade700
+        : isDelivery ? Colors.teal.shade800
+        : isPayment ? Colors.indigo.shade700
+        : Colors.green.shade700;
+
+    // Primary tap action — for collapsible detail OR for pending action dialogs
+    VoidCallback onTapHeader;
+    if (sourceId != null && isSales && isPending) {
+      onTapHeader = () => widget.onSetGst(context, sourceId, invoiceNo);
+    } else if (sourceId != null && isJobWork && isPending) {
+      onTapHeader = () => widget.onSetJobWorkGst(context, sourceId, invoiceNo);
+    } else if (sourceId != null && isMachineWork) {
+      final currentRate = (debit != null && totalHours != null && totalHours > 0)
+          ? debit / totalHours : null;
+      onTapHeader = () => widget.onSetMachineRate(context, sourceId, totalHours, currentRate);
+    } else if (hasDetails) {
+      onTapHeader = () => setState(() => _expanded = !_expanded);
+    } else {
+      onTapHeader = () {};
     }
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
+    return Container(
       decoration: BoxDecoration(
         color: cardBg,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Main row
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Left: title + badge
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                if (isMachineWork)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Icon(Icons.construction_outlined, size: 14,
-                        color: Colors.blueGrey.shade600)),
-                if (isJobWork)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Icon(Icons.build_circle_outlined, size: 14,
-                        color: Colors.purple.shade600)),
-                if (isTransportPayable)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Icon(Icons.local_shipping_outlined, size: 14,
-                        color: Colors.deepOrange.shade600)),
-                if (isDelivery)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Icon(Icons.swap_horiz_outlined, size: 14,
-                        color: Colors.teal.shade600)),
-                Expanded(
-                  child: Text(
-                    (isSales || isJobWork)
-                        ? (invoiceNo.isNotEmpty ? invoiceNo : (isSales ? 'Sales Invoice' : 'Job-Work Invoice'))
-                        : particulars,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (isPending)
-                  Container(
-                    margin: const EdgeInsets.only(left: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade100,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.amber.shade400),
-                    ),
+        // ── Header row (always visible) ─────────────────────────────────────
+        InkWell(
+          onTap: onTapHeader,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 12, 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              // Type icon
+              if (typeIcon != null) ...[
+                Icon(typeIcon, size: 15, color: typeIconColor),
+                const SizedBox(width: 6),
+              ],
+              // Title + running balance
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
                     child: Text(
-                      (isSales || isJobWork) ? 'GST: Pending' : 'Rate: Pending',
-                      style: TextStyle(fontSize: 10, color: Colors.orange.shade900,
-                          fontWeight: FontWeight.w600)),
+                      (isSales || isJobWork)
+                          ? (invoiceNo.isNotEmpty ? invoiceNo : (isSales ? 'Sales Invoice' : 'Job-Work Invoice'))
+                          : particulars,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-              ]),
-              const SizedBox(height: 2),
-              if (balance != 0 || !isPending)
-                Text(balText, style: TextStyle(fontSize: 11, color: balColor)),
-            ])),
-            const SizedBox(width: 12),
-            // Right: type label + amount
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(
-                isSales ? 'Billed'
-                    : isMachineWork ? 'Machine Work'
-                    : isJobWork ? 'Job Work'
-                    : isTransportPayable ? 'Transport'
-                    : isDelivery ? 'Delivery'
-                    : 'Received',
-                style: TextStyle(fontSize: 10,
-                    color: isSales ? Colors.orange.shade700
-                        : isMachineWork ? Colors.blueGrey.shade600
-                        : isJobWork ? Colors.purple.shade600
-                        : isTransportPayable ? Colors.deepOrange.shade600
-                        : isDelivery ? Colors.teal.shade700
-                        : Colors.green.shade700),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                isTransportPayable ? '—'
-                    : (isMachineWork || isDelivery)
-                        ? (debit != null ? fmtCurr(debit) : '—')
-                        : (isSales || isJobWork)
-                            ? fmtCurr(debit ?? 0)
-                            : fmtCurr(credit ?? 0),
-                style: TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.bold,
-                  color: isSales ? Colors.orange.shade800
-                      : isMachineWork ? Colors.blueGrey.shade700
-                      : isJobWork ? Colors.purple.shade700
-                      : isTransportPayable ? Colors.deepOrange.shade700
-                      : isDelivery ? Colors.teal.shade800
-                      : Colors.green.shade700,
+                  if (isPending)
+                    Container(
+                      margin: const EdgeInsets.only(left: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.amber.shade400),
+                      ),
+                      child: Text(
+                        (isSales || isJobWork) ? 'GST Pending' : 'Rate Pending',
+                        style: TextStyle(fontSize: 9, color: Colors.orange.shade900,
+                            fontWeight: FontWeight.w600)),
+                    ),
+                ]),
+                const SizedBox(height: 1),
+                Text(balText, style: TextStyle(fontSize: 10.5, color: balColor)),
+              ])),
+              const SizedBox(width: 10),
+              // Amount + type label
+              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Text(typeLabel, style: TextStyle(fontSize: 10, color: typeLabelColor)),
+                const SizedBox(height: 1),
+                Text(
+                  displayAmt != null ? fmtCurr(displayAmt) : '—',
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: amtColor),
                 ),
-              ),
+              ]),
+              const SizedBox(width: 4),
+              // Expand chevron (only when there are collapsible details)
+              if (hasDetails || isPending)
+                AnimatedRotation(
+                  turns: _expanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 150),
+                  child: Icon(Icons.expand_more,
+                      size: 18, color: Colors.grey.shade500),
+                )
+              else
+                const SizedBox(width: 18),
             ]),
-          ]),
+          ),
         ),
 
-        // Sub-rows: GST breakdown (Sales) or rate info (MachineWork)
-        if ((isSales || isMachineWork || isJobWork || isTransportPayable || isDelivery) && !isPending && details.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: details.map((d) {
-                final label  = d['label']  as String? ?? '';
-                final amount = (d['amount'] as num?)?.toDouble();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Row(children: [
-                    Expanded(child: Text(label,
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
-                    if (amount != null)
-                      Text(_numFmt.format(amount),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                  ]),
-                );
-              }).toList(),
-            ),
-          ),
-
-        if ((isSales || isMachineWork || isJobWork || isTransportPayable || isDelivery) && isPending)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
-            child: Text(
-              isTransportPayable ? 'Rate not yet set'
-                  : (isSales || isJobWork) ? 'Tap to set GST rate' : 'Tap to set rate',
-              style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
-                  fontStyle: FontStyle.italic),
-            ),
-          ),
+        // ── Expandable detail rows ──────────────────────────────────────────
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 180),
+          crossFadeState: _expanded ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+          firstChild: hasDetails
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: details.map((d) {
+                      final label  = d['label']  as String? ?? '';
+                      final amount = (d['amount'] as num?)?.toDouble();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(children: [
+                          Expanded(child: Text(label,
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
+                          if (amount != null)
+                            Text(_numFmt.format(amount),
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                        ]),
+                      );
+                    }).toList(),
+                  ),
+                )
+              : isPending
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
+                      child: Text(
+                        isTransportPayable ? 'Rate not yet set'
+                            : (isSales || isJobWork) ? 'Tap to set GST rate' : 'Tap to set rate',
+                        style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
+                            fontStyle: FontStyle.italic),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+          secondChild: const SizedBox.shrink(),
+        ),
       ]),
-    ));  // closes Container + InkWell
+    );
   }
 }

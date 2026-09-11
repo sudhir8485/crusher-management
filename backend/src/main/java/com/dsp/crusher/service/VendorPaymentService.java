@@ -5,12 +5,14 @@ import com.dsp.crusher.dto.PageResponse;
 import com.dsp.crusher.dto.VendorPaymentRequest;
 import com.dsp.crusher.dto.VendorPaymentResponse;
 import com.dsp.crusher.entity.GstInvoice;
+import com.dsp.crusher.entity.TransportPayable;
 import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.entity.VendorPayment;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
 import com.dsp.crusher.repository.MaterialRepository;
+import com.dsp.crusher.repository.TransportPayableRepository;
 import com.dsp.crusher.repository.TripRepository;
 import com.dsp.crusher.repository.VendorPaymentRepository;
 import com.dsp.crusher.repository.VendorRepository;
@@ -38,6 +40,7 @@ public class VendorPaymentService {
     private final GstInvoiceRepository invoiceRepo;
     private final TripRepository tripRepo;
     private final MaterialRepository materialRepo;
+    private final TransportPayableRepository transportPayableRepo;
 
     public PageResponse<VendorPaymentResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -99,6 +102,20 @@ public class VendorPaymentService {
                 throw new IllegalArgumentException("Invoice " + req.getInvoiceId() + " does not belong to the selected vendor");
             }
         }
+        // Validate and settle transport payable when direction=PAID
+        if (req.getTransportPayableId() != null) {
+            TransportPayable tp = transportPayableRepo.findById(req.getTransportPayableId())
+                    .orElseThrow(() -> new IllegalArgumentException("Transport payable not found: " + req.getTransportPayableId()));
+            if (!tp.getPartyId().equals(req.getVendorId())) {
+                throw new IllegalArgumentException("Transport payable does not belong to the selected party");
+            }
+            if (tp.isSettled()) {
+                throw new IllegalArgumentException("Transport payable " + req.getTransportPayableId() + " is already settled");
+            }
+            tp.setAmount(req.getAmount());
+            tp.setSettled(true);
+            transportPayableRepo.save(tp);
+        }
         p.setVendorId(req.getVendorId());
         p.setPaymentDate(req.getPaymentDate());
         p.setAmount(req.getAmount());
@@ -106,6 +123,8 @@ public class VendorPaymentService {
         p.setReferenceNo(req.getReferenceNo());
         p.setNotes(req.getNotes());
         p.setInvoiceId(req.getInvoiceId());
+        p.setDirection(req.getDirection() != null ? req.getDirection() : "RECEIVED");
+        p.setTransportPayableId(req.getTransportPayableId());
     }
 
     private List<VendorPaymentResponse> enrich(List<VendorPayment> rows) {
@@ -139,6 +158,8 @@ public class VendorPaymentService {
                 if (inv != null) r.setInvoiceNo(inv.getInvoiceNo());
             }
             r.setAllocationSummary(p.getAllocationSummary());
+            r.setDirection(p.getDirection() != null ? p.getDirection() : "RECEIVED");
+            r.setTransportPayableId(p.getTransportPayableId());
             return r;
         }).collect(Collectors.toList());
     }

@@ -120,6 +120,10 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     @Query("SELECT t.vendorId, MAX(t.tripDate) FROM Trip t WHERE t.vendorId IN :vendorIds AND t.autoInvoiced = true AND t.gstInvoiceId IS NULL AND t.status = 'ACTIVE' GROUP BY t.vendorId")
     List<Object[]> lastAutoInvoicedDirectDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
+    /** All-time sum for a single vendor (for getTripBalance outstanding). */
+    @Query("SELECT COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId = :vendorId AND t.autoInvoiced = true AND t.gstInvoiceId IS NULL AND t.totalBill > 0 AND t.status = 'ACTIVE'")
+    java.math.BigDecimal sumAllAutoInvoicedDirectByVendorId(@Param("vendorId") Long vendorId);
+
     // Reference-check for delete guard
     boolean existsByVehicleId(Long vehicleId);
     boolean existsByVendorId(Long vendorId);

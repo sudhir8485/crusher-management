@@ -32,13 +32,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class VendorService {
 
-    private final VendorRepository         repo;
-    private final GstInvoiceRepository     invoiceRepo;
-    private final VendorPaymentRepository  paymentRepo;
-    private final TripRepository           tripRepo;
-    private final MaterialRepository       materialRepo;
-    private final JobWorkInvoiceRepository jobWorkRepo;
-    private final MachineWorkLogRepository machineWorkRepo;
+    private final VendorRepository              repo;
+    private final GstInvoiceRepository          invoiceRepo;
+    private final VendorPaymentRepository       paymentRepo;
+    private final TripRepository                tripRepo;
+    private final MaterialRepository            materialRepo;
+    private final JobWorkInvoiceRepository      jobWorkRepo;
+    private final MachineWorkLogRepository      machineWorkRepo;
+    private final com.dsp.crusher.repository.TransportPayableRepository transportPayableRepo;
+    private final com.dsp.crusher.repository.VehicleRepository          vehicleRepo;
 
     public List<VendorResponse> listActive() {
         return repo.findByStatusAndIsActiveTrue("ACTIVE").stream()
@@ -99,10 +101,15 @@ public class VendorService {
         tripRepo.sumAutoInvoicedDirectByVendorIds(vendorIds)
                 .forEach(row -> tripDirectMap.put((Long) row[0], (BigDecimal) row[1]));
 
-        // Batch: total paid per vendor
+        // Batch: RECEIVED payments per vendor (party pays DSP, or system credits like TRANSPORT_CREDIT)
         Map<Long, BigDecimal> paidMap = new java.util.HashMap<>();
         paymentRepo.sumByVendorIds(vendorIds)
                 .forEach(row -> paidMap.put((Long) row[0], (BigDecimal) row[1]));
+
+        // Batch: PAID payments per vendor (DSP pays party to settle a payable)
+        Map<Long, BigDecimal> paidOutMap = new java.util.HashMap<>();
+        paymentRepo.sumPaidByVendorIds(vendorIds)
+                .forEach(row -> paidOutMap.put((Long) row[0], (BigDecimal) row[1]));
 
         // Batch: last dates per vendor (for last-activity display)
         Map<Long, LocalDate> lastGstMap = new java.util.HashMap<>();
@@ -131,7 +138,8 @@ public class VendorService {
             BigDecimal jw         = jwMap.getOrDefault(v.getId(), BigDecimal.ZERO);
             BigDecimal mw         = mwMap.getOrDefault(v.getId(), BigDecimal.ZERO);
             BigDecimal tripDirect = tripDirectMap.getOrDefault(v.getId(), BigDecimal.ZERO);
-            BigDecimal paid       = paidMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal received   = paidMap.getOrDefault(v.getId(), BigDecimal.ZERO);
+            BigDecimal paidOut    = paidOutMap.getOrDefault(v.getId(), BigDecimal.ZERO);
 
             LocalDate lastActivity = latestDate(
                     lastGstMap.get(v.getId()),
@@ -147,7 +155,8 @@ public class VendorService {
             r.setGstin(v.getGstin());
             r.setGstRegistered(v.getGstRegistered());
             r.setIsRegular(v.getIsRegular());
-            r.setOutstanding(gst.add(jw).add(mw).add(tripDirect).subtract(paid));
+            // outstanding = receivable sources − received payments + paid-out settlements
+            r.setOutstanding(gst.add(jw).add(mw).add(tripDirect).subtract(received).add(paidOut));
             r.setLastActivityDate(lastActivity);
             result.add(r);
         }
@@ -255,12 +264,20 @@ public class VendorService {
     }
 
     public VendorTripBalanceResponse getTripBalance(Long vendorId) {
-        List<Trip> trips = tripRepo.findByVendorIdAndStatusOrderByTripDateAscIdAsc(vendorId, "ACTIVE");
-        BigDecimal totalBilled = trips.stream()
-                .map(t -> t.getTotalBill() != null ? t.getTotalBill() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalPaid = paymentRepo.sumByVendorId(vendorId);
+        // Use same formula as LedgerService + getBalances() so the Record Payment modal
+        // always shows the same outstanding as the ledger banner for the same party.
+        BigDecimal gst        = invoiceRepo.sumAllGrandTotalByVendorId(vendorId);
+        BigDecimal jw         = jobWorkRepo.sumAllGrandTotalByVendorId(vendorId);
+        BigDecimal mw         = machineWorkRepo.sumAllBillableByCustomerId(vendorId);
+        BigDecimal tripDirect = tripRepo.sumAllAutoInvoicedDirectByVendorId(vendorId);
+        BigDecimal received   = paymentRepo.sumReceivedByVendorId(vendorId);
+        BigDecimal paidOut    = paymentRepo.sumPaidByVendorId(vendorId);
+        BigDecimal outstanding = gst.add(jw).add(mw).add(tripDirect).subtract(received).add(paidOut);
 
+        // Trip list is provided for the FIFO allocation preview in the payment form.
+        // It reflects actual trips (non-GST direct parties), for other party types
+        // the preview may be approximate since invoices are the primary source.
+        List<Trip> trips = tripRepo.findByVendorIdAndStatusOrderByTripDateAscIdAsc(vendorId, "ACTIVE");
         Map<Long, String> matNames = materialRepo.findAll().stream()
                 .collect(Collectors.toMap(m -> m.getId(), m -> m.getName()));
 
@@ -274,11 +291,34 @@ public class VendorService {
         }).collect(Collectors.toList());
 
         VendorTripBalanceResponse resp = new VendorTripBalanceResponse();
-        resp.setTotalBilled(totalBilled);
-        resp.setTotalPaid(totalPaid);
-        resp.setOutstanding(totalBilled.subtract(totalPaid));
+        resp.setTotalBilled(gst.add(jw).add(mw).add(tripDirect));
+        resp.setTotalPaid(received.subtract(paidOut));
+        resp.setOutstanding(outstanding);
         resp.setTrips(items);
         return resp;
+    }
+
+    /** Unsettled transport payables for a party — shown in the PAID payment form. */
+    public List<Map<String, Object>> getUnsettledTransportPayables(Long partyId) {
+        var payables = transportPayableRepo
+                .findByPartyIdAndSettledFalseAndStatusOrderByEntryDateAsc(partyId, "ACTIVE");
+        return payables.stream().map(tp -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", tp.getId());
+            m.put("entryDate", tp.getEntryDate());
+            m.put("vehicleId", tp.getVehicleId());
+            String vLabel = "Vehicle";
+            if (tp.getVehicleId() != null) {
+                vehicleRepo.findById(tp.getVehicleId()).ifPresent(v -> {
+                    String label = v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber();
+                    m.put("vehicleLabel", label);
+                });
+            }
+            if (!m.containsKey("vehicleLabel")) m.put("vehicleLabel", vLabel);
+            m.put("sourceType", tp.getSourceType());
+            m.put("sourceEntryId", tp.getSourceEntryId());
+            return m;
+        }).collect(Collectors.toList());
     }
 
     @Transactional

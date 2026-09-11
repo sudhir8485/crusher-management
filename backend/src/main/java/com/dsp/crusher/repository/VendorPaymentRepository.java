@@ -44,12 +44,29 @@ public interface VendorPaymentRepository extends JpaRepository<VendorPayment, Lo
     // Today's collections count
     long countByPaymentDateAndStatus(LocalDate date, String status);
 
-    // All payments for a vendor up to a date (for opening balance calculation)
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.paymentDate < :before AND p.status = 'ACTIVE'")
+    // RECEIVED payments up to a date (opening balance: reduces what party owes DSP)
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.direction = 'RECEIVED' AND p.paymentDate < :before AND p.status = 'ACTIVE'")
     BigDecimal sumAmountByVendorBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
 
-    @Query("SELECT p.vendorId, COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId IN :vendorIds AND p.status = 'ACTIVE' GROUP BY p.vendorId")
+    // PAID payments up to a date (opening balance: reduces what DSP owes party)
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.direction = 'PAID' AND p.paymentDate < :before AND p.status = 'ACTIVE'")
+    BigDecimal sumPaidByVendorBefore(@Param("vendorId") Long vendorId, @Param("before") LocalDate before);
+
+    // All-time RECEIVED payments for a single vendor (for getTripBalance outstanding)
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.direction = 'RECEIVED' AND p.status = 'ACTIVE'")
+    BigDecimal sumReceivedByVendorId(@Param("vendorId") Long vendorId);
+
+    // All-time PAID payments for a single vendor (for getTripBalance outstanding)
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId = :vendorId AND p.direction = 'PAID' AND p.status = 'ACTIVE'")
+    BigDecimal sumPaidByVendorId(@Param("vendorId") Long vendorId);
+
+    // Batch RECEIVED payment sums (accounts list)
+    @Query("SELECT p.vendorId, COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId IN :vendorIds AND p.direction = 'RECEIVED' AND p.status = 'ACTIVE' GROUP BY p.vendorId")
     List<Object[]> sumByVendorIds(@Param("vendorIds") List<Long> vendorIds);
+
+    // Batch PAID payment sums (accounts list)
+    @Query("SELECT p.vendorId, COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.vendorId IN :vendorIds AND p.direction = 'PAID' AND p.status = 'ACTIVE' GROUP BY p.vendorId")
+    List<Object[]> sumPaidByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
     @Query("SELECT p.vendorId, MAX(p.paymentDate) FROM VendorPayment p WHERE p.vendorId IN :vendorIds AND p.status = 'ACTIVE' GROUP BY p.vendorId")
     List<Object[]> lastPaymentDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);

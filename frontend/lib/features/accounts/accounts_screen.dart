@@ -244,9 +244,9 @@ class _SummaryBar extends StatelessWidget {
       child: Row(children: [
         Text('$count parties', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
         const Spacer(),
-        _tile('Receivable', totalOwed, Colors.orange.shade700),
+        _tile('Total Receivable', totalOwed, Colors.orange.shade700),
         const SizedBox(width: 12),
-        _tile('Advance held', totalAdvance, Colors.blue.shade700),
+        _tile('Total Payable', totalAdvance, Colors.blue.shade700),
       ]),
     );
   }
@@ -288,8 +288,8 @@ class _PartyBalanceCard extends StatelessWidget {
         : isAdvance ? Colors.green.shade600
         : Colors.grey.shade400;
 
-    final balLabel = isOwed    ? 'Owes ${fmtCurr(outstanding)}'
-        : isAdvance ? 'Advance ${fmtCurr(outstanding.abs())}'
+    final balLabel = isOwed    ? 'Receivable ${fmtCurr(outstanding)}'
+        : isAdvance ? 'Payable ${fmtCurr(outstanding.abs())}'
         : 'Settled';
     final balColor = isOwed    ? Colors.orange.shade800
         : isAdvance ? Colors.blue.shade700

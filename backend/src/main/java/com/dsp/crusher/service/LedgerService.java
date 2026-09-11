@@ -58,13 +58,15 @@ public class LedgerService {
         Vendor vendor = vendorRepo.findById(vendorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vendor not found: " + vendorId));
 
-        // ── Opening balance: (invoices + job-work + machine work SET + direct trips) − payments before 'from' ─
-        BigDecimal openingDebit  = invoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
-        BigDecimal openingJw     = jobWorkInvoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
-        BigDecimal openingMw     = machineWorkRepo.sumTotalAmountByCustomerBefore(vendorId, from);
-        BigDecimal openingTrip   = tripRepo.sumAutoInvoicedDirectByVendorBefore(vendorId, from);
-        BigDecimal openingCredit = paymentRepo.sumAmountByVendorBefore(vendorId, from);
-        BigDecimal openingBalance = openingDebit.add(openingJw).add(openingMw).add(openingTrip).subtract(openingCredit);
+        // ── Opening balance: (invoices + job-work + machine work SET + direct trips) − received + paid-out ─
+        BigDecimal openingDebit    = invoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
+        BigDecimal openingJw       = jobWorkInvoiceRepo.sumGrandTotalByVendorBefore(vendorId, from);
+        BigDecimal openingMw       = machineWorkRepo.sumTotalAmountByCustomerBefore(vendorId, from);
+        BigDecimal openingTrip     = tripRepo.sumAutoInvoicedDirectByVendorBefore(vendorId, from);
+        BigDecimal openingCredit   = paymentRepo.sumAmountByVendorBefore(vendorId, from);   // RECEIVED direction
+        BigDecimal openingPaidOut  = paymentRepo.sumPaidByVendorBefore(vendorId, from);     // PAID direction
+        BigDecimal openingBalance  = openingDebit.add(openingJw).add(openingMw).add(openingTrip)
+                                       .subtract(openingCredit).add(openingPaidOut);
 
         // ── Invoices within range ────────────────────────────────────────────
         List<GstInvoice> invoices = invoiceRepo.findWithItemsByVendorAndDateRange(vendorId, from, to);
@@ -342,28 +344,40 @@ public class LedgerService {
         for (VendorPayment pmt : payments) {
             LedgerEntry e = new LedgerEntry();
             e.setDate(pmt.getPaymentDate());
+            boolean isPaid = "PAID".equals(pmt.getDirection());
             String particulars = switch (pmt.getPaymentMode()) {
                 case "DIESEL_ADVANCE"    -> "Diesel Advance";
                 case "DIESEL_CREDIT"     -> "Diesel Credit";
                 case "TRANSPORT_CREDIT"  -> "Transport (Vehicle Hire)";
                 default -> {
-                    String base = "By " + pmt.getPaymentMode();
+                    String prefix = isPaid ? "Paid to Party — " : "By ";
+                    String base = prefix + pmt.getPaymentMode();
                     yield (pmt.getReferenceNo() != null && !pmt.getReferenceNo().isBlank())
                             ? base + " – " + pmt.getReferenceNo() : base;
                 }
             };
             e.setParticulars(particulars);
-            e.setVoucherType("Receipt");
-            e.setCredit(pmt.getAmount());
+            if (isPaid) {
+                // PAID: DSP pays party — reduces payable (running balance increases toward 0)
+                e.setVoucherType("Payment");
+                e.setDebit(pmt.getAmount());
+            } else {
+                // RECEIVED: party pays DSP — reduces receivable (running balance decreases)
+                e.setVoucherType("Receipt");
+                e.setCredit(pmt.getAmount());
+            }
             e.setSourceId(pmt.getId());
             e.setDetails(List.of());
             entries.add(e);
         }
 
-        // Sort: date asc, receipts last on same date
+        // Sort: date asc, payment entries (Receipt/Payment) last on same date
         entries.sort(Comparator
                 .comparing(LedgerEntry::getDate)
-                .thenComparing(e -> "Receipt".equals(e.getVoucherType()) ? 1 : 0));
+                .thenComparing(e -> {
+                    String vt = e.getVoucherType();
+                    return ("Receipt".equals(vt) || "Payment".equals(vt)) ? 1 : 0;
+                }));
 
         // ── Running balance ──────────────────────────────────────────────────
         BigDecimal running     = openingBalance;

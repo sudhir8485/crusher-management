@@ -19,4 +19,8 @@ public interface TransportPayableRepository extends JpaRepository<TransportPayab
 
     @Query("SELECT COUNT(p) FROM TransportPayable p WHERE p.partyId = :partyId AND p.entryDate < :before AND p.status = 'ACTIVE'")
     long countActiveByPartyBefore(@Param("partyId") Long partyId, @Param("before") LocalDate before);
+
+    // Unsettled payables for a party — shown in the payment form for PAID direction
+    List<TransportPayable> findByPartyIdAndSettledFalseAndStatusOrderByEntryDateAsc(
+            Long partyId, String status);
 }

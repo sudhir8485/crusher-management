@@ -61,6 +61,10 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
     @Query("SELECT m.customerId, MAX(m.logDate) FROM MachineWorkLog m WHERE m.customerId IN :customerIds AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.status = 'ACTIVE' GROUP BY m.customerId")
     List<Object[]> lastLogDateByCustomerIds(@Param("customerIds") List<Long> customerIds);
 
+    // All-time sum for a single customer (for getTripBalance outstanding)
+    @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.customerId = :customerId AND m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.gstInvoiceId IS NULL AND m.status = 'ACTIVE'")
+    java.math.BigDecimal sumAllBillableByCustomerId(@Param("customerId") Long customerId);
+
     boolean existsByMachineId(Long machineId);
     boolean existsByCustomerId(Long customerId);
 }

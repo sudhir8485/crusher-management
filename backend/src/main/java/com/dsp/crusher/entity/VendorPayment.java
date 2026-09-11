@@ -46,6 +46,12 @@ public class VendorPayment {
     @Column(name = "allocation_summary", columnDefinition = "TEXT")
     private String allocationSummary;
 
+    @Column(nullable = false, length = 20)
+    private String direction = "RECEIVED"; // RECEIVED | PAID
+
+    @Column(name = "transport_payable_id")
+    private Long transportPayableId;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

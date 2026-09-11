@@ -23,5 +23,7 @@ public class VendorPaymentRequest {
 
     private String referenceNo;
     private String notes;
-    private Long invoiceId;   // optional — link payment to a specific invoice
+    private Long invoiceId;            // optional — link to a specific GST invoice
+    private String direction = "RECEIVED"; // RECEIVED | PAID
+    private Long transportPayableId;   // optional — PAID payment settling a transport payable
 }

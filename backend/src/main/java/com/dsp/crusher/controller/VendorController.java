@@ -58,9 +58,15 @@ public class VendorController {
     }
 
     @GetMapping("/{id}/trip-balance")
-    @Operation(summary = "Get trip-based outstanding balance and trip list for FIFO preview")
+    @Operation(summary = "Get outstanding balance (matches ledger formula) and trip list for FIFO preview")
     public VendorTripBalanceResponse tripBalance(@PathVariable Long id) {
         return service.getTripBalance(id);
+    }
+
+    @GetMapping("/{id}/unsettled-payables")
+    @Operation(summary = "Unsettled transport payables for this party — used to link a PAID payment")
+    public java.util.List<java.util.Map<String, Object>> unsettledPayables(@PathVariable Long id) {
+        return service.getUnsettledTransportPayables(id);
     }
 
     @PostMapping

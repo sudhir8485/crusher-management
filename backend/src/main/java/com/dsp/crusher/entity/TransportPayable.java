@@ -45,6 +45,12 @@ public class TransportPayable {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    @Column(precision = 15, scale = 2)
+    private java.math.BigDecimal amount;
+
+    @Column(nullable = false)
+    private boolean settled = false;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

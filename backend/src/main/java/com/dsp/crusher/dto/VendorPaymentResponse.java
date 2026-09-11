@@ -19,4 +19,6 @@ public class VendorPaymentResponse {
     private String notes;
     private String status;
     private String allocationSummary;
+    private String direction; // RECEIVED | PAID
+    private Long transportPayableId;
 }
