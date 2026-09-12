@@ -437,7 +437,7 @@ public class JobWorkInvoiceService {
             r.setUpdatedByName(inv.getUpdatedByName());
 
             Vendor v = vendors.get(inv.getVendorId());
-            if (v != null) { r.setVendorName(v.getName()); r.setVendorGstin(v.getGstin()); }
+            if (v != null) { r.setVendorName(v.getName()); r.setVendorGstin(v.getGstin()); r.setVendorAddress(v.getAddress()); }
 
             Site s = sites.get(inv.getSiteId());
             if (s != null) r.setSiteName(s.getName());

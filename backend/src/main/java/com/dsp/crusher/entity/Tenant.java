@@ -38,6 +38,15 @@ public class Tenant {
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Column(length = 200)
+    private String bankName;
+
+    @Column(length = 50)
+    private String bankAccountNo;
+
+    @Column(length = 20)
+    private String bankIfsc;
+
     @Column
     private LocalDateTime updatedAt;
 }

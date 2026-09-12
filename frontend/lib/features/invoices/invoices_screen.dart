@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
+import 'invoice_pdf.dart' show downloadInvoicePdf;
 
 // ── Combined state: both GST invoices and Job-Work invoices merged ─────────────
 
@@ -210,6 +211,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         onRecordPayment: inv['_src'] == 'gst'
                             ? () => _showPaymentForm(context, ref, inv)
                             : null,
+                        onPrint:    () => _printInvoice(context, inv),
+                        onDownload: () => _downloadInvoice(ref, inv),
                       ),
                     );
                   },
@@ -277,20 +280,30 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   }
 
   void _showDetail(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
-    if (inv['_src'] == 'gst') {
+    final isJw = inv['_src'] == 'jw';
+    final id   = inv['id'] as int;
+
+    void onPrint() => ctx.push('/invoices/${isJw ? 'jw' : 'gst'}/$id/print');
+    void onDownload() => _downloadInvoice(ref, inv);
+
+    if (!isJw) {
       showDialog(
         context: ctx,
         builder: (_) => _InvoiceDetailDialog(
-          invoice: inv,
-          onRefresh: () => ref.invalidate(_allInvoicesProvider),
+          invoice:    inv,
+          onRefresh:  () => ref.invalidate(_allInvoicesProvider),
+          onPrint:    onPrint,
+          onDownload: onDownload,
         ),
       );
     } else {
       showDialog(
         context: ctx,
         builder: (_) => _JwDetailDialog(
-          invoice: inv,
-          onRefresh: () => ref.invalidate(_allInvoicesProvider),
+          invoice:    inv,
+          onRefresh:  () => ref.invalidate(_allInvoicesProvider),
+          onPrint:    onPrint,
+          onDownload: onDownload,
         ),
       );
     }
@@ -318,6 +331,16 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
         ),
       );
     }
+  }
+
+  void _printInvoice(BuildContext ctx, Map<String, dynamic> inv) {
+    final isJw = inv['_src'] == 'jw';
+    final id   = inv['id'] as int;
+    ctx.push('/invoices/${isJw ? 'jw' : 'gst'}/$id/print');
+  }
+
+  void _downloadInvoice(WidgetRef ref, Map<String, dynamic> inv) {
+    downloadInvoicePdf(inv, ref.read(apiClientProvider));
   }
 
   void _showPaymentForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic> inv) {
@@ -397,12 +420,16 @@ class _InvoiceCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onRecordPayment; // null for JW invoices
+  final VoidCallback onPrint;
+  final VoidCallback onDownload;
   const _InvoiceCard({
     required this.invoice,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
     this.onRecordPayment,
+    required this.onPrint,
+    required this.onDownload,
   });
 
   @override
@@ -525,11 +552,27 @@ class _InvoiceCard extends StatelessWidget {
               // Menu
               PopupMenuButton<String>(
                 onSelected: (v) {
-                  if (v == 'edit') onEdit();
-                  if (v == 'pay') onRecordPayment?.call();
-                  if (v == 'delete') onDelete();
+                  if (v == 'print')    onPrint();
+                  if (v == 'download') onDownload();
+                  if (v == 'edit')     onEdit();
+                  if (v == 'pay')      onRecordPayment?.call();
+                  if (v == 'delete')   onDelete();
                 },
                 itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'print',
+                      child: Row(children: [
+                        Icon(Icons.print_outlined, size: 16),
+                        SizedBox(width: 8),
+                        Text('Print Invoice'),
+                      ])),
+                  const PopupMenuItem(
+                      value: 'download',
+                      child: Row(children: [
+                        Icon(Icons.download_outlined, size: 16),
+                        SizedBox(width: 8),
+                        Text('Download PDF'),
+                      ])),
                   const PopupMenuItem(value: 'edit', child: Text('Edit')),
                   if (onRecordPayment != null && invoice['paymentStatus'] != 'PAID')
                     const PopupMenuItem(
@@ -555,7 +598,14 @@ class _InvoiceCard extends StatelessWidget {
 class _InvoiceDetailDialog extends ConsumerStatefulWidget {
   final Map<String, dynamic> invoice;
   final VoidCallback onRefresh;
-  const _InvoiceDetailDialog({required this.invoice, required this.onRefresh});
+  final VoidCallback onPrint;
+  final VoidCallback onDownload;
+  const _InvoiceDetailDialog({
+    required this.invoice,
+    required this.onRefresh,
+    required this.onPrint,
+    required this.onDownload,
+  });
 
   @override
   ConsumerState<_InvoiceDetailDialog> createState() =>
@@ -604,6 +654,16 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
       title: inv['invoiceNo'] as String? ?? 'Invoice',
       maxWidth: 600,
       actions: [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.print_outlined, size: 16),
+          label: const Text('Print Invoice'),
+          onPressed: () { Navigator.pop(context); widget.onPrint(); },
+        ),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.download_outlined, size: 16),
+          label: const Text('Download PDF'),
+          onPressed: widget.onDownload,
+        ),
         TextButton(
             onPressed: () => Navigator.pop(context), child: const Text('Close')),
       ],
@@ -867,7 +927,14 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
 class _JwDetailDialog extends ConsumerWidget {
   final Map<String, dynamic> invoice;
   final VoidCallback onRefresh;
-  const _JwDetailDialog({required this.invoice, required this.onRefresh});
+  final VoidCallback onPrint;
+  final VoidCallback onDownload;
+  const _JwDetailDialog({
+    required this.invoice,
+    required this.onRefresh,
+    required this.onPrint,
+    required this.onDownload,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -889,6 +956,16 @@ class _JwDetailDialog extends ConsumerWidget {
       title: inv['invoiceNo'] as String? ?? 'Invoice',
       maxWidth: 560,
       actions: [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.print_outlined, size: 16),
+          label: const Text('Print Invoice'),
+          onPressed: () { Navigator.pop(context); onPrint(); },
+        ),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.download_outlined, size: 16),
+          label: const Text('Download PDF'),
+          onPressed: onDownload,
+        ),
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
       ],
       body: Column(mainAxisSize: MainAxisSize.min, children: [

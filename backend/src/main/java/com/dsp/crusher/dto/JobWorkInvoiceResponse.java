@@ -13,6 +13,7 @@ public class JobWorkInvoiceResponse {
     private Long vendorId;
     private String vendorName;
     private String vendorGstin;
+    private String vendorAddress;
     private Long siteId;
     private String siteName;
     private String invoiceNo;

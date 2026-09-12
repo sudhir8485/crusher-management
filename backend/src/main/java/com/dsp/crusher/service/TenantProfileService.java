@@ -40,6 +40,9 @@ public class TenantProfileService {
         if (req.getLogoBase64() != null) {
             t.setLogoBase64(req.getLogoBase64().isBlank() ? null : req.getLogoBase64());
         }
+        t.setBankName(req.getBankName());
+        t.setBankAccountNo(req.getBankAccountNo());
+        t.setBankIfsc(req.getBankIfsc());
         t.setUpdatedAt(LocalDateTime.now());
         return toResponse(tenantRepo.save(t));
     }
@@ -47,6 +50,7 @@ public class TenantProfileService {
     private TenantProfileResponse toResponse(Tenant t) {
         return new TenantProfileResponse(
                 t.getId(), t.getName(), t.getAddress(),
-                t.getPhone(), t.getEmail(), t.getGstin(), t.getLogoBase64());
+                t.getPhone(), t.getEmail(), t.getGstin(), t.getLogoBase64(),
+                t.getBankName(), t.getBankAccountNo(), t.getBankIfsc());
     }
 }

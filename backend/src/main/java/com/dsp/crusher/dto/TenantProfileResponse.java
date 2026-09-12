@@ -13,4 +13,7 @@ public class TenantProfileResponse {
     private String email;
     private String gstin;
     private String logoBase64;
+    private String bankName;
+    private String bankAccountNo;
+    private String bankIfsc;
 }

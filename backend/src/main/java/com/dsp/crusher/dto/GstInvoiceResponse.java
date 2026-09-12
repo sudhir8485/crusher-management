@@ -13,6 +13,7 @@ public class GstInvoiceResponse {
     private Long vendorId;
     private String vendorName;
     private String vendorGstin;
+    private String vendorAddress;
     private String invoiceNo;
     private LocalDate invoiceDate;
     private LocalDate supplyDate;

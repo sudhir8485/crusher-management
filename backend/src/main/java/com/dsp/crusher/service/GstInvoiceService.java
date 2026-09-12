@@ -324,6 +324,7 @@ public class GstInvoiceService {
             if (v != null) {
                 r.setVendorName(v.getName());
                 r.setVendorGstin(v.getGstin());
+                r.setVendorAddress(v.getAddress());
             }
 
             r.setItems(inv.getItems().stream().map(item -> {

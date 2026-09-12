@@ -14,6 +14,7 @@ import '../../features/dabar/dabar_screen.dart';
 import '../../features/diesel/diesel_screen.dart';
 import '../../features/machine_work/machine_work_screen.dart';
 import '../../features/invoices/invoices_screen.dart';
+import '../../features/invoices/invoice_print_screen.dart';
 import '../../features/vendor_payments/vendor_payments_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/attendance/attendance_screen.dart';
@@ -62,6 +63,21 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (ctx, st) => const TenantsScreen(),
           ),
         ],
+      ),
+      // ── Invoice print routes — outside shell (no sidebar, no app chrome) ──
+      GoRoute(
+        path: '/invoices/gst/:id/print',
+        builder: (ctx, st) => InvoicePrintScreen(
+          type: 'gst',
+          id:   int.parse(st.pathParameters['id']!),
+        ),
+      ),
+      GoRoute(
+        path: '/invoices/jw/:id/print',
+        builder: (ctx, st) => InvoicePrintScreen(
+          type: 'jw',
+          id:   int.parse(st.pathParameters['id']!),
+        ),
       ),
       // ── Tenant shell (OWNER_ADMIN / OFFICE_ACCOUNTANT / SITE_STAFF) ──────
       ShellRoute(
