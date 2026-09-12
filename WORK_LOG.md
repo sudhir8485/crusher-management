@@ -1,5 +1,25 @@
 # DSP Crusher Management — Work Log
 
+## 2026-09-12 (V36 — Employee deactivate fix + Attendance default Present)
+
+### Done
+**Backend (no new Flyway migration — service/controller changes only):**
+- `EmployeeService.java` — added `toggleActive()` (flips ACTIVE↔INACTIVE)
+- `EmployeeController.java` — added `PATCH /api/employees/{id}/toggle-active` (OWNER_ADMIN + OFFICE_ACCOUNTANT); fixes the silent 403 that made Deactivate do nothing
+- `AttendanceMarkRequest.java` — added optional `siteId` field for OWNER_ADMIN who has no siteId in JWT
+- `AttendanceService.java` — `mark()` uses `req.getSiteId()` as fallback when `SiteContext.get()` is null
+
+**Frontend:**
+- `employees_screen.dart` — Deactivate now uses `PATCH toggle-active` (not DELETE); Reactivate option added to inactive employees' popup (green); Inactive badge shown on greyed card; proper error SnackBar on failure
+- `attendance_screen.dart` — Daily tab converted to `ConsumerStatefulWidget`; all unmarked employees default to **Present** pre-selected (not Unmarked); explicit **"Save Attendance (N)"** button replaces per-tile auto-save; summary bar counts from local state before save; orange dot marks unsaved employees; "Select a site" orange banner + disabled button when no site selected
+
+### Key decisions
+- Deactivate uses toggle endpoint (not DELETE) so OFFICE_ACCOUNTANT can also deactivate — consistent with Machine/Vehicle/Party pattern
+- `siteId` passed in mark request body (not header) — consistent with how diesel/dabar handle it for OWNER_ADMIN
+- Pre-filled Present is local state only — backend is not touched until explicit Save click
+
+---
+
 ## 2026-08-31
 
 ### Done

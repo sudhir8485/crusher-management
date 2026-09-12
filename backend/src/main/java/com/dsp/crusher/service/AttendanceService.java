@@ -90,7 +90,7 @@ public class AttendanceService {
         AttendanceRecord rec = existing.orElseGet(() -> {
             AttendanceRecord nr = new AttendanceRecord();
             nr.setTenantId(TenantContext.get());
-            Long attSite = SiteContext.get();
+            Long attSite = SiteContext.get() != null ? SiteContext.get() : req.getSiteId();
             if (attSite == null) throw new IllegalArgumentException("Select a site before marking attendance");
             nr.setSiteId(attSite);
             nr.setAttendanceDate(req.getDate());

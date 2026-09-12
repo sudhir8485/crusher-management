@@ -39,6 +39,12 @@ public class EmployeeController {
         return service.update(id, req);
     }
 
+    @PatchMapping("/{id}/toggle-active")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    public EmployeeResponse toggleActive(@PathVariable Long id) {
+        return service.toggleActive(id);
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('OWNER_ADMIN')")
     public EmployeeResponse deactivate(@PathVariable Long id) {

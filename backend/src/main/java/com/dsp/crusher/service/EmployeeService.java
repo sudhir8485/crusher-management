@@ -58,6 +58,14 @@ public class EmployeeService {
         return toResponse(repo.save(e));
     }
 
+    @Transactional
+    public EmployeeResponse toggleActive(Long id) {
+        Employee e = repo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + id));
+        e.setStatus("ACTIVE".equals(e.getStatus()) ? "INACTIVE" : "ACTIVE");
+        return toResponse(repo.save(e));
+    }
+
     private void apply(Employee e, EmployeeRequest req) {
         e.setName(req.getName());
         e.setDesignation(req.getDesignation());

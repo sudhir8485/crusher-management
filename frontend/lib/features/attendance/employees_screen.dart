@@ -62,7 +62,8 @@ class EmployeesScreen extends ConsumerWidget {
                 ...active.map((e) => _EmployeeCard(
                       emp: e,
                       onEdit: () => _showForm(context, ref, e),
-                      onDeactivate: () => _confirmDeactivate(context, ref, e),
+                      onToggleActive: () =>
+                          _toggleActive(context, ref, e),
                     )),
               ],
               if (inactive.isNotEmpty) ...[
@@ -71,7 +72,8 @@ class EmployeesScreen extends ConsumerWidget {
                 ...inactive.map((e) => _EmployeeCard(
                       emp: e,
                       onEdit: () => _showForm(context, ref, e),
-                      onDeactivate: null,
+                      onToggleActive: () =>
+                          _toggleActive(context, ref, e),
                     )),
               ],
             ],
@@ -101,35 +103,58 @@ class EmployeesScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmDeactivate(
-      BuildContext ctx, WidgetRef ref, Map<String, dynamic> emp) {
-    showDialog(
+  Future<void> _toggleActive(
+      BuildContext ctx, WidgetRef ref, Map<String, dynamic> emp) async {
+    final isActive = emp['status'] == 'ACTIVE';
+    final name = emp['name'] as String;
+
+    final confirmed = await showDialog<bool>(
       context: ctx,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('Deactivate Employee'),
-        content:
-            Text('Remove ${emp['name']} from active employees?'),
+        title: Text(isActive ? 'Deactivate Employee' : 'Reactivate Employee'),
+        content: Text(isActive
+            ? 'Remove $name from active employees? Their past records will be preserved.'
+            : 'Reactivate $name? They will appear in attendance marking again.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
+            onPressed: () => Navigator.pop(dialogCtx, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-            onPressed: () async {
-              Navigator.pop(dialogCtx);
-              try {
-                await ref.read(apiClientProvider).delete('/api/employees/${emp['id']}');
-              } catch (_) { return; }
-              if (!ctx.mounted) return;
-              ref.invalidate(employeesProvider);
-            },
-            child: const Text('Deactivate'),
+            style: FilledButton.styleFrom(
+                backgroundColor:
+                    isActive ? Colors.orange : Colors.green),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text(isActive ? 'Deactivate' : 'Reactivate'),
           ),
         ],
       ),
     );
+
+    if (confirmed != true) return;
+    if (!ctx.mounted) return;
+
+    try {
+      await ref
+          .read(apiClientProvider)
+          .patch('/api/employees/${emp['id']}/toggle-active');
+      ref.invalidate(employeesProvider);
+    } catch (e) {
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+        content: Text('Failed: ${_apiError(e)}'),
+        backgroundColor: Colors.red,
+      ));
+    }
   }
+}
+
+String _apiError(dynamic e) {
+  try {
+    final msg = e?.response?.data?['message'] as String?;
+    if (msg != null && msg.isNotEmpty) return msg;
+  } catch (_) {}
+  return e.toString();
 }
 
 // ── employee card ─────────────────────────────────────────────────────────────
@@ -137,9 +162,13 @@ class EmployeesScreen extends ConsumerWidget {
 class _EmployeeCard extends StatelessWidget {
   final Map<String, dynamic> emp;
   final VoidCallback onEdit;
-  final VoidCallback? onDeactivate;
-  const _EmployeeCard(
-      {required this.emp, required this.onEdit, this.onDeactivate});
+  final VoidCallback onToggleActive;
+
+  const _EmployeeCard({
+    required this.emp,
+    required this.onEdit,
+    required this.onToggleActive,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -169,27 +198,47 @@ class _EmployeeCard extends StatelessWidget {
             ),
           ),
         ),
-        title: Text(emp['name'] as String,
-            style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: isActive ? null : Colors.grey)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(emp['name'] as String,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: isActive ? null : Colors.grey)),
+            ),
+            if (!isActive)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text('Inactive',
+                    style: TextStyle(
+                        fontSize: 10, color: Colors.grey.shade600)),
+              ),
+          ],
+        ),
         subtitle: Text(
-          [if (designation.isNotEmpty) designation, wageLabel]
-              .join(' · '),
+          [if (designation.isNotEmpty) designation, wageLabel].join(' · '),
           style: TextStyle(fontSize: 12, color: Colors.grey[600]),
         ),
         trailing: PopupMenuButton<String>(
           onSelected: (v) {
             if (v == 'edit') onEdit();
-            if (v == 'deactivate' && onDeactivate != null) onDeactivate!();
+            if (v == 'toggle') onToggleActive();
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'edit', child: Text('Edit')),
-            if (onDeactivate != null)
-              const PopupMenuItem(
-                  value: 'deactivate',
-                  child: Text('Deactivate',
-                      style: TextStyle(color: Colors.orange))),
+            PopupMenuItem(
+              value: 'toggle',
+              child: Text(
+                isActive ? 'Deactivate' : 'Reactivate',
+                style: TextStyle(
+                    color: isActive ? Colors.orange : Colors.green),
+              ),
+            ),
           ],
         ),
       ),
@@ -250,13 +299,23 @@ class _EmployeeFormState extends ConsumerState<_EmployeeForm> {
     };
     final api = ref.read(apiClientProvider);
     final e = widget.existing;
-    if (e == null) {
-      await api.post('/api/employees', data: body);
-    } else {
-      await api.put('/api/employees/${e['id']}', data: body);
+    try {
+      if (e == null) {
+        await api.post('/api/employees', data: body);
+      } else {
+        await api.put('/api/employees/${e['id']}', data: body);
+      }
+      widget.onSaved();
+      if (mounted) Navigator.pop(context);
+    } catch (err) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Save failed: ${_apiError(err)}'),
+          backgroundColor: Colors.red,
+        ));
+      }
     }
-    widget.onSaved();
-    if (mounted) Navigator.pop(context);
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
@@ -91,16 +92,91 @@ class AttendanceScreen extends ConsumerWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Daily tab
+// Daily tab — stateful to hold local (pre-save) attendance state
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _DailyTab extends ConsumerWidget {
+class _DailyTab extends ConsumerStatefulWidget {
   const _DailyTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DailyTab> createState() => _DailyTabState();
+}
+
+class _DailyTabState extends ConsumerState<_DailyTab> {
+  // User's explicit selections for the current date (overrides backend or default).
+  // Key: employeeId (int)
+  final Map<int, String> _overrides = {};
+  // Which date key _overrides was last reset for.
+  String _currentDateKey = '';
+  bool _saving = false;
+
+  // Effective status for an employee: user override → saved backend status → PRESENT default
+  String _effectiveStatus(Map<String, dynamic> emp) {
+    final id = (emp['employeeId'] as num).toInt();
+    return _overrides[id] ??
+        (emp['attendanceStatus'] as String?) ??
+        'PRESENT';
+  }
+
+  // True if local state differs from what's saved on the backend.
+  bool _needsSave(Map<String, dynamic> emp) {
+    return _effectiveStatus(emp) != (emp['attendanceStatus'] as String?);
+  }
+
+  Future<void> _saveAll(
+      String dateKey, List<Map<String, dynamic>> employees, int? siteId) async {
+    if (siteId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Select a site from the sidebar before saving')),
+      );
+      return;
+    }
+    final toSave = employees.where(_needsSave).toList();
+    if (toSave.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to save — already up to date')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    final api = ref.read(apiClientProvider);
+    try {
+      for (final emp in toSave) {
+        final id = (emp['employeeId'] as num).toInt();
+        await api.post('/api/attendance/mark', data: {
+          'date': dateKey,
+          'employeeId': id,
+          'status': _effectiveStatus(emp),
+          'siteId': siteId,
+        });
+      }
+      _overrides.clear();
+      ref.invalidate(_attendanceProvider(dateKey));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Save failed: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final selectedDate = ref.watch(_attendanceDateProvider);
     final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
+    final siteId = ref.watch(selectedSiteIdProvider);
+
+    // Reset local overrides when navigating to a new date.
+    if (dateKey != _currentDateKey) {
+      _currentDateKey = dateKey;
+      _overrides.clear();
+    }
+
     final data = ref.watch(_attendanceProvider(dateKey));
 
     return Column(
@@ -110,10 +186,38 @@ class _DailyTab extends ConsumerWidget {
           onPick: (d) =>
               ref.read(_attendanceDateProvider.notifier).state = d,
         ),
+        // Banner when no site is selected (OWNER_ADMIN / OFFICE_ACCOUNTANT)
+        if (siteId == null)
+          Material(
+            color: Colors.orange.shade50,
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(children: [
+                Icon(Icons.info_outline,
+                    size: 16, color: Colors.orange.shade800),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Select a site from the sidebar to save attendance',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.orange.shade900),
+                  ),
+                ),
+              ]),
+            ),
+          ),
         data.when(
           loading: () => const SizedBox(),
           error: (_, s) => const SizedBox(),
-          data: (d) => _SummaryBar(data: d),
+          data: (d) {
+            final employees = List<Map<String, dynamic>>.from(
+                d['employees'] as List? ?? []);
+            return _LocalSummaryBar(
+              employees: employees,
+              effectiveStatus: _effectiveStatus,
+            );
+          },
         ),
         Expanded(
           child: data.when(
@@ -129,16 +233,38 @@ class _DailyTab extends ConsumerWidget {
                   hint: 'Add employees in the Employees section',
                 );
               }
-              return ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: employees.length,
-                separatorBuilder: (_, idx) => const SizedBox(height: 6),
-                itemBuilder: (_, i) => _EmployeeAttendanceTile(
-                  emp: employees[i],
-                  date: dateKey,
-                  onMarked: () =>
-                      ref.invalidate(_attendanceProvider(dateKey)),
-                ),
+              return Column(
+                children: [
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      itemCount: employees.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 6),
+                      itemBuilder: (_, i) {
+                        final emp = employees[i];
+                        return _EmployeeAttendanceTile(
+                          emp: emp,
+                          currentStatus: _effectiveStatus(emp),
+                          onStatusChanged: (s) {
+                            setState(() {
+                              final id =
+                                  (emp['employeeId'] as num).toInt();
+                              _overrides[id] = s;
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  // Sticky save button
+                  _SaveBar(
+                    pendingCount: employees.where(_needsSave).length,
+                    saving: _saving,
+                    siteSelected: siteId != null,
+                    onSave: () => _saveAll(dateKey, employees, siteId),
+                  ),
+                ],
               );
             },
           ),
@@ -148,19 +274,34 @@ class _DailyTab extends ConsumerWidget {
   }
 }
 
-// ── summary bar ───────────────────────────────────────────────────────────────
+// ── local summary bar — reflects local (pre-save) state ──────────────────────
 
-class _SummaryBar extends StatelessWidget {
-  final Map<String, dynamic> data;
-  const _SummaryBar({required this.data});
+class _LocalSummaryBar extends StatelessWidget {
+  final List<Map<String, dynamic>> employees;
+  final String Function(Map<String, dynamic>) effectiveStatus;
+
+  const _LocalSummaryBar({
+    required this.employees,
+    required this.effectiveStatus,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final present  = data['presentCount']  as int? ?? 0;
-    final halfDay  = data['halfDayCount']  as int? ?? 0;
-    final absent   = data['absentCount']   as int? ?? 0;
-    final leave    = data['leaveCount']    as int? ?? 0;
-    final unmarked = data['unmarkedCount'] as int? ?? 0;
+    int present = 0, halfDay = 0, absent = 0, leave = 0, unmarked = 0;
+    for (final emp in employees) {
+      switch (effectiveStatus(emp)) {
+        case 'PRESENT':
+          present++;
+        case 'HALF_DAY':
+          halfDay++;
+        case 'ABSENT':
+          absent++;
+        case 'LEAVE':
+          leave++;
+        default:
+          unmarked++;
+      }
+    }
 
     return Container(
       color: Colors.grey[50],
@@ -197,41 +338,74 @@ class _SummaryChip extends StatelessWidget {
       );
 }
 
-// ── employee attendance tile ──────────────────────────────────────────────────
+// ── save bar ──────────────────────────────────────────────────────────────────
 
-class _EmployeeAttendanceTile extends ConsumerStatefulWidget {
-  final Map<String, dynamic> emp;
-  final String date;
-  final VoidCallback onMarked;
-  const _EmployeeAttendanceTile(
-      {required this.emp, required this.date, required this.onMarked});
+class _SaveBar extends StatelessWidget {
+  final int pendingCount;
+  final bool saving;
+  final bool siteSelected;
+  final VoidCallback onSave;
 
-  @override
-  ConsumerState<_EmployeeAttendanceTile> createState() =>
-      _EmployeeAttendanceTileState();
-}
-
-class _EmployeeAttendanceTileState
-    extends ConsumerState<_EmployeeAttendanceTile> {
-  bool _saving = false;
-
-  Future<void> _mark(String status) async {
-    setState(() => _saving = true);
-    await ref.read(apiClientProvider).post('/api/attendance/mark', data: {
-      'date': widget.date,
-      'employeeId': widget.emp['employeeId'],
-      'status': status,
-    });
-    widget.onMarked();
-    if (mounted) setState(() => _saving = false);
-  }
+  const _SaveBar({
+    required this.pendingCount,
+    required this.saving,
+    required this.siteSelected,
+    required this.onSave,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final name = widget.emp['employeeName'] as String? ?? '—';
-    final designation = (widget.emp['designation'] as String?)?.trim() ?? '';
-    final wageType = widget.emp['wageType'] as String? ?? 'DAILY';
-    final currentStatus = widget.emp['attendanceStatus'] as String?;
+    final String label;
+    if (!siteSelected) {
+      label = 'Select a Site to Save';
+    } else if (pendingCount == 0) {
+      label = 'Attendance Saved';
+    } else {
+      label = 'Save Attendance ($pendingCount)';
+    }
+
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton(
+          onPressed: (saving || pendingCount == 0 || !siteSelected) ? null : onSave,
+          child: saving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : Text(label),
+        ),
+      ),
+    );
+  }
+}
+
+// ── employee attendance tile ──────────────────────────────────────────────────
+
+class _EmployeeAttendanceTile extends StatelessWidget {
+  final Map<String, dynamic> emp;
+  final String currentStatus;
+  final ValueChanged<String> onStatusChanged;
+
+  const _EmployeeAttendanceTile({
+    required this.emp,
+    required this.currentStatus,
+    required this.onStatusChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = emp['employeeName'] as String? ?? '—';
+    final designation = (emp['designation'] as String?)?.trim() ?? '';
+    final wageType = emp['wageType'] as String? ?? 'DAILY';
+    // Show a subtle dot indicator if this employee's status is unsaved (no recordId yet
+    // OR local status differs from saved).
+    final savedStatus = emp['attendanceStatus'] as String?;
+    final isPending = currentStatus != savedStatus;
 
     return Card(
       child: Padding(
@@ -240,17 +414,14 @@ class _EmployeeAttendanceTileState
           children: [
             CircleAvatar(
               radius: 20,
-              backgroundColor: currentStatus != null
-                  ? (_statusColors[currentStatus] ?? Colors.grey)
-                      .withValues(alpha: 0.15)
-                  : Colors.grey[200],
+              backgroundColor:
+                  (_statusColors[currentStatus] ?? Colors.green)
+                      .withValues(alpha: 0.15),
               child: Text(
                 name.substring(0, 1).toUpperCase(),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: currentStatus != null
-                      ? (_statusColors[currentStatus] ?? Colors.grey)
-                      : Colors.grey,
+                  color: _statusColors[currentStatus] ?? Colors.green,
                 ),
               ),
             ),
@@ -259,9 +430,24 @@ class _EmployeeAttendanceTileState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14)),
+                  Row(
+                    children: [
+                      Text(name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      if (isPending) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Colors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   if (designation.isNotEmpty || wageType.isNotEmpty)
                     Text(
                       [
@@ -274,47 +460,40 @@ class _EmployeeAttendanceTileState
                 ],
               ),
             ),
-            if (_saving)
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Wrap(
-                spacing: 6,
-                children: _statuses.map((s) {
-                  final isSelected = currentStatus == s;
-                  final color = _statusColors[s]!;
-                  return GestureDetector(
-                    onTap: () => _mark(s),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
+            Wrap(
+              spacing: 6,
+              children: _statuses.map((s) {
+                final isSelected = currentStatus == s;
+                final color = _statusColors[s]!;
+                return GestureDetector(
+                  onTap: () => onStatusChanged(s),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? color
+                          : color.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
                         color: isSelected
                             ? color
-                            : color.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isSelected
-                              ? color
-                              : color.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Text(
-                        _statusLabels[s]!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: isSelected ? Colors.white : color,
-                        ),
+                            : color.withValues(alpha: 0.3),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
+                    child: Text(
+                      _statusLabels[s]!,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : color,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ],
         ),
       ),
@@ -378,7 +557,8 @@ class _MonthlyTab extends ConsumerWidget {
                   tooltip: 'Export Excel',
                   onPressed: () => _exportExcel(d, monthLabel),
                 ),
-              ) ?? const SizedBox(width: 48),
+              ) ??
+                  const SizedBox(width: 48),
             ],
           ),
         ),

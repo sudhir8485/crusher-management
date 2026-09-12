@@ -18,4 +18,7 @@ public class AttendanceMarkRequest {
     private String status;  // PRESENT | ABSENT | HALF_DAY | LEAVE
 
     private String notes;
+
+    // Optional: frontend passes this for OWNER_ADMIN who has no siteId in JWT.
+    private Long siteId;
 }

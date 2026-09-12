@@ -1,6 +1,6 @@
 # Tracker.md — Feature Status
 
-Last updated: 2026-09-12. Update this file as work is completed.
+Last updated: 2026-09-12 (V36). Update this file as work is completed.
 
 ---
 
@@ -81,7 +81,7 @@ Last updated: 2026-09-12. Update this file as work is completed.
 | Material management | ✅ Done | |
 | Service management | ✅ Done | V21 |
 | Site management | ✅ Done | |
-| Active / Inactive toggle (Party / Vehicle / Machine) | ✅ Done | V29 |
+| Active / Inactive toggle (Party / Vehicle / Machine / Employee) | ✅ Done | V29 + V36 |
 | Machine: Work Types per machine | ✅ Done | V28 |
 | Machine: Linked Vehicle bidirectional pairing | ✅ Done | V28 |
 
@@ -105,7 +105,15 @@ Last updated: 2026-09-12. Update this file as work is completed.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Employee management | ✅ Done | |
+| Employee: deactivate (working) | ✅ Done | V36 — was silently failing (403); now uses PATCH toggle-active |
+| Employee: reactivate | ✅ Done | V36 — popup shows Reactivate (green) for inactive employees |
+| Employee: Inactive section visible | ✅ Done | V36 — greyed badge, separate section |
 | Daily attendance marking | ✅ Done | |
+| Attendance: default Present pre-selected | ✅ Done | V36 — all unmarked employees start as Present; explicit Save required |
+| Attendance: bulk Save Attendance button | ✅ Done | V36 — replaces per-tile auto-save; shows pending count |
+| Attendance: site required to save | ✅ Done | V36 — banner + disabled button when no site selected; siteId passed in mark request |
+| Inactive employees excluded from attendance | ✅ Done | Backend filters ACTIVE only |
+| Monthly attendance grid + Excel export | ✅ Done | |
 
 ---
 
