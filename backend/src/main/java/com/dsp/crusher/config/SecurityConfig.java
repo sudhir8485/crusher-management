@@ -56,7 +56,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/diesel/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers("/api/dabar/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers("/api/machine-work/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
-                .requestMatchers("/api/attendance/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
+                .requestMatchers("/api/attendance/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
 
                 // ── Reference/master data: reads needed by all three (form pickers) ───
                 .requestMatchers(HttpMethod.GET, "/api/sites/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
