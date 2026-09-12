@@ -7,12 +7,15 @@ import com.dsp.crusher.entity.DabarEntry;
 import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.repository.*;
+import com.dsp.crusher.repository.JobWorkInvoiceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -31,6 +34,7 @@ public class DashboardService {
     private final AttendanceService attendanceService;
     private final DabarEntryRepository dabarRepo;
     private final VendorRepository vendorRepo;
+    private final JobWorkInvoiceRepository jobWorkInvoiceRepo;
 
     public DashboardResponse get() {
         LocalDate today = LocalDate.now();
@@ -126,6 +130,39 @@ public class DashboardService {
                 .limit(10)
                 .collect(Collectors.toList());
         r.setReceivableParties(receivables);
+
+        // Daily trend for current month
+        Map<LocalDate, BigDecimal> dailyInv = new HashMap<>();
+        invoiceRepo.sumDailyByDateRange(monthStart, today)
+                .forEach(row -> dailyInv.put((LocalDate) row[0], (BigDecimal) row[1]));
+        Map<LocalDate, BigDecimal> dailyPay = new HashMap<>();
+        paymentRepo.sumDailyByDateRange(monthStart, today)
+                .forEach(row -> dailyPay.put((LocalDate) row[0], (BigDecimal) row[1]));
+        List<DashboardResponse.DailyTrend> trends = new ArrayList<>();
+        for (LocalDate d = monthStart; !d.isAfter(today); d = d.plusDays(1)) {
+            DashboardResponse.DailyTrend dt = new DashboardResponse.DailyTrend();
+            dt.setDay(d.getDayOfMonth());
+            dt.setInvoiceTotal(dailyInv.getOrDefault(d, BigDecimal.ZERO));
+            dt.setPaymentTotal(dailyPay.getOrDefault(d, BigDecimal.ZERO));
+            trends.add(dt);
+        }
+        r.setMonthlyTrend(trends);
+
+        // Billing breakdown by source (base amounts, net of GST for trip components)
+        r.setMonthlyMaterialSales(tripRepo.sumMaterialAmountByDateRangeAndSite(monthStart, today, siteId));
+        r.setMonthlyTransportation(tripRepo.sumTransportationByDateRangeAndSite(monthStart, today, siteId));
+        r.setMonthlyJobWorkBilled(jobWorkInvoiceRepo.sumGrandTotalByDateRange(monthStart, today));
+        r.setMonthlyMachineWorkBilled(machineRepo.sumBillableTotalAmountByDateRangeAndSite(monthStart, today, siteId));
+
+        // Needs Attention: surface genuinely actionable pending states
+        r.setGstPendingCount(invoiceRepo.countByGstStatusPending());
+        // Unbilled trips: prior days this month only (exclude today — still being created)
+        LocalDate yesterday = today.minusDays(1);
+        if (!yesterday.isBefore(monthStart)) {
+            r.setUnbilledTripsCount(tripRepo.countUnbilledByDateRangeAndSite(monthStart, yesterday, siteId));
+        }
+        r.setRatePendingMachineWorkCount(machineRepo.countRatePendingBySite(siteId));
+        r.setJwOverlapCount(jobWorkInvoiceRepo.countInvoicesWithOverlappingPeriods());
 
         return r;
     }

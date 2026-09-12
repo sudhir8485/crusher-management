@@ -67,4 +67,12 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
 
     boolean existsByMachineId(Long machineId);
     boolean existsByCustomerId(Long customerId);
+
+    // Billing breakdown: billable machine work amount this month (rate must be SET)
+    @Query("SELECT COALESCE(SUM(m.totalAmount), 0) FROM MachineWorkLog m WHERE m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'SET' AND m.logDate BETWEEN :from AND :to AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId)")
+    BigDecimal sumBillableTotalAmountByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    // Needs Attention: customer-billable entries with no rate set yet
+    @Query("SELECT COUNT(m) FROM MachineWorkLog m WHERE m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'PENDING' AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId)")
+    long countRatePendingBySite(@Param("siteId") Long siteId);
 }

@@ -61,4 +61,18 @@ public interface JobWorkInvoiceRepository extends JpaRepository<JobWorkInvoice, 
     BigDecimal sumAllGrandTotalByVendorId(@Param("vendorId") Long vendorId);
 
     boolean existsByVendorId(Long vendorId);
+
+    // Billing breakdown: job-work invoiced this month
+    @Query("SELECT COALESCE(SUM(i.grandTotal), 0) FROM JobWorkInvoice i WHERE i.invoiceDate BETWEEN :from AND :to AND i.status = 'ACTIVE'")
+    BigDecimal sumGrandTotalByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    // Needs Attention: count invoices whose billing periods overlap a sibling for the same site+service
+    @Query("SELECT COUNT(DISTINCT i.id) FROM JobWorkInvoice i JOIN i.items it " +
+           "WHERE i.status = 'ACTIVE' AND i.periodFrom IS NOT NULL AND i.periodTo IS NOT NULL " +
+           "AND EXISTS (SELECT 1 FROM JobWorkInvoice i2 JOIN i2.items it2 " +
+           "WHERE i2.id <> i.id AND i2.status = 'ACTIVE' " +
+           "AND i2.periodFrom IS NOT NULL AND i2.periodTo IS NOT NULL " +
+           "AND it2.serviceId = it.serviceId AND i2.siteId = i.siteId " +
+           "AND i2.periodFrom <= i.periodTo AND i2.periodTo >= i.periodFrom)")
+    long countInvoicesWithOverlappingPeriods();
 }

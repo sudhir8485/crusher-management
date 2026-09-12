@@ -49,6 +49,28 @@ public class DashboardResponse {
     // Month trip summary by material
     private List<MaterialSummary> monthlyTripSummary;
 
+    // Billing breakdown by source this month (base amounts, net of GST for trip components)
+    private BigDecimal monthlyMaterialSales;
+    private BigDecimal monthlyTransportation;
+    private BigDecimal monthlyJobWorkBilled;
+    private BigDecimal monthlyMachineWorkBilled;
+
+    // Needs Attention counts
+    private long gstPendingCount;
+    private long unbilledTripsCount;
+    private long ratePendingMachineWorkCount;
+    private long jwOverlapCount;
+
+    // Daily trend for current month
+    private List<DailyTrend> monthlyTrend;
+
+    @Getter @Setter
+    public static class DailyTrend {
+        private int day;
+        private BigDecimal invoiceTotal;
+        private BigDecimal paymentTotal;
+    }
+
     @Getter @Setter
     public static class MaterialSummary {
         private Long materialId;

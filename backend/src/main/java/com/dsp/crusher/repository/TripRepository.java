@@ -127,4 +127,15 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     // Reference-check for delete guard
     boolean existsByVehicleId(Long vehicleId);
     boolean existsByVendorId(Long vendorId);
+
+    // Billing breakdown: material sales and transportation this month
+    @Query("SELECT COALESCE(SUM(t.materialAmount), 0) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
+    BigDecimal sumMaterialAmountByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    @Query("SELECT COALESCE(SUM(t.transportationCharge), 0) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
+    BigDecimal sumTransportationByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
+    // Needs Attention: trips from this period with no GST invoice linked
+    @Query("SELECT COUNT(t) FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.gstInvoiceId IS NULL AND t.totalBill > 0 AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId)")
+    long countUnbilledByDateRangeAndSite(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
 }

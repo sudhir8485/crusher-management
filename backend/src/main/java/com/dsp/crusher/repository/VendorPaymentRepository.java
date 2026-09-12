@@ -72,4 +72,7 @@ public interface VendorPaymentRepository extends JpaRepository<VendorPayment, Lo
     List<Object[]> lastPaymentDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
     boolean existsByVendorId(Long vendorId);
+
+    @Query("SELECT p.paymentDate, COALESCE(SUM(p.amount), 0) FROM VendorPayment p WHERE p.paymentDate BETWEEN :from AND :to AND p.status = 'ACTIVE' GROUP BY p.paymentDate ORDER BY p.paymentDate")
+    List<Object[]> sumDailyByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 }

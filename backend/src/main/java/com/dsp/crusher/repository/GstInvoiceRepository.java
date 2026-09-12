@@ -61,4 +61,11 @@ public interface GstInvoiceRepository extends JpaRepository<GstInvoice, Long> {
     List<Object[]> lastInvoiceDateByVendorIds(@Param("vendorIds") List<Long> vendorIds);
 
     boolean existsByVendorId(Long vendorId);
+
+    @Query("SELECT i.invoiceDate, COALESCE(SUM(i.grandTotal), 0) FROM GstInvoice i WHERE i.invoiceDate BETWEEN :from AND :to AND i.status = 'ACTIVE' GROUP BY i.invoiceDate ORDER BY i.invoiceDate")
+    List<Object[]> sumDailyByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    // Needs Attention: invoices where GST rate was not set at creation time
+    @Query("SELECT COUNT(i) FROM GstInvoice i WHERE i.gstStatus = 'PENDING' AND i.status = 'ACTIVE'")
+    long countByGstStatusPending();
 }

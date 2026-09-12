@@ -1,3 +1,5 @@
+import 'dart:math';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,15 +9,14 @@ import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
-// ── providers ─────────────────────────────────────────────────────────────────
+// ── provider ──────────────────────────────────────────────────────────────────
 
 final _dashboardProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  ref.watch(selectedSiteIdProvider); // re-fetch when site changes
+  ref.watch(selectedSiteIdProvider);
   final res = await ref.read(apiClientProvider).get('/api/dashboard');
   return Map<String, dynamic>.from(res.data as Map);
 });
-
 
 // ── screen ────────────────────────────────────────────────────────────────────
 
@@ -26,8 +27,8 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(_dashboardProvider);
     final now = DateTime.now();
-    final monthName = DateFormat('MMMM yyyy').format(now);
     final today = DateFormat('d MMM yyyy').format(now);
+    final monthName = DateFormat('MMMM yyyy').format(now);
 
     return Scaffold(
       appBar: AppBar(
@@ -42,7 +43,8 @@ class DashboardScreen extends ConsumerWidget {
       body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (d) => _DashboardBody(data: d, monthName: monthName, today: today),
+        data: (d) =>
+            _DashboardBody(data: d, today: today, monthName: monthName),
       ),
     );
   }
@@ -52,228 +54,155 @@ class DashboardScreen extends ConsumerWidget {
 
 class _DashboardBody extends StatelessWidget {
   final Map<String, dynamic> data;
-  final String monthName;
   final String today;
-  const _DashboardBody({required this.data, required this.monthName, required this.today});
+  final String monthName;
+  const _DashboardBody(
+      {required this.data, required this.today, required this.monthName});
 
   @override
   Widget build(BuildContext context) {
-    // Today
-    final todayTrips     = data['todayTripCount'] as int? ?? 0;
-    final todayBrass     = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
-    final attPresent     = data['todayAttendancePresent'] as int? ?? 0;
-    final attTotal       = data['todayAttendanceTotal'] as int? ?? 0;
-    final todayMachine   = (data['todayMachineHours'] as num?)?.toDouble() ?? 0;
-    final todayDabar     = (data['todayDabarBrass'] as num?)?.toDouble() ?? 0;
-
-    // Today's financial
-    final todayInvTotal  = (data['todayInvoiceTotal'] as num?)?.toDouble() ?? 0;
-    final todayInvCount  = data['todayInvoiceCount'] as int? ?? 0;
-    final todayColTotal  = (data['todayCollectionsTotal'] as num?)?.toDouble() ?? 0;
-    final todayColCount  = data['todayCollectionsCount'] as int? ?? 0;
-
-    // Diesel
-    final dieselBalance  = (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
-    final dieselReceived = (data['dieselTotalReceived'] as num?)?.toDouble() ?? 0;
-    final dieselUsed     = (data['dieselTotalUsed'] as num?)?.toDouble() ?? 0;
-
-    // Financial position
-    final totalInv       = (data['totalInvoiced'] as num?)?.toDouble() ?? 0;
-    final totalPaid      = (data['totalPaymentsLinked'] as num?)?.toDouble() ?? 0;
-    final outstanding    = (data['totalOutstanding'] as num?)?.toDouble() ?? 0;
-
-    // This month
-    final monthMachine   = (data['monthlyMachineHours'] as num?)?.toDouble() ?? 0;
-    final monthInvTotal  = (data['monthlyInvoiceTotal'] as num?)?.toDouble() ?? 0;
-    final monthInvCount  = data['monthlyInvoiceCount'] as int? ?? 0;
-    final monthPayTotal  = (data['monthlyPaymentsTotal'] as num?)?.toDouble() ?? 0;
-
-    // Receivable parties
+    final todayTrips = data['todayTripCount'] as int? ?? 0;
+    final todayBrass = (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
+    final attPresent = data['todayAttendancePresent'] as int? ?? 0;
+    final attTotal = data['todayAttendanceTotal'] as int? ?? 0;
+    final todayCol =
+        (data['todayCollectionsTotal'] as num?)?.toDouble() ?? 0;
+    final outstanding =
+        (data['totalOutstanding'] as num?)?.toDouble() ?? 0;
+    final dieselBalance =
+        (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
     final receivables = List<Map<String, dynamic>>.from(
         data['receivableParties'] as List? ?? []);
+    final trendRaw = List<Map<String, dynamic>>.from(
+        data['monthlyTrend'] as List? ?? []);
 
-    // Material summary
-    final tripSummary = List<Map<String, dynamic>>.from(
-        data['monthlyTripSummary'] as List? ?? []);
+    // Billing breakdown
+    final materialSales =
+        (data['monthlyMaterialSales'] as num?)?.toDouble() ?? 0;
+    final transportation =
+        (data['monthlyTransportation'] as num?)?.toDouble() ?? 0;
+    final jobWork =
+        (data['monthlyJobWorkBilled'] as num?)?.toDouble() ?? 0;
+    final machineWork =
+        (data['monthlyMachineWorkBilled'] as num?)?.toDouble() ?? 0;
+
+    // Needs Attention
+    final gstPending =
+        (data['gstPendingCount'] as num?)?.toInt() ?? 0;
+    final unbilledTrips =
+        (data['unbilledTripsCount'] as num?)?.toInt() ?? 0;
+    final ratePending =
+        (data['ratePendingMachineWorkCount'] as num?)?.toInt() ?? 0;
+    final jwOverlap =
+        (data['jwOverlapCount'] as num?)?.toInt() ?? 0;
+
+    final attention =
+        <({IconData icon, Color color, String text, String route})>[];
+    if (receivables.isNotEmpty) {
+      final n = receivables.length;
+      attention.add((
+        icon: Icons.receipt_long,
+        color: Colors.red,
+        text:
+            '$n ${n == 1 ? 'party has' : 'parties have'} unpaid invoices',
+        route: '/accounts',
+      ));
+    }
+    if (gstPending > 0) {
+      attention.add((
+        icon: Icons.percent,
+        color: Colors.orange,
+        text:
+            '$gstPending ${gstPending == 1 ? 'invoice needs' : 'invoices need'} GST recalculation',
+        route: '/invoices',
+      ));
+    }
+    if (unbilledTrips > 0) {
+      attention.add((
+        icon: Icons.swap_horiz,
+        color: Colors.blue,
+        text:
+            '$unbilledTrips ${unbilledTrips == 1 ? 'trip' : 'trips'} not yet invoiced',
+        route: '/trips',
+      ));
+    }
+    if (ratePending > 0) {
+      attention.add((
+        icon: Icons.construction,
+        color: Colors.deepOrange,
+        text:
+            '$ratePending machine work ${ratePending == 1 ? 'entry needs' : 'entries need'} a rate set',
+        route: '/machine-work',
+      ));
+    }
+    if (jwOverlap > 0) {
+      attention.add((
+        icon: Icons.date_range,
+        color: Colors.purple,
+        text:
+            '$jwOverlap job-work ${jwOverlap == 1 ? 'invoice has' : 'invoices have'} overlapping billing periods',
+        route: '/invoices',
+      ));
+    }
+    if (dieselBalance < 100) {
+      attention.add((
+        icon: Icons.local_gas_station,
+        color: Colors.teal,
+        text:
+            'Diesel stock low — ${numFmt.format(dieselBalance)} L remaining',
+        route: '/diesel',
+      ));
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Quick Actions ───────────────────────────────────────────────────
+          // 1. Quick Actions
           _QuickActions(),
-          const SizedBox(height: 16),
-
-          // ── Today ──────────────────────────────────────────────────────────
-          _SectionLabel('Today — $today'),
-          const SizedBox(height: 8),
-          // Row 1: Trips + Attendance
-          Row(
-            children: [
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.swap_horiz,
-                  label: 'Trips Today',
-                  value: '$todayTrips',
-                  sub: todayBrass > 0
-                      ? '${numFmt.format(todayBrass)} Brass'
-                      : 'No brass recorded',
-                  color: Colors.blue,
-                  route: '/trips',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.people,
-                  label: 'Attendance',
-                  value: '$attPresent / $attTotal',
-                  sub: attTotal == 0
-                      ? 'No employees'
-                      : attPresent == attTotal
-                          ? 'All present'
-                          : '${attTotal - attPresent} absent/unmarked',
-                  color: attPresent == attTotal && attTotal > 0
-                      ? Colors.green
-                      : Colors.orange,
-                  route: '/attendance',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Row 2: Diesel + Machine hours + Dabar
-          Row(
-            children: [
-              Expanded(child: _DieselCard(
-                balance: dieselBalance,
-                received: dieselReceived,
-                used: dieselUsed,
-              )),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.construction,
-                  label: 'Machine Hrs',
-                  value: '${numFmt.format(todayMachine)} hrs',
-                  sub: todayMachine > 0 ? 'Today' : 'None today',
-                  color: Colors.orange,
-                  route: '/machine-work',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.landscape,
-                  label: 'Dabar Brass',
-                  value: numFmt.format(todayDabar),
-                  sub: todayDabar > 0 ? 'Brass today' : 'None today',
-                  color: Colors.brown,
-                  route: '/dabar',
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-          // Row 3: Today's Invoices + Today's Collections
-          Row(
-            children: [
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.receipt_long,
-                  label: "Today's Sales",
-                  value: fmtCurr(todayInvTotal),
-                  sub: '$todayInvCount invoice${todayInvCount == 1 ? '' : 's'} today',
-                  color: Colors.purple,
-                  route: '/invoices',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.payments,
-                  label: "Today's Collections",
-                  value: fmtCurr(todayColTotal),
-                  sub: '$todayColCount payment${todayColCount == 1 ? '' : 's'} today',
-                  color: Colors.green,
-                  route: '/party-payments',
-                ),
-              ),
-            ],
-          ),
-
           const SizedBox(height: 20),
 
-          // ── Financial Position ──────────────────────────────────────────────
-          _SectionLabel('Financial Position'),
-          const SizedBox(height: 8),
-          _FinancialCard(
-            totalInvoiced: totalInv,
-            totalPaid: totalPaid,
+          // 2. Hero Outstanding Balance
+          _HeroBalance(
             outstanding: outstanding,
-            onInvoices: () => context.go('/invoices'),
-            onPayments: () => context.go('/party-payments'),
+            onViewAll: () => context.go('/accounts'),
           ),
-
-          // ── Receivables ─────────────────────────────────────────────────────
-          if (receivables.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            _SectionLabel('Outstanding Receivables'),
-            const SizedBox(height: 8),
-            _ReceivablesWidget(rows: receivables),
-          ],
-
           const SizedBox(height: 20),
 
-          // ── This Month ─────────────────────────────────────────────────────
-          _SectionLabel(monthName),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.construction,
-                  label: 'Machine Hours',
-                  value: '${numFmt.format(monthMachine)} hrs',
-                  sub: 'This month',
-                  color: Colors.orange,
-                  route: '/machine-work',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.receipt_long,
-                  label: 'Invoices',
-                  value: fmtCurr(monthInvTotal),
-                  sub: '$monthInvCount invoice${monthInvCount == 1 ? '' : 's'}',
-                  color: Colors.purple,
-                  route: '/invoices',
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ClickCard(
-                  icon: Icons.payments,
-                  label: 'Payments',
-                  value: fmtCurr(monthPayTotal),
-                  sub: 'Received this month',
-                  color: Colors.green,
-                  route: '/party-payments',
-                ),
-              ),
-            ],
+          // 3. Revenue Trend (cumulative) + Billing Breakdown side note
+          _TrendChart(trends: trendRaw, monthName: monthName),
+          const SizedBox(height: 12),
+          _BillingBreakdown(
+            monthName: monthName,
+            materialSales: materialSales,
+            transportation: transportation,
+            jobWork: jobWork,
+            machineWork: machineWork,
           ),
+          const SizedBox(height: 20),
 
-          // ── Material Summary ───────────────────────────────────────────────
-          if (tripSummary.isNotEmpty) ...[
+          // 4. Today row
+          _TodayRow(
+            today: today,
+            trips: todayTrips,
+            brass: todayBrass,
+            present: attPresent,
+            total: attTotal,
+            collections: todayCol,
+          ),
+          const SizedBox(height: 20),
+
+          // 5. Outstanding by Party (horizontal bars)
+          if (receivables.isNotEmpty)
+            _OutstandingBars(parties: receivables),
+
+          // 6. Needs Attention
+          if (attention.isNotEmpty) ...[
             const SizedBox(height: 20),
-            _SectionLabel('Material Summary — $monthName'),
-            const SizedBox(height: 8),
-            _TripSummaryTable(rows: tripSummary),
+            _NeedsAttention(items: attention),
           ],
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -301,10 +230,22 @@ class _QuickActions extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _QBtn(icon: Icons.receipt_long, label: '+ Invoice', route: '/invoices'),
-                _QBtn(icon: Icons.swap_horiz, label: '+ Trip', route: '/trips'),
-                _QBtn(icon: Icons.local_gas_station, label: '+ Diesel', route: '/diesel'),
-                _QBtn(icon: Icons.payments, label: '+ Payment', route: '/party-payments'),
+                _QBtn(
+                    icon: Icons.receipt_long,
+                    label: '+ Invoice',
+                    route: '/invoices'),
+                _QBtn(
+                    icon: Icons.swap_horiz,
+                    label: '+ Trip',
+                    route: '/trips'),
+                _QBtn(
+                    icon: Icons.local_gas_station,
+                    label: '+ Diesel',
+                    route: '/diesel'),
+                _QBtn(
+                    icon: Icons.payments,
+                    label: '+ Payment',
+                    route: '/party-payments'),
               ],
             ),
           ],
@@ -318,7 +259,8 @@ class _QBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final String route;
-  const _QBtn({required this.icon, required this.label, required this.route});
+  const _QBtn(
+      {required this.icon, required this.label, required this.route});
 
   @override
   Widget build(BuildContext context) {
@@ -330,366 +272,379 @@ class _QBtn extends StatelessWidget {
   }
 }
 
-// ── receivables widget ────────────────────────────────────────────────────────
+// ── hero balance ──────────────────────────────────────────────────────────────
 
-class _ReceivablesWidget extends StatelessWidget {
-  final List<Map<String, dynamic>> rows;
-  const _ReceivablesWidget({required this.rows});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-            ),
-            child: const Row(
-              children: [
-                Expanded(flex: 3, child: _TH('Party Name')),
-                Expanded(flex: 2, child: _TH('Outstanding', right: true)),
-                SizedBox(width: 80, child: _TH('', right: true)),
-              ],
-            ),
-          ),
-          ...rows.map((r) {
-            final name = r['vendorName'] as String? ?? '—';
-            final amt = (r['outstandingBalance'] as num?)?.toDouble() ?? 0;
-            return Container(
-              decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      child: Text(name, style: const TextStyle(fontSize: 13)),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      child: Text(
-                        fmtCurr(amt),
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.red,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 80,
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: TextButton(
-                        onPressed: () => context.go('/ledger'),
-                        child: const Text('Ledger', style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-}
-
-// ── section label ─────────────────────────────────────────────────────────────
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
-  @override
-  Widget build(BuildContext context) => Text(text,
-      style: Theme.of(context)
-          .textTheme
-          .titleMedium
-          ?.copyWith(fontWeight: FontWeight.bold));
-}
-
-// ── clickable metric card ─────────────────────────────────────────────────────
-
-class _ClickCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final String sub;
-  final Color color;
-  final String route;
-  const _ClickCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.sub,
-    required this.color,
-    required this.route,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.go(route),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Icon(icon, color: color, size: 18),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(label,
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: color)),
-              const SizedBox(height: 2),
-              Text(sub,
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── diesel card ───────────────────────────────────────────────────────────────
-
-class _DieselCard extends StatelessWidget {
-  final double balance;
-  final double received;
-  final double used;
-  const _DieselCard(
-      {required this.balance, required this.received, required this.used});
-
-  @override
-  Widget build(BuildContext context) {
-    final isLow = balance < 100;
-    final color = balance <= 0
-        ? Colors.red
-        : isLow
-            ? Colors.orange
-            : Colors.teal;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.go('/diesel'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Icon(Icons.local_gas_station, color: color, size: 18),
-                  ),
-                  const SizedBox(width: 8),
-                  Text('Diesel Stock',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text('${numFmt.format(balance)} L',
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: color)),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(Icons.arrow_downward, size: 11, color: Colors.green[700]),
-                  Text(' ${numFmt.format(received)} in',
-                      style: TextStyle(fontSize: 11, color: Colors.green[700])),
-                  const SizedBox(width: 8),
-                  Icon(Icons.arrow_upward, size: 11, color: Colors.red[700]),
-                  Text(' ${numFmt.format(used)} out',
-                      style: TextStyle(fontSize: 11, color: Colors.red[700])),
-                ],
-              ),
-              if (isLow && balance > 0) ...[
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text('Low — refill soon',
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.w600)),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── financial position card ───────────────────────────────────────────────────
-
-class _FinancialCard extends StatelessWidget {
-  final double totalInvoiced;
-  final double totalPaid;
+class _HeroBalance extends StatelessWidget {
   final double outstanding;
-  final VoidCallback onInvoices;
-  final VoidCallback onPayments;
-  const _FinancialCard({
-    required this.totalInvoiced,
-    required this.totalPaid,
-    required this.outstanding,
-    required this.onInvoices,
-    required this.onPayments,
-  });
+  final VoidCallback onViewAll;
+  const _HeroBalance(
+      {required this.outstanding, required this.onViewAll});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final outColor = outstanding > 0 ? Colors.red[700]! : Colors.green[700]!;
+    final isAllPaid = outstanding <= 0;
+    final color = isAllPaid ? Colors.green[700]! : Colors.red[700]!;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: Column(
+          children: [
+            Text(
+              'Outstanding Balance',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              fmtCurr(outstanding),
+              style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: color),
+            ),
+            if (isAllPaid) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'All invoices paid',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            TextButton.icon(
+              onPressed: onViewAll,
+              icon: const Icon(Icons.open_in_new, size: 14),
+              label: const Text('View All in Accounts',
+                  style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── revenue trend chart ───────────────────────────────────────────────────────
+
+String _shortCurr(double value) {
+  if (value >= 100000) {
+    return '₹${(value / 100000).toStringAsFixed(1)}L';
+  }
+  if (value >= 1000) return '₹${(value / 1000).toStringAsFixed(0)}K';
+  if (value == 0) return '₹0';
+  return '₹${value.toInt()}';
+}
+
+class _TrendChart extends StatelessWidget {
+  final List<Map<String, dynamic>> trends;
+  final String monthName;
+  const _TrendChart({required this.trends, required this.monthName});
+
+  @override
+  Widget build(BuildContext context) {
+    final invoiceSpots = <FlSpot>[];
+    final paymentSpots = <FlSpot>[];
+    double cumInv = 0;
+    double cumPay = 0;
+    double maxY = 0;
+
+    for (final t in trends) {
+      final day = (t['day'] as num?)?.toDouble() ?? 0;
+      cumInv += (t['invoiceTotal'] as num?)?.toDouble() ?? 0;
+      cumPay += (t['paymentTotal'] as num?)?.toDouble() ?? 0;
+      invoiceSpots.add(FlSpot(day, cumInv));
+      paymentSpots.add(FlSpot(day, cumPay));
+      maxY = max(maxY, cumInv);
+    }
+
+    final hasData = maxY > 0;
+    final effectiveMaxY = hasData ? maxY * 1.15 : 1.0;
+    final maxDay = trends.isNotEmpty
+        ? (trends.last['day'] as num?)?.toDouble() ?? 1.0
+        : 1.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Outstanding — prominent
-            Center(
-              child: Column(
-                children: [
-                  Text('Outstanding Balance',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 4),
-                  Text(fmtCurr(outstanding),
-                      style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: outColor)),
-                  if (outstanding <= 0)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text('All invoices paid',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.green,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                ],
-              ),
+            Text(
+              'Revenue Trend — $monthName',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 16),
-            // Total invoiced + paid row
+            const SizedBox(height: 2),
+            Text(
+              'Cumulative invoiced vs collected',
+              style:
+                  TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: onInvoices,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Total Invoiced',
-                              style: TextStyle(
-                                  fontSize: 11, color: Colors.grey[600])),
-                          const SizedBox(height: 4),
-                          Text(fmtCurr(totalInvoiced),
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.primary)),
-                        ],
-                      ),
-                    ),
+                _LegendLine(color: Colors.blue, label: 'Invoiced'),
+                const SizedBox(width: 16),
+                _LegendLine(color: Colors.green, label: 'Collected'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (!hasData)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No transactions recorded this month yet',
+                    style: TextStyle(
+                        color: Colors.grey[500], fontSize: 13),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: InkWell(
-                    onTap: onPayments,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Total Paid',
-                              style: TextStyle(
-                                  fontSize: 11, color: Colors.grey[600])),
-                          const SizedBox(height: 4),
-                          Text(fmtCurr(totalPaid),
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green)),
-                        ],
+              )
+            else
+              SizedBox(
+                height: 180,
+                child: LineChart(
+                  LineChartData(
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      getDrawingHorizontalLine: (_) => FlLine(
+                        color: Colors.grey.shade200,
+                        strokeWidth: 1,
                       ),
                     ),
+                    titlesData: FlTitlesData(
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 24,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            final d = value.toInt();
+                            if (d == 1 || d % 5 == 0) {
+                              return SideTitleWidget(
+                                axisSide: meta.axisSide,
+                                child: Text('$d',
+                                    style: const TextStyle(
+                                        fontSize: 10)),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 64,
+                          getTitlesWidget: (value, meta) {
+                            if (value == meta.min ||
+                                value == meta.max) {
+                              return const SizedBox.shrink();
+                            }
+                            return SideTitleWidget(
+                              axisSide: meta.axisSide,
+                              child: Text(
+                                _shortCurr(value),
+                                style: const TextStyle(fontSize: 10),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      topTitles: const AxisTitles(
+                          sideTitles:
+                              SideTitles(showTitles: false)),
+                      rightTitles: const AxisTitles(
+                          sideTitles:
+                              SideTitles(showTitles: false)),
+                    ),
+                    borderData: FlBorderData(
+                      show: true,
+                      border: Border(
+                        bottom: BorderSide(
+                            color: Colors.grey.shade300),
+                        left: BorderSide(
+                            color: Colors.grey.shade300),
+                      ),
+                    ),
+                    minX: 1,
+                    maxX: maxDay,
+                    minY: 0,
+                    maxY: effectiveMaxY,
+                    lineTouchData: LineTouchData(
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipColor: (_) =>
+                            Colors.grey.shade800,
+                        getTooltipItems: (spots) =>
+                            spots.map((s) {
+                          final label = s.barIndex == 0
+                              ? 'Billed'
+                              : 'Collected';
+                          return LineTooltipItem(
+                            '$label: ${_shortCurr(s.y)}',
+                            const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: invoiceSpots,
+                        isCurved: true,
+                        color: Colors.blue,
+                        barWidth: 2.5,
+                        dotData: const FlDotData(show: false),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: Colors.blue.withValues(alpha: 0.07),
+                        ),
+                      ),
+                      LineChartBarData(
+                        spots: paymentSpots,
+                        isCurved: true,
+                        color: Colors.green,
+                        barWidth: 2.5,
+                        dotData: const FlDotData(show: false),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color:
+                              Colors.green.withValues(alpha: 0.07),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendLine extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendLine({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 16,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(label,
+            style:
+                TextStyle(fontSize: 11, color: Colors.grey[600])),
+      ],
+    );
+  }
+}
+
+// ── billing breakdown ─────────────────────────────────────────────────────────
+
+class _BillingBreakdown extends StatelessWidget {
+  final String monthName;
+  final double materialSales;
+  final double transportation;
+  final double jobWork;
+  final double machineWork;
+  const _BillingBreakdown({
+    required this.monthName,
+    required this.materialSales,
+    required this.transportation,
+    required this.jobWork,
+    required this.machineWork,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = materialSales + transportation + jobWork + machineWork;
+    if (total <= 0) return const SizedBox.shrink();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Billing by Source — $monthName',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'net of GST',
+                  style: TextStyle(
+                      fontSize: 10, color: Colors.grey[400]),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (materialSales > 0)
+              _BillingRow(
+                  label: 'Material Sales',
+                  amount: materialSales,
+                  color: Colors.blue),
+            if (transportation > 0)
+              _BillingRow(
+                  label: 'Transportation',
+                  amount: transportation,
+                  color: Colors.teal),
+            if (jobWork > 0)
+              _BillingRow(
+                  label: 'Job Work',
+                  amount: jobWork,
+                  color: Colors.purple),
+            if (machineWork > 0)
+              _BillingRow(
+                  label: 'Machine Work',
+                  amount: machineWork,
+                  color: Colors.orange),
+            const Divider(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Net Billed',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold)),
+                Text(
+                  fmtCurr(total),
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -700,59 +655,328 @@ class _FinancialCard extends StatelessWidget {
   }
 }
 
-// ── trip summary table ────────────────────────────────────────────────────────
-
-class _TripSummaryTable extends StatelessWidget {
-  final List<Map<String, dynamic>> rows;
-  const _TripSummaryTable({required this.rows});
+class _BillingRow extends StatelessWidget {
+  final String label;
+  final double amount;
+  final Color color;
+  const _BillingRow(
+      {required this.label,
+      required this.amount,
+      required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    double grandTotal = 0;
-    for (final r in rows) {
-      grandTotal += (r['totalBrass'] as num?)?.toDouble() ?? 0;
-    }
-
-    return Card(
-      child: Column(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
         children: [
           Container(
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.08),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
-            ),
-            child: const Row(
-              children: [
-                Expanded(flex: 3, child: _TH('Material')),
-                Expanded(child: _TH('Trips', right: true)),
-                Expanded(child: _TH('Brass', right: true)),
-              ],
+              color: color.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          ...rows.map((r) {
-            final name = r['materialName'] as String? ?? '—';
-            final size = r['sizeLabel'] as String? ?? '';
-            final trips = r['tripCount'] as int? ?? 0;
-            final brass = (r['totalBrass'] as num?)?.toDouble() ?? 0;
-            return _TR(
-              label: size.isNotEmpty ? '$name ($size)' : name,
-              trips: '$trips',
-              brass: numFmt.format(brass),
-            );
-          }),
-          Container(
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.06),
-              borderRadius:
-                  const BorderRadius.vertical(bottom: Radius.circular(12)),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 12, color: Colors.grey[700])),
+          ),
+          Text(
+            fmtCurr(amount),
+            style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── today row ─────────────────────────────────────────────────────────────────
+
+class _TodayRow extends StatelessWidget {
+  final String today;
+  final int trips;
+  final double brass;
+  final int present;
+  final int total;
+  final double collections;
+  const _TodayRow({
+    required this.today,
+    required this.trips,
+    required this.brass,
+    required this.present,
+    required this.total,
+    required this.collections,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final attColor =
+        present == total && total > 0 ? Colors.green : Colors.orange;
+    final attSub = total == 0
+        ? 'No employees'
+        : present == total
+            ? 'All present'
+            : '${total - present} absent';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Today — $today',
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _TodayTile(
+                icon: Icons.swap_horiz,
+                color: Colors.blue,
+                label: 'Trips',
+                value: '$trips',
+                sub: brass > 0
+                    ? '${numFmt.format(brass)} Brass'
+                    : 'No brass',
+                route: '/trips',
+              ),
             ),
-            child: _TR(
-              label: 'Grand Total',
-              trips: '',
-              brass: numFmt.format(grandTotal),
-              bold: true,
+            const SizedBox(width: 10),
+            Expanded(
+              child: _TodayTile(
+                icon: Icons.people,
+                color: attColor,
+                label: 'Attendance',
+                value: '$present/$total',
+                sub: attSub,
+                route: '/attendance',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _TodayTile(
+                icon: Icons.payments,
+                color: Colors.green,
+                label: 'Collections',
+                value: fmtCurr(collections),
+                sub: 'received today',
+                route: '/party-payments',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TodayTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String value;
+  final String sub;
+  final String route;
+  const _TodayTile({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.value,
+    required this.sub,
+    required this.route,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.go(route),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(icon, color: color, size: 16),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sub,
+                style:
+                    TextStyle(fontSize: 10, color: Colors.grey[500]),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── outstanding by party — horizontal bars ────────────────────────────────────
+
+class _OutstandingBars extends StatelessWidget {
+  final List<Map<String, dynamic>> parties;
+  static const _barColors = [
+    Color(0xFFEF5350),
+    Color(0xFF42A5F5),
+    Color(0xFF66BB6A),
+    Color(0xFFFFA726),
+    Color(0xFFAB47BC),
+    Color(0xFF26A69A),
+  ];
+
+  const _OutstandingBars({required this.parties});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = parties.fold<double>(
+        0,
+        (s, p) =>
+            s + ((p['outstandingBalance'] as num?)?.toDouble() ?? 0));
+    if (total <= 0) return const SizedBox.shrink();
+
+    final maxAmt = parties
+        .map((p) => (p['outstandingBalance'] as num?)?.toDouble() ?? 0)
+        .reduce(max);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Outstanding by Party',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ...parties.asMap().entries.map((e) {
+              final name =
+                  e.value['vendorName'] as String? ?? '—';
+              final amt = (e.value['outstandingBalance'] as num?)
+                      ?.toDouble() ??
+                  0;
+              final fraction = maxAmt > 0 ? amt / maxAmt : 0.0;
+              final color = _barColors[e.key % _barColors.length];
+              return _BarRow(
+                  name: name,
+                  amount: amt,
+                  fraction: fraction,
+                  color: color);
+            }),
+            const Divider(height: 16),
+            Text(
+              'Total outstanding: ${fmtCurr(total)}',
+              style:
+                  TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BarRow extends StatelessWidget {
+  final String name;
+  final double amount;
+  final double fraction;
+  final Color color;
+  const _BarRow({
+    required this.name,
+    required this.amount,
+    required this.fraction,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                fmtCurr(amount),
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          // Background track + filled bar
+          LayoutBuilder(
+            builder: (ctx, constraints) => Stack(
+              children: [
+                Container(
+                  width: constraints.maxWidth,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Container(
+                  width: constraints.maxWidth * fraction,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -761,68 +985,57 @@ class _TripSummaryTable extends StatelessWidget {
   }
 }
 
-class _TH extends StatelessWidget {
-  final String text;
-  final bool right;
-  const _TH(this.text, {this.right = false});
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Text(text,
-            textAlign: right ? TextAlign.right : TextAlign.left,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-      );
-}
+// ── needs attention ───────────────────────────────────────────────────────────
 
-class _TR extends StatelessWidget {
-  final String label;
-  final String trips;
-  final String brass;
-  final bool bold;
-  const _TR(
-      {required this.label,
-      required this.trips,
-      required this.brass,
-      this.bold = false});
+class _NeedsAttention extends StatelessWidget {
+  final List<({IconData icon, Color color, String text, String route})>
+      items;
+  const _NeedsAttention({required this.items});
+
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Expanded(
-              flex: 3,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Text(label,
-                    style: TextStyle(
-                        fontWeight:
-                            bold ? FontWeight.bold : FontWeight.normal,
-                        fontSize: 13)),
-              )),
-          Expanded(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Text(trips,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontWeight:
-                            bold ? FontWeight.bold : FontWeight.normal,
-                        fontSize: 13)),
-              )),
-          Expanded(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Text(brass,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontWeight:
-                            bold ? FontWeight.bold : FontWeight.normal,
-                        fontSize: 13,
-                        color: bold
-                            ? Theme.of(context).colorScheme.primary
-                            : null)),
-              )),
-        ],
-      );
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.amber.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Needs Attention',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 6),
+            ...items.map((item) => InkWell(
+                  onTap: () => context.go(item.route),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(item.icon, size: 16, color: item.color),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            item.text,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800]),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right,
+                            size: 16, color: Colors.grey[400]),
+                      ],
+                    ),
+                  ),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
 }
