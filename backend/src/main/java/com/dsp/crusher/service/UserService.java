@@ -22,7 +22,10 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
 
     public List<UserResponse> listAll() {
-        return userRepo.findAll().stream()
+        // Explicit tenant filter — users table has no FORCE RLS so we
+        // cannot rely on the session variable alone for isolation.
+        Long tenantId = TenantContext.get();
+        return userRepo.findByTenantId(tenantId).stream()
                 .map(this::toResponse).collect(Collectors.toList());
     }
 
@@ -46,8 +49,7 @@ public class UserService {
 
     @Transactional
     public UserResponse update(Long id, UserRequest req) {
-        User u = userRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+        User u = findForCurrentTenant(id);
         if ("SITE_STAFF".equals(req.getRole()) && req.getSiteId() == null) {
             throw new IllegalArgumentException("Assigned site is required for Site Staff users");
         }
@@ -63,18 +65,22 @@ public class UserService {
 
     @Transactional
     public UserResponse deactivate(Long id) {
-        User u = userRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+        User u = findForCurrentTenant(id);
         u.setStatus("INACTIVE");
         return toResponse(userRepo.save(u));
     }
 
     @Transactional
     public UserResponse reactivate(Long id) {
-        User u = userRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+        User u = findForCurrentTenant(id);
         u.setStatus("ACTIVE");
         return toResponse(userRepo.save(u));
+    }
+
+    private User findForCurrentTenant(Long id) {
+        Long tenantId = TenantContext.get();
+        return userRepo.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
     }
 
     private UserResponse toResponse(User u) {

@@ -20,6 +20,8 @@ import '../../features/attendance/attendance_screen.dart';
 import '../../features/attendance/employees_screen.dart';
 import '../../features/users/users_screen.dart';
 import '../../features/admin/business_profile_screen.dart';
+import '../../features/admin/admin_shell.dart';
+import '../../features/admin/tenants_screen.dart';
 import '../../features/ledger/ledger_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/accounts/party_detail_screen.dart';
@@ -33,7 +35,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loggedIn = await AuthStorage.isLoggedIn();
       final onLogin = state.matchedLocation == '/login';
       if (!loggedIn && !onLogin) return '/login';
-      if (loggedIn && onLogin) return '/dashboard';
+      if (loggedIn) {
+        final role = await AuthStorage.getRole();
+        final isSuperAdmin = role == 'SUPER_ADMIN';
+        final isAdminRoute =
+            state.matchedLocation.startsWith('/admin');
+        if (onLogin) {
+          return isSuperAdmin ? '/admin/tenants' : '/dashboard';
+        }
+        if (isSuperAdmin && !isAdminRoute) return '/admin/tenants';
+        if (!isSuperAdmin && isAdminRoute) return '/dashboard';
+      }
       return null;
     },
     routes: [
@@ -41,6 +53,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/login',
         builder: (context, state) => const LoginScreen(),
       ),
+      // ── Platform Admin shell (SUPER_ADMIN only) ───────────────────────────
+      ShellRoute(
+        builder: (context, state, child) => AdminShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/admin/tenants',
+            builder: (ctx, st) => const TenantsScreen(),
+          ),
+        ],
+      ),
+      // ── Tenant shell (OWNER_ADMIN / OFFICE_ACCOUNTANT / SITE_STAFF) ──────
       ShellRoute(
         builder: (context, state, child) => MasterShell(child: child),
         routes: [

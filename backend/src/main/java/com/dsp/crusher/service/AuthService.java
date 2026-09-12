@@ -32,9 +32,15 @@ public class AuthService {
             throw new UnauthorizedException("Account is inactive");
         }
 
-        String tenantName = tenantRepo.findById(user.getTenantId())
-                .map(t -> t.getName())
-                .orElse("");
+        String tenantName = "";
+        if (user.getTenantId() != null) {
+            var tenant = tenantRepo.findById(user.getTenantId())
+                    .orElseThrow(() -> new UnauthorizedException("Account is inactive"));
+            if (!"ACTIVE".equals(tenant.getStatus())) {
+                throw new UnauthorizedException("Account is inactive");
+            }
+            tenantName = tenant.getName();
+        }
 
         String token = jwtConfig.generate(user.getId(), user.getTenantId(), user.getRole(), user.getSiteId());
         return new LoginResponse(token, user.getRole(), user.getFullName(),

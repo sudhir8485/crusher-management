@@ -36,16 +36,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         'password': _passCtrl.text,
       });
 
+      final role = res.data['role'] as String;
       await AuthStorage.save(
         token:      res.data['token'],
-        role:       res.data['role'],
+        role:       role,
         name:       res.data['fullName'],
-        tenantId:   res.data['tenantId'] as int,
+        tenantId:   res.data['tenantId'] as int?,
         siteId:     res.data['siteId'] as int?,
         tenantName: res.data['tenantName'] as String?,
       );
 
-      if (mounted) context.go('/dashboard');
+      if (mounted) {
+        context.go(role == 'SUPER_ADMIN' ? '/admin/tenants' : '/dashboard');
+      }
     } catch (e) {
       setState(() => _error = 'Invalid email or password');
     } finally {

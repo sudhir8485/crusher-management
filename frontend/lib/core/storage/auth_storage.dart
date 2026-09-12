@@ -12,7 +12,7 @@ class AuthStorage {
     required String token,
     required String role,
     required String name,
-    required int tenantId,
+    int? tenantId,
     int? siteId,
     String? tenantName,
   }) async {
@@ -20,7 +20,11 @@ class AuthStorage {
     await prefs.setString(_tokenKey, token);
     await prefs.setString(_roleKey, role);
     await prefs.setString(_nameKey, name);
-    await prefs.setInt(_tenantKey, tenantId);
+    if (tenantId != null) {
+      await prefs.setInt(_tenantKey, tenantId);
+    } else {
+      await prefs.remove(_tenantKey);
+    }
     if (siteId != null) {
       await prefs.setInt(_siteKey, siteId);
     } else {

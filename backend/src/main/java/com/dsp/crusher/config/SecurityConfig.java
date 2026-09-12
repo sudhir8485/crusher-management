@@ -39,10 +39,14 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/swagger-ui.html",
                         "/api-docs/**", "/v3/api-docs/**").permitAll()
 
-                // ── Admin only ────────────────────────────────────────────────────────
+                // ── Platform admin: SUPER_ADMIN only ─────────────────────────────────
+                .requestMatchers("/api/admin/**").hasRole("SUPER_ADMIN")
+
+                // ── Tenant admin: OWNER_ADMIN only ────────────────────────────────────
                 .requestMatchers("/api/users/**").hasRole("OWNER_ADMIN")
-                // Tenant profile: GET open to all authenticated roles; PUT is OWNER_ADMIN only (enforced by @PreAuthorize)
-                .requestMatchers("/api/tenant/**").authenticated()
+                // Tenant profile: GET open to tenant roles; PUT is OWNER_ADMIN only (enforced by @PreAuthorize)
+                // SUPER_ADMIN excluded — has no tenant scope
+                .requestMatchers("/api/tenant/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
 
                 // ── Finance + Reports: no SITE_STAFF ─────────────────────────────────
                 .requestMatchers("/api/invoices/**", "/api/job-work-invoices/**",
