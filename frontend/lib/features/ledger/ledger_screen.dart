@@ -199,30 +199,33 @@ class _LedgerScreenState extends ConsumerState<LedgerScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  children: [
-                    ...[
-                      ('This Month',  DateRangePreset.thisMonth),
-                      ('Last Month',  DateRangePreset.lastMonth),
-                      ('This FY',     DateRangePreset.thisYear),
-                      ('Prev FY',     DateRangePreset.prevYear),
-                    ].map((t) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(t.$1, style: const TextStyle(fontSize: 12)),
-                            selected: _preset == t.$2,
-                            onSelected: (_) => _applyPreset(t.$2),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        )),
-                    const Spacer(),
-                    _DateChip(label: DateFormat('d MMM yy').format(_from), onTap: _pickFrom),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4),
-                      child: Text('→', style: TextStyle(color: Colors.grey)),
-                    ),
-                    _DateChip(label: DateFormat('d MMM yy').format(_to), onTap: _pickTo),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ...[
+                        ('This Month',  DateRangePreset.thisMonth),
+                        ('Last Month',  DateRangePreset.lastMonth),
+                        ('This FY',     DateRangePreset.thisYear),
+                        ('Prev FY',     DateRangePreset.prevYear),
+                      ].map((t) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(t.$1, style: const TextStyle(fontSize: 12)),
+                              selected: _preset == t.$2,
+                              onSelected: (_) => _applyPreset(t.$2),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          )),
+                      const SizedBox(width: 8),
+                      _DateChip(label: DateFormat('d MMM yy').format(_from), onTap: _pickFrom),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Text('→', style: TextStyle(color: Colors.grey)),
+                      ),
+                      _DateChip(label: DateFormat('d MMM yy').format(_to), onTap: _pickTo),
+                    ],
+                  ),
                 ),
               ],
             ),

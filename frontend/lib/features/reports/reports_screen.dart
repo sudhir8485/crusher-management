@@ -324,14 +324,27 @@ class _ReportTable extends StatelessWidget {
                 ),
               )
             : Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: Card(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: _buildTable(context, rows, cs),
-                    ),
-                  ),
+                child: LayoutBuilder(
+                  builder: (ctx, outer) {
+                    final tableWidth = outer.maxWidth > 700
+                        ? outer.maxWidth - 24
+                        : 700.0;
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(12),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: tableWidth,
+                          child: Card(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: _buildTable(context, rows, cs),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
       ],
@@ -817,59 +830,69 @@ class _TripsReportTabState extends ConsumerState<_TripsReportTab> {
       filterRow: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(child: vehicles.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
-                  itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
-                  fieldLabel: 'Vehicle',
-                  value: _vehicleId,
-                  clearable: true,
-                  clearLabel: 'All Vehicles',
-                  onChanged: (v) => setState(() => _vehicleId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: materials.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list,
-                  itemLabel: (m) => m['name'] as String,
-                  fieldLabel: 'Material',
-                  value: _materialId,
-                  clearable: true,
-                  clearLabel: 'All Materials',
-                  onChanged: (v) => setState(() => _materialId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: vendors.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
-                  itemLabel: (v) => v['name'] as String,
-                  fieldLabel: 'Party',
-                  value: _vendorId,
-                  clearable: true,
-                  clearLabel: 'All Parties',
-                  onChanged: (v) => setState(() => _vendorId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Load'),
+          LayoutBuilder(builder: (ctx, box) {
+            final vehicleW = vehicles.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
+                fieldLabel: 'Vehicle',
+                value: _vehicleId,
+                clearable: true,
+                clearLabel: 'All Vehicles',
+                onChanged: (v) => setState(() => _vehicleId = v),
               ),
-            ],
-          ),
+            );
+            final materialW = materials.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list,
+                itemLabel: (m) => m['name'] as String,
+                fieldLabel: 'Material',
+                value: _materialId,
+                clearable: true,
+                clearLabel: 'All Materials',
+                onChanged: (v) => setState(() => _materialId = v),
+              ),
+            );
+            final vendorW = vendors.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                itemLabel: (v) => v['name'] as String,
+                fieldLabel: 'Party',
+                value: _vendorId,
+                clearable: true,
+                clearLabel: 'All Parties',
+                onChanged: (v) => setState(() => _vendorId = v),
+              ),
+            );
+            final siteW    = _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v));
+            final loadBtn  = FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('Load'),
+            );
+            if (box.maxWidth < 500) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                vehicleW, const SizedBox(height: 8),
+                materialW, const SizedBox(height: 8),
+                vendorW, const SizedBox(height: 8),
+                siteW, const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: loadBtn),
+              ]);
+            }
+            return Row(children: [
+              Expanded(child: vehicleW), const SizedBox(width: 8),
+              Expanded(child: materialW), const SizedBox(width: 8),
+              Expanded(child: vendorW), const SizedBox(width: 8),
+              Expanded(child: siteW), const SizedBox(width: 8),
+              loadBtn,
+            ]);
+          }),
           const SizedBox(height: 8),
           _DateRangeFilter(
               onChanged: (f, t) => setState(() {
@@ -931,45 +954,54 @@ class _DabarReportTabState extends ConsumerState<_DabarReportTab> {
       filterRow: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(child: vehicles.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
-                  itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
-                  fieldLabel: 'Vehicle',
-                  value: _vehicleId,
-                  clearable: true,
-                  clearLabel: 'All Vehicles',
-                  onChanged: (v) => setState(() => _vehicleId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: vendors.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((v) => v['status'] == 'ACTIVE').toList(),
-                  itemLabel: (v) => v['name'] as String,
-                  fieldLabel: 'Party',
-                  value: _vendorId,
-                  clearable: true,
-                  clearLabel: 'All Parties',
-                  onChanged: (v) => setState(() => _vendorId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Load'),
+          LayoutBuilder(builder: (ctx, box) {
+            final vehicleW = vehicles.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                itemLabel: (v) => '${v['displayName'] ?? v['plateNumber']}',
+                fieldLabel: 'Vehicle',
+                value: _vehicleId,
+                clearable: true,
+                clearLabel: 'All Vehicles',
+                onChanged: (v) => setState(() => _vehicleId = v),
               ),
-            ],
-          ),
+            );
+            final vendorW = vendors.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((v) => v['status'] == 'ACTIVE').toList(),
+                itemLabel: (v) => v['name'] as String,
+                fieldLabel: 'Party',
+                value: _vendorId,
+                clearable: true,
+                clearLabel: 'All Parties',
+                onChanged: (v) => setState(() => _vendorId = v),
+              ),
+            );
+            final siteW   = _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v));
+            final loadBtn = FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('Load'),
+            );
+            if (box.maxWidth < 500) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                vehicleW, const SizedBox(height: 8),
+                vendorW, const SizedBox(height: 8),
+                siteW, const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: loadBtn),
+              ]);
+            }
+            return Row(children: [
+              Expanded(child: vehicleW), const SizedBox(width: 8),
+              Expanded(child: vendorW), const SizedBox(width: 8),
+              Expanded(child: siteW), const SizedBox(width: 8),
+              loadBtn,
+            ]);
+          }),
           const SizedBox(height: 8),
           _DateRangeFilter(
               onChanged: (f, t) => setState(() {
@@ -1030,11 +1062,7 @@ class _DieselReportTabState extends ConsumerState<_DieselReportTab> {
             ],
           ),
           const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
+          _DateRangeFilter(onChanged: (f, t) => setState(() { _from = f; _to = t; })),
         ],
       ),
     );
@@ -1086,37 +1114,41 @@ class _MachineWorkReportTabState extends ConsumerState<_MachineWorkReportTab> {
       filterRow: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(child: machines.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((m) => m['status'] == 'ACTIVE').toList(),
-                  itemLabel: (m) => m['name'] as String,
-                  fieldLabel: 'Machine',
-                  value: _machineId,
-                  clearable: true,
-                  clearLabel: 'All Machines',
-                  onChanged: (v) => setState(() => _machineId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Load'),
+          LayoutBuilder(builder: (ctx, box) {
+            final machineW = machines.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((m) => m['status'] == 'ACTIVE').toList(),
+                itemLabel: (m) => m['name'] as String,
+                fieldLabel: 'Machine',
+                value: _machineId,
+                clearable: true,
+                clearLabel: 'All Machines',
+                onChanged: (v) => setState(() => _machineId = v),
               ),
-            ],
-          ),
+            );
+            final siteW   = _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v));
+            final loadBtn = FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('Load'),
+            );
+            if (box.maxWidth < 500) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                machineW, const SizedBox(height: 8),
+                siteW, const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: loadBtn),
+              ]);
+            }
+            return Row(children: [
+              Expanded(child: machineW), const SizedBox(width: 8),
+              Expanded(child: siteW), const SizedBox(width: 8),
+              loadBtn,
+            ]);
+          }),
           const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
+          _DateRangeFilter(onChanged: (f, t) => setState(() { _from = f; _to = t; })),
         ],
       ),
     );
@@ -1168,37 +1200,41 @@ class _AttendanceReportTabState extends ConsumerState<_AttendanceReportTab> {
       filterRow: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(child: employees.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text('$e'),
-                data: (list) => SearchablePicker(
-                  items: list.where((e) => e['status'] == 'ACTIVE').toList(),
-                  itemLabel: (e) => e['name'] as String,
-                  fieldLabel: 'Employee',
-                  value: _employeeId,
-                  clearable: true,
-                  clearLabel: 'All Employees',
-                  onChanged: (v) => setState(() => _employeeId = v),
-                ),
-              )),
-              const SizedBox(width: 8),
-              Expanded(child: _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v))),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Load'),
+          LayoutBuilder(builder: (ctx, box) {
+            final employeeW = employees.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('$e'),
+              data: (list) => SearchablePicker(
+                items: list.where((e) => e['status'] == 'ACTIVE').toList(),
+                itemLabel: (e) => e['name'] as String,
+                fieldLabel: 'Employee',
+                value: _employeeId,
+                clearable: true,
+                clearLabel: 'All Employees',
+                onChanged: (v) => setState(() => _employeeId = v),
               ),
-            ],
-          ),
+            );
+            final siteW   = _sitePickerAsync(sites, _siteId, (v) => setState(() => _siteId = v));
+            final loadBtn = FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('Load'),
+            );
+            if (box.maxWidth < 500) {
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                employeeW, const SizedBox(height: 8),
+                siteW, const SizedBox(height: 8),
+                Align(alignment: Alignment.centerRight, child: loadBtn),
+              ]);
+            }
+            return Row(children: [
+              Expanded(child: employeeW), const SizedBox(width: 8),
+              Expanded(child: siteW), const SizedBox(width: 8),
+              loadBtn,
+            ]);
+          }),
           const SizedBox(height: 8),
-          _DateRangeFilter(
-              onChanged: (f, t) => setState(() {
-                    _from = f;
-                    _to = t;
-                  })),
+          _DateRangeFilter(onChanged: (f, t) => setState(() { _from = f; _to = t; })),
         ],
       ),
     );
