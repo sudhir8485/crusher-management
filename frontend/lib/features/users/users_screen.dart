@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
-import '../../core/providers/site_provider.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
 final usersProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final res = await ref.read(apiClientProvider).get('/api/users');
+  return List<Map<String, dynamic>>.from(res.data);
+});
+
+final _usersSitesProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(apiClientProvider).get('/api/sites');
   return List<Map<String, dynamic>>.from(res.data);
 });
 
@@ -42,6 +47,9 @@ class UsersScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final users = ref.watch(usersProvider);
+    final sitesAsync = ref.watch(_usersSitesProvider);
+    final sites = sitesAsync.valueOrNull ?? [];
+    final siteNameById = {for (final s in sites) s['id'] as int: s['name'] as String};
 
     return Scaffold(
       appBar: AppBar(
@@ -79,6 +87,7 @@ class UsersScreen extends ConsumerWidget {
                 _sectionHeader('Active (${active.length})'),
                 ...active.map((u) => _UserCard(
                       user: u,
+                      siteName: siteNameById[u['siteId'] as int?],
                       onEdit: () => _showForm(context, ref, u),
                       onDeactivate: () =>
                           _confirmDeactivate(context, ref, u),
@@ -89,6 +98,7 @@ class UsersScreen extends ConsumerWidget {
                 _sectionHeader('Inactive (${inactive.length})'),
                 ...inactive.map((u) => _UserCard(
                       user: u,
+                      siteName: siteNameById[u['siteId'] as int?],
                       onEdit: () => _showForm(context, ref, u),
                       onDeactivate: null,
                       onReactivate: () =>
@@ -190,11 +200,13 @@ class UsersScreen extends ConsumerWidget {
 
 class _UserCard extends StatelessWidget {
   final Map<String, dynamic> user;
+  final String? siteName;
   final VoidCallback onEdit;
   final VoidCallback? onDeactivate;
   final VoidCallback? onReactivate;
   const _UserCard(
       {required this.user,
+      this.siteName,
       required this.onEdit,
       this.onDeactivate,
       this.onReactivate});
@@ -247,6 +259,16 @@ class _UserCard extends StatelessWidget {
                         color: isActive ? color : Colors.grey),
                   ),
                 ),
+                if (role == 'SITE_STAFF' && siteName != null) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.location_on, size: 12, color: Colors.teal),
+                  const SizedBox(width: 2),
+                  Flexible(
+                    child: Text(siteName!,
+                        style: const TextStyle(fontSize: 11, color: Colors.teal),
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ],
                 if (createdAt.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Text('Added $createdAt',
@@ -358,6 +380,9 @@ class _UserFormState extends ConsumerState<_UserForm> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
+    final sitesAsync = ref.watch(_usersSitesProvider);
+    final sitesLoading = _role == 'SITE_STAFF' && !sitesAsync.hasValue;
+    final sites = sitesAsync.valueOrNull ?? [];
 
     return AlertDialog(
       title: Text(isEdit ? 'Edit User' : 'Add User'),
@@ -482,30 +507,24 @@ class _UserFormState extends ConsumerState<_UserForm> {
               // Assigned Site — shown only for SITE_STAFF
               if (_role == 'SITE_STAFF') ...[
                 const SizedBox(height: 16),
-                Consumer(
-                  builder: (ctx, ref, _) {
-                    final sitesAsync = ref.watch(sitesProvider);
-                    return sitesAsync.when(
-                      loading: () => const LinearProgressIndicator(),
-                      error: (_, _) => const SizedBox.shrink(),
-                      data: (sites) => DropdownButtonFormField<int?>(
-                        initialValue: _siteId,
-                        decoration: const InputDecoration(
-                            labelText: 'Assigned Site *',
-                            border: OutlineInputBorder()),
-                        items: sites
-                            .map((s) => DropdownMenuItem<int?>(
-                                  value: s['id'] as int?,
-                                  child: Text(s['name'] as String? ?? ''),
-                                ))
-                            .toList(),
-                        onChanged: (v) => setState(() => _siteId = v),
-                        validator: (_) =>
-                            _siteId == null ? 'Select a site' : null,
-                      ),
-                    );
-                  },
-                ),
+                if (sitesLoading)
+                  const LinearProgressIndicator()
+                else
+                  DropdownButtonFormField<int?>(
+                    initialValue: _siteId,
+                    decoration: const InputDecoration(
+                        labelText: 'Assigned Site *',
+                        border: OutlineInputBorder()),
+                    items: sites
+                        .map((s) => DropdownMenuItem<int?>(
+                              value: s['id'] as int?,
+                              child: Text(s['name'] as String? ?? ''),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _siteId = v),
+                    validator: (_) =>
+                        _siteId == null ? 'Select a site' : null,
+                  ),
               ],
             ],
           ),
@@ -517,7 +536,7 @@ class _UserFormState extends ConsumerState<_UserForm> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _saving ? null : _save,
+          onPressed: (_saving || sitesLoading) ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 18,

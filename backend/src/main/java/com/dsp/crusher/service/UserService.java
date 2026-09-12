@@ -31,6 +31,9 @@ public class UserService {
         if (req.getPassword() == null || req.getPassword().isBlank()) {
             throw new IllegalArgumentException("Password is required when creating a user");
         }
+        if ("SITE_STAFF".equals(req.getRole()) && req.getSiteId() == null) {
+            throw new IllegalArgumentException("Assigned site is required for Site Staff users");
+        }
         User u = new User();
         u.setTenantId(TenantContext.get());
         u.setFullName(req.getFullName());
@@ -45,6 +48,9 @@ public class UserService {
     public UserResponse update(Long id, UserRequest req) {
         User u = userRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+        if ("SITE_STAFF".equals(req.getRole()) && req.getSiteId() == null) {
+            throw new IllegalArgumentException("Assigned site is required for Site Staff users");
+        }
         u.setFullName(req.getFullName());
         u.setEmail(req.getEmail().toLowerCase().trim());
         u.setRole(req.getRole());
