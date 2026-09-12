@@ -282,7 +282,7 @@ class _ReportTable extends StatelessWidget {
   DateTime get _from => DateTime.parse(data['fromDate'] as String);
   DateTime get _to   => DateTime.parse(data['toDate'] as String);
 
-  String get _period => '${_sfmt.format(_from)} – ${_sfmt.format(_to)}';
+  String get _period => '${_sfmt.format(_from)} - ${_sfmt.format(_to)}';
 
   @override
   Widget build(BuildContext context) {
@@ -444,6 +444,9 @@ class _ReportTable extends StatelessWidget {
     final rtype      = data['reportType'] as String? ?? '';
     final usedHeaders = headers.where((h) => h.isNotEmpty).toList();
 
+    final regular = await PdfGoogleFonts.notoSansRegular();
+    final bold    = await PdfGoogleFonts.notoSansBold();
+
     final pdf = pw.Document();
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
@@ -453,15 +456,15 @@ class _ReportTable extends StatelessWidget {
         children: [
           pw.Text('DSP Construction',
               style: pw.TextStyle(
-                  fontSize: 14, fontWeight: pw.FontWeight.bold)),
-          pw.Text('$reportTitle — $filterLabel',
+                  font: bold, fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          pw.Text('$reportTitle - $filterLabel',
               style: pw.TextStyle(
-                  fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  font: bold, fontSize: 12, fontWeight: pw.FontWeight.bold)),
           pw.Text('Period: $_period',
-              style: const pw.TextStyle(fontSize: 9)),
+              style: pw.TextStyle(font: regular, fontSize: 9)),
           pw.SizedBox(height: 4),
           pw.Text(_summaryText(rtype, sum),
-              style: const pw.TextStyle(fontSize: 9)),
+              style: pw.TextStyle(font: regular, fontSize: 9)),
           pw.Divider(),
         ],
       ),
@@ -470,27 +473,27 @@ class _ReportTable extends StatelessWidget {
         children: [
           pw.Text(
               'Generated: ${DateFormat('d MMM yyyy HH:mm').format(DateTime.now())}',
-              style: const pw.TextStyle(fontSize: 7)),
+              style: pw.TextStyle(font: regular, fontSize: 7)),
           pw.Text('Page ${ctx.pageNumber} / ${ctx.pagesCount}',
-              style: const pw.TextStyle(fontSize: 7)),
+              style: pw.TextStyle(font: regular, fontSize: 7)),
         ],
       ),
       build: (ctx) => [
         pw.TableHelper.fromTextArray(
           headers: ['Date', ...usedHeaders],
           headerStyle:
-              pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+              pw.TextStyle(font: bold, fontWeight: pw.FontWeight.bold, fontSize: 8),
           headerDecoration:
               const pw.BoxDecoration(color: PdfColors.grey200),
-          cellStyle: const pw.TextStyle(fontSize: 7),
+          cellStyle: pw.TextStyle(font: regular, fontSize: 7),
           data: rows.map((r) {
             final date = r['date'] != null
                 ? _dfmt.format(DateTime.parse(r['date'] as String))
-                : '—';
+                : '-';
             final cols = [
-              r['col1'] ?? '—', r['col2'] ?? '—', r['col3'] ?? '—',
-              r['col4'] ?? '—', r['col5'] ?? '—', r['col6'] ?? '—',
-              r['col7'] ?? '—',
+              r['col1'] ?? '-', r['col2'] ?? '-', r['col3'] ?? '-',
+              r['col4'] ?? '-', r['col5'] ?? '-', r['col6'] ?? '-',
+              r['col7'] ?? '-',
             ].take(usedHeaders.length).toList();
             return [date, ...cols];
           }).toList(),
