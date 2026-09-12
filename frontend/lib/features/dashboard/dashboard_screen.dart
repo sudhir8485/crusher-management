@@ -44,9 +44,17 @@ class DashboardScreen extends ConsumerWidget {
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
-      data: (role) => role == 'SITE_STAFF'
-          ? const _SiteStaffDashboardScreen()
-          : const _AdminDashboardScreen(),
+      data: (role) {
+        // null means role not stored yet (pre-login state shouldn't reach
+        // here due to router redirect, but guard defensively).
+        if (role == null) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        return role == 'SITE_STAFF'
+            ? const _SiteStaffDashboardScreen()
+            : const _AdminDashboardScreen();
+      },
     );
   }
 }
@@ -75,7 +83,40 @@ class _AdminDashboardScreen extends ConsumerWidget {
       ),
       body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) {
+          // 403 means the stored token is for a role that can't reach
+          // /api/dashboard (e.g. SITE_STAFF after a frontend cache hit
+          // against a newly-deployed backend). Clear storage and re-login.
+          final is403 = e.toString().contains('403');
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  is403 ? Icons.lock_outline : Icons.error_outline,
+                  size: 48,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  is403
+                      ? 'Session outdated — please log in again.'
+                      : 'Could not load dashboard.',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  icon: const Icon(Icons.login, size: 18),
+                  label: const Text('Back to Login'),
+                  onPressed: () async {
+                    await AuthStorage.clear();
+                    if (context.mounted) context.go('/login');
+                  },
+                ),
+              ],
+            ),
+          );
+        },
         data: (d) =>
             _DashboardBody(data: d, today: today, monthName: monthName),
       ),
