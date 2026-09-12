@@ -191,11 +191,6 @@ public class DashboardService {
         BigDecimal used = usageRepo.sumTotalUsedBySite(siteId);
         r.setDieselBalanceLiters(received.subtract(used));
 
-        // Attendance
-        AttendanceDayResponse att = attendanceService.getDay(today);
-        r.setTodayAttendancePresent(att.getPresentCount());
-        r.setTodayAttendanceTotal(att.getEmployees().size());
-
         // Machine hours today
         r.setTodayMachineHours(machineRepo.sumHoursByDateRangeAndSite(today, today, siteId));
 

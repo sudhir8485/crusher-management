@@ -15,8 +15,6 @@ public class SiteStaffDashboardResponse {
     private int todayTripCount;
     private BigDecimal todayTotalBrass;
     private BigDecimal dieselBalanceLiters;
-    private int todayAttendancePresent;
-    private int todayAttendanceTotal;
     private BigDecimal todayMachineHours;
 
     // Needs Attention (operational only — no financial)

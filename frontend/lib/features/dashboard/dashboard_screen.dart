@@ -165,8 +165,6 @@ class _SiteStaffBody extends StatelessWidget {
         (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
     final diesel =
         (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
-    final present = data['todayAttendancePresent'] as int? ?? 0;
-    final total = data['todayAttendanceTotal'] as int? ?? 0;
     final machineHrs =
         (data['todayMachineHours'] as num?)?.toDouble() ?? 0;
     final ratePending =
@@ -280,21 +278,6 @@ class _SiteStaffBody extends StatelessWidget {
                   value: '${numFmt.format(diesel)} L',
                   sub: diesel < 100 ? 'Low — refill soon' : 'In stock',
                   route: '/diesel',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _TodayTile(
-                  icon: Icons.people,
-                  color: present == total && total > 0
-                      ? Colors.green
-                      : Colors.orange,
-                  label: 'Attendance',
-                  value: '$present/$total',
-                  sub: present == total && total > 0
-                      ? 'All present'
-                      : '${total - present} absent',
-                  route: '/attendance',
                 ),
               ),
             ],
