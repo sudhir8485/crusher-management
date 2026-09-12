@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
+import '../../core/providers/site_provider.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
 
@@ -299,6 +300,7 @@ class _UserFormState extends ConsumerState<_UserForm> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   String _role = 'OFFICE_ACCOUNTANT';
+  int? _siteId;
   bool _saving = false;
   bool _showPass = false;
 
@@ -310,6 +312,7 @@ class _UserFormState extends ConsumerState<_UserForm> {
       _nameCtrl.text = e['fullName'] as String? ?? '';
       _emailCtrl.text = e['email'] as String? ?? '';
       _role = e['role'] as String? ?? 'OFFICE_ACCOUNTANT';
+      _siteId = e['siteId'] as int?;
     }
   }
 
@@ -324,11 +327,12 @@ class _UserFormState extends ConsumerState<_UserForm> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    final body = {
+    final body = <String, dynamic>{
       'fullName': _nameCtrl.text.trim(),
       'email': _emailCtrl.text.trim(),
       'password': _passCtrl.text.isEmpty ? null : _passCtrl.text,
       'role': _role,
+      if (_role == 'SITE_STAFF') 'siteId': _siteId,
     };
     final api = ref.read(apiClientProvider);
     final e = widget.existing;
@@ -419,7 +423,10 @@ class _UserFormState extends ConsumerState<_UserForm> {
                 final icon = _roleIcons[r] ?? Icons.person;
                 final isSelected = _role == r;
                 return GestureDetector(
-                  onTap: () => setState(() => _role = r),
+                  onTap: () => setState(() {
+                    _role = r;
+                    if (r != 'SITE_STAFF') _siteId = null;
+                  }),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     margin: const EdgeInsets.only(bottom: 8),
@@ -471,6 +478,35 @@ class _UserFormState extends ConsumerState<_UserForm> {
                   ),
                 );
               }),
+
+              // Assigned Site — shown only for SITE_STAFF
+              if (_role == 'SITE_STAFF') ...[
+                const SizedBox(height: 16),
+                Consumer(
+                  builder: (ctx, ref, _) {
+                    final sitesAsync = ref.watch(sitesProvider);
+                    return sitesAsync.when(
+                      loading: () => const LinearProgressIndicator(),
+                      error: (_, _) => const SizedBox.shrink(),
+                      data: (sites) => DropdownButtonFormField<int?>(
+                        initialValue: _siteId,
+                        decoration: const InputDecoration(
+                            labelText: 'Assigned Site *',
+                            border: OutlineInputBorder()),
+                        items: sites
+                            .map((s) => DropdownMenuItem<int?>(
+                                  value: s['id'] as int?,
+                                  child: Text(s['name'] as String? ?? ''),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => _siteId = v),
+                        validator: (_) =>
+                            _siteId == null ? 'Select a site' : null,
+                      ),
+                    );
+                  },
+                ),
+              ],
             ],
           ),
         ),

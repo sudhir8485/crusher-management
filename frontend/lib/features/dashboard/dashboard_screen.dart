@@ -7,9 +7,14 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
-// ── provider ──────────────────────────────────────────────────────────────────
+// ── providers ─────────────────────────────────────────────────────────────────
+
+final _roleProvider = FutureProvider.autoDispose<String?>((ref) async {
+  return AuthStorage.getRole();
+});
 
 final _dashboardProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -18,10 +23,38 @@ final _dashboardProvider =
   return Map<String, dynamic>.from(res.data as Map);
 });
 
+final _siteStaffDashboardProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  ref.watch(selectedSiteIdProvider);
+  final res =
+      await ref.read(apiClientProvider).get('/api/dashboard/site-staff');
+  return Map<String, dynamic>.from(res.data as Map);
+});
+
 // ── screen ────────────────────────────────────────────────────────────────────
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final roleAsync = ref.watch(_roleProvider);
+
+    return roleAsync.when(
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      data: (role) => role == 'SITE_STAFF'
+          ? const _SiteStaffDashboardScreen()
+          : const _AdminDashboardScreen(),
+    );
+  }
+}
+
+// ── admin / accountant dashboard (unchanged full version) ─────────────────────
+
+class _AdminDashboardScreen extends ConsumerWidget {
+  const _AdminDashboardScreen();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,6 +78,246 @@ class DashboardScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (d) =>
             _DashboardBody(data: d, today: today, monthName: monthName),
+      ),
+    );
+  }
+}
+
+// ── site staff dashboard ──────────────────────────────────────────────────────
+
+class _SiteStaffDashboardScreen extends ConsumerWidget {
+  const _SiteStaffDashboardScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final data = ref.watch(_siteStaffDashboardProvider);
+    final today = DateFormat('d MMM yyyy').format(DateTime.now());
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.invalidate(_siteStaffDashboardProvider),
+          ),
+        ],
+      ),
+      body: data.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (d) => _SiteStaffBody(data: d, today: today),
+      ),
+    );
+  }
+}
+
+class _SiteStaffBody extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String today;
+  const _SiteStaffBody({required this.data, required this.today});
+
+  @override
+  Widget build(BuildContext context) {
+    final tripCount = data['todayTripCount'] as int? ?? 0;
+    final totalBrass =
+        (data['todayTotalBrass'] as num?)?.toDouble() ?? 0;
+    final diesel =
+        (data['dieselBalanceLiters'] as num?)?.toDouble() ?? 0;
+    final present = data['todayAttendancePresent'] as int? ?? 0;
+    final total = data['todayAttendanceTotal'] as int? ?? 0;
+    final machineHrs =
+        (data['todayMachineHours'] as num?)?.toDouble() ?? 0;
+    final ratePending =
+        (data['ratePendingMachineWorkCount'] as num?)?.toInt() ?? 0;
+    final unbilled =
+        (data['unbilledTripsCount'] as num?)?.toInt() ?? 0;
+    final recentTrips = List<Map<String, dynamic>>.from(
+        data['recentTrips'] as List? ?? []);
+
+    final attention =
+        <({IconData icon, Color color, String text, String route})>[];
+    if (unbilled > 0) {
+      attention.add((
+        icon: Icons.swap_horiz,
+        color: Colors.blue,
+        text: '$unbilled ${unbilled == 1 ? 'trip' : 'trips'} not yet invoiced',
+        route: '/trips',
+      ));
+    }
+    if (ratePending > 0) {
+      attention.add((
+        icon: Icons.construction,
+        color: Colors.deepOrange,
+        text:
+            '$ratePending machine work ${ratePending == 1 ? 'entry needs' : 'entries need'} a rate set',
+        route: '/machine-work',
+      ));
+    }
+    if (diesel < 100) {
+      attention.add((
+        icon: Icons.local_gas_station,
+        color: Colors.teal,
+        text:
+            'Diesel low — ${numFmt.format(diesel)} L remaining',
+        route: '/diesel',
+      ));
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Quick Actions — operations only (no invoices/payments)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Quick Actions',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600])),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _QBtn(
+                          icon: Icons.swap_horiz,
+                          label: '+ Trip',
+                          route: '/trips'),
+                      _QBtn(
+                          icon: Icons.local_gas_station,
+                          label: '+ Diesel',
+                          route: '/diesel'),
+                      _QBtn(
+                          icon: Icons.construction,
+                          label: '+ Machine Work',
+                          route: '/machine-work'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Today's summary
+          Text(
+            'Today — $today',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _TodayTile(
+                  icon: Icons.swap_horiz,
+                  color: Colors.blue,
+                  label: 'Trips',
+                  value: '$tripCount',
+                  sub: totalBrass > 0
+                      ? '${numFmt.format(totalBrass)} Brass'
+                      : 'No brass',
+                  route: '/trips',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _TodayTile(
+                  icon: Icons.local_gas_station,
+                  color: diesel < 100 ? Colors.orange : Colors.teal,
+                  label: 'Diesel',
+                  value: '${numFmt.format(diesel)} L',
+                  sub: diesel < 100 ? 'Low — refill soon' : 'In stock',
+                  route: '/diesel',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _TodayTile(
+                  icon: Icons.people,
+                  color: present == total && total > 0
+                      ? Colors.green
+                      : Colors.orange,
+                  label: 'Attendance',
+                  value: '$present/$total',
+                  sub: present == total && total > 0
+                      ? 'All present'
+                      : '${total - present} absent',
+                  route: '/attendance',
+                ),
+              ),
+            ],
+          ),
+          if (machineHrs > 0) ...[
+            const SizedBox(height: 10),
+            _TodayTile(
+              icon: Icons.construction,
+              color: Colors.orange,
+              label: 'Machine Work Today',
+              value: '${numFmt.format(machineHrs)} hrs',
+              sub: 'recorded today',
+              route: '/machine-work',
+            ),
+          ],
+
+          // Needs Attention
+          if (attention.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _NeedsAttention(items: attention),
+          ],
+
+          // Recent trips
+          if (recentTrips.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text(
+              "Today's Trips",
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: Column(
+                children: recentTrips.asMap().entries.map((e) {
+                  final t = e.value;
+                  final mat = t['materialName'] as String? ?? '—';
+                  final qty =
+                      (t['quantity'] as num?)?.toDouble() ?? 0;
+                  final party = t['partyName'] as String? ?? '—';
+                  return ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.swap_horiz,
+                        size: 18, color: Colors.blue),
+                    title: Text(mat,
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500)),
+                    subtitle: Text(party,
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey[600])),
+                    trailing: Text(
+                      '${numFmt.format(qty)} Brass',
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }

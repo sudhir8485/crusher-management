@@ -78,9 +78,9 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
         return index != 11;
       default:
         // SITE_STAFF or null (loading): operations only
-        // Hides: Finance (7,8,9), Users (11), Employees (12),
+        // Hides: Reports (6), Finance (7,8,9), Users (11), Employees (12),
         //        Parties (13), Vehicles (14), Machines (15), Materials (16), Sites (17), Services (18)
-        return !const {7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18}.contains(index);
+        return !const {6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18}.contains(index);
     }
   }
 

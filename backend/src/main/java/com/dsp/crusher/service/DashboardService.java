@@ -3,8 +3,10 @@ package com.dsp.crusher.service;
 import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.DashboardResponse;
+import com.dsp.crusher.dto.SiteStaffDashboardResponse;
 import com.dsp.crusher.entity.DabarEntry;
 import com.dsp.crusher.entity.Material;
+import com.dsp.crusher.entity.Trip;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.repository.*;
 import com.dsp.crusher.repository.JobWorkInvoiceRepository;
@@ -14,10 +16,13 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Collectors;
 
 @Service
@@ -164,6 +169,78 @@ public class DashboardService {
         r.setRatePendingMachineWorkCount(machineRepo.countRatePendingBySite(siteId));
         r.setJwOverlapCount(jobWorkInvoiceRepo.countInvoicesWithOverlappingPeriods());
 
+        return r;
+    }
+
+    // Site-Staff variant — operational data only, no financial fields
+    public SiteStaffDashboardResponse getSiteStaff() {
+        LocalDate today = LocalDate.now();
+        LocalDate monthStart = today.withDayOfMonth(1);
+        Long siteId = SiteContext.get();
+
+        SiteStaffDashboardResponse r = new SiteStaffDashboardResponse();
+        r.setAsOf(today);
+
+        // Today's trips
+        r.setTodayTripCount((int) tripRepo.countByDateAndSite(today, siteId));
+        BigDecimal brass = tripRepo.sumBrassByDateAndSite(today, siteId);
+        r.setTodayTotalBrass(brass != null ? brass : BigDecimal.ZERO);
+
+        // Diesel balance
+        BigDecimal received = receiptRepo.sumTotalReceivedBySite(siteId);
+        BigDecimal used = usageRepo.sumTotalUsedBySite(siteId);
+        r.setDieselBalanceLiters(received.subtract(used));
+
+        // Attendance
+        AttendanceDayResponse att = attendanceService.getDay(today);
+        r.setTodayAttendancePresent(att.getPresentCount());
+        r.setTodayAttendanceTotal(att.getEmployees().size());
+
+        // Machine hours today
+        r.setTodayMachineHours(machineRepo.sumHoursByDateRangeAndSite(today, today, siteId));
+
+        // Needs Attention (operational only)
+        r.setRatePendingMachineWorkCount(machineRepo.countRatePendingBySite(siteId));
+        LocalDate yesterday = today.minusDays(1);
+        if (!yesterday.isBefore(monthStart)) {
+            r.setUnbilledTripsCount(tripRepo.countUnbilledByDateRangeAndSite(monthStart, yesterday, siteId));
+        }
+
+        // Recent trips today (last 5, most recent first)
+        List<Trip> todayTrips = tripRepo.findByDateAndSite(today, siteId);
+        int fromIdx = Math.max(0, todayTrips.size() - 5);
+        List<Trip> recent = new ArrayList<>(todayTrips.subList(fromIdx, todayTrips.size()));
+        Collections.reverse(recent);
+
+        Set<Long> matIds = recent.stream()
+                .filter(t -> t.getMaterialId() != null)
+                .map(Trip::getMaterialId)
+                .collect(Collectors.toSet());
+        Map<Long, String> matNames = materialRepo.findAllById(matIds).stream()
+                .collect(Collectors.toMap(Material::getId, Material::getName));
+
+        Set<Long> venIds = recent.stream()
+                .filter(t -> t.getVendorId() != null)
+                .map(Trip::getVendorId)
+                .collect(Collectors.toSet());
+        Map<Long, String> venNames = vendorRepo.findAllById(venIds).stream()
+                .collect(Collectors.toMap(Vendor::getId, Vendor::getName));
+
+        List<SiteStaffDashboardResponse.RecentTrip> recentDtos = recent.stream().map(t -> {
+            SiteStaffDashboardResponse.RecentTrip rt = new SiteStaffDashboardResponse.RecentTrip();
+            rt.setId(t.getId());
+            rt.setMaterialName(t.getMaterialId() != null
+                    ? matNames.getOrDefault(t.getMaterialId(), "—") : "—");
+            rt.setQuantity(t.getBillableQuantity() != null
+                    ? t.getBillableQuantity() : BigDecimal.ZERO);
+            rt.setQuantityUnit("BRASS");
+            rt.setPartyName("OWN_VEHICLE".equals(t.getVehicleMode()) ? "Own Vehicle"
+                    : t.getVendorId() != null
+                            ? venNames.getOrDefault(t.getVendorId(), "—") : "—");
+            return rt;
+        }).collect(Collectors.toList());
+
+        r.setRecentTrips(recentDtos);
         return r;
     }
 }
