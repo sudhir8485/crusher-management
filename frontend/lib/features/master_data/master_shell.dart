@@ -95,8 +95,10 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final showFinance = _visible(7) || _visible(8) || _visible(9);
-    final showAdmin   = _visible(11);
+    final showFinance    = _visible(7) || _visible(8) || _visible(9);
+    final showWorkforce  = _visible(10) || _visible(12);
+    final showMasterData = _visible(13) || _visible(14) || _visible(15) || _visible(16) || _visible(17) || _visible(18);
+    final showAdmin      = _visible(11);
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -166,19 +168,23 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                   _item(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Accounts', 8),
                 ],
 
-                const SizedBox(height: 4),
-                _NavSection('Workforce'),
-                _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 10),
-                _item(Icons.badge_outlined, Icons.badge, 'Employees', 12),
+                if (showWorkforce) ...[
+                  const SizedBox(height: 4),
+                  _NavSection('Workforce'),
+                  _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 10),
+                  _item(Icons.badge_outlined, Icons.badge, 'Employees', 12),
+                ],
 
-                const SizedBox(height: 4),
-                _NavSection('Master Data'),
-                _item(Icons.people_outline, Icons.people, 'Parties', 13),
-                _item(Icons.local_shipping_outlined, Icons.local_shipping, 'Vehicles', 14),
-                _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 15),
-                _item(Icons.category_outlined, Icons.category, 'Materials', 16),
-                _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 17),
-                _item(Icons.handyman_outlined, Icons.handyman, 'Services', 18),
+                if (showMasterData) ...[
+                  const SizedBox(height: 4),
+                  _NavSection('Master Data'),
+                  _item(Icons.people_outline, Icons.people, 'Parties', 13),
+                  _item(Icons.local_shipping_outlined, Icons.local_shipping, 'Vehicles', 14),
+                  _item(Icons.precision_manufacturing_outlined, Icons.precision_manufacturing, 'Machines', 15),
+                  _item(Icons.category_outlined, Icons.category, 'Materials', 16),
+                  _item(Icons.location_on_outlined, Icons.location_on, 'Sites', 17),
+                  _item(Icons.handyman_outlined, Icons.handyman, 'Services', 18),
+                ],
 
                 if (showAdmin) ...[
                   const SizedBox(height: 4),
