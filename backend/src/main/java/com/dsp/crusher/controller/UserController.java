@@ -40,4 +40,10 @@ public class UserController {
     public UserResponse deactivate(@PathVariable Long id) {
         return service.deactivate(id);
     }
+
+    @PatchMapping("/{id}/reactivate")
+    @PreAuthorize("hasRole('OWNER_ADMIN')")
+    public UserResponse reactivate(@PathVariable Long id) {
+        return service.reactivate(id);
+    }
 }

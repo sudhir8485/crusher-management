@@ -63,6 +63,14 @@ public class UserService {
         return toResponse(userRepo.save(u));
     }
 
+    @Transactional
+    public UserResponse reactivate(Long id) {
+        User u = userRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+        u.setStatus("ACTIVE");
+        return toResponse(userRepo.save(u));
+    }
+
     private UserResponse toResponse(User u) {
         UserResponse r = new UserResponse();
         r.setId(u.getId());

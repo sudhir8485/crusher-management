@@ -90,6 +90,8 @@ class UsersScreen extends ConsumerWidget {
                       user: u,
                       onEdit: () => _showForm(context, ref, u),
                       onDeactivate: null,
+                      onReactivate: () =>
+                          _confirmReactivate(context, ref, u),
                     )),
               ],
             ],
@@ -149,6 +151,38 @@ class UsersScreen extends ConsumerWidget {
       ),
     );
   }
+
+  void _confirmReactivate(
+      BuildContext ctx, WidgetRef ref, Map<String, dynamic> user) {
+    showDialog(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Reactivate User'),
+        content: Text(
+            'Reactivate ${user['fullName']}? They will be able to log in again immediately.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await ref
+                    .read(apiClientProvider)
+                    .patch('/api/users/${user['id']}/reactivate');
+              } catch (_) { return; }
+              if (!ctx.mounted) return;
+              ref.invalidate(usersProvider);
+            },
+            child: const Text('Reactivate'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── user card ─────────────────────────────────────────────────────────────────
@@ -157,8 +191,12 @@ class _UserCard extends StatelessWidget {
   final Map<String, dynamic> user;
   final VoidCallback onEdit;
   final VoidCallback? onDeactivate;
+  final VoidCallback? onReactivate;
   const _UserCard(
-      {required this.user, required this.onEdit, this.onDeactivate});
+      {required this.user,
+      required this.onEdit,
+      this.onDeactivate,
+      this.onReactivate});
 
   @override
   Widget build(BuildContext context) {
@@ -222,9 +260,8 @@ class _UserCard extends StatelessWidget {
         trailing: PopupMenuButton<String>(
           onSelected: (v) {
             if (v == 'edit') onEdit();
-            if (v == 'deactivate' && onDeactivate != null) {
-              onDeactivate!();
-            }
+            if (v == 'deactivate') onDeactivate?.call();
+            if (v == 'reactivate') onReactivate?.call();
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'edit', child: Text('Edit')),
@@ -233,6 +270,11 @@ class _UserCard extends StatelessWidget {
                   value: 'deactivate',
                   child: Text('Deactivate',
                       style: TextStyle(color: Colors.orange))),
+            if (onReactivate != null)
+              const PopupMenuItem(
+                  value: 'reactivate',
+                  child: Text('Reactivate',
+                      style: TextStyle(color: Colors.green))),
           ],
         ),
       ),
