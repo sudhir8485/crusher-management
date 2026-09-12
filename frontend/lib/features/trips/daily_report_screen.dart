@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ class DailyReportScreen extends ConsumerWidget {
   }
 
   void _exportPdf(BuildContext context, Map<String, dynamic> d, DateTime date) async {
+    final companyName = await AuthStorage.getTenantName() ?? 'Your Company';
     final pdf = pw.Document();
     final dateStr = DateFormat('d MMMM yyyy').format(date);
 
@@ -91,7 +93,7 @@ class DailyReportScreen extends ConsumerWidget {
       header: (ctx) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text('DSP Construction — Daily Report',
+          pw.Text('$companyName - Daily Report',
               style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
           pw.Text('Date: $dateStr',
               style: const pw.TextStyle(fontSize: 10)),
@@ -206,6 +208,7 @@ class DailyReportScreen extends ConsumerWidget {
               fontSize: 10, fontWeight: pw.FontWeight.bold)));
 
   void _exportExcel(BuildContext context, Map<String, dynamic> d, DateTime date) async {
+    final companyName = await AuthStorage.getTenantName() ?? 'Your Company';
     final wb    = xl.Excel.createExcel();
     final sheet = wb['Daily Report'];
     wb.delete('Sheet1');
@@ -217,7 +220,7 @@ class DailyReportScreen extends ConsumerWidget {
                : xl.TextCellValue(v.toString());
     }
 
-    cell(0, 0, 'DSP Construction — Daily Report');
+    cell(0, 0, '$companyName - Daily Report');
     cell(1, 0, 'Date: ${DateFormat('d MMMM yyyy').format(date)}');
     cell(2, 0, 'Generated: ${DateFormat('d MMM yyyy HH:mm').format(DateTime.now())}');
 

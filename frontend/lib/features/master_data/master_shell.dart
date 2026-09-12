@@ -51,12 +51,16 @@ class _AppSidebar extends ConsumerStatefulWidget {
 
 class _AppSidebarState extends ConsumerState<_AppSidebar> {
   String? _role;
+  String? _userName;
 
   @override
   void initState() {
     super.initState();
     AuthStorage.getRole().then((r) {
       if (mounted) setState(() => _role = r);
+    });
+    AuthStorage.getName().then((n) {
+      if (mounted) setState(() => _userName = n);
     });
     // For SITE_STAFF: pre-select their assigned site on load
     AuthStorage.getSiteId().then((sid) {
@@ -74,15 +78,23 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
       case 'OWNER_ADMIN':
         return true; // sees everything
       case 'OFFICE_ACCOUNTANT':
-        // Hides: Users (11) — OWNER_ADMIN only
-        return index != 11;
+        // Hides: Users (11), Business Profile (19) — OWNER_ADMIN only
+        return index != 11 && index != 19;
       default:
         // SITE_STAFF or null (loading): operations only
         // Hides: Reports (6), Finance (7,8,9), Attendance (10), Users (11), Employees (12),
-        //        Parties (13), Vehicles (14), Machines (15), Materials (16), Sites (17), Services (18)
-        return !const {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}.contains(index);
+        //        Parties (13), Vehicles (14), Machines (15), Materials (16), Sites (17), Services (18),
+        //        Business Profile (19)
+        return !const {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}.contains(index);
     }
   }
+
+  String _roleLabel(String? role) => switch (role) {
+        'OWNER_ADMIN'       => 'Owner / Admin',
+        'OFFICE_ACCOUNTANT' => 'Office / Accountant',
+        'SITE_STAFF'        => 'Site Staff',
+        _                   => '',
+      };
 
   Widget _item(IconData icon, IconData selIcon, String label, int index) {
     if (!_visible(index)) return const SizedBox.shrink();
@@ -98,7 +110,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
     final showFinance    = _visible(7) || _visible(8) || _visible(9);
     final showWorkforce  = _visible(10) || _visible(12);
     final showMasterData = _visible(13) || _visible(14) || _visible(15) || _visible(16) || _visible(17) || _visible(18);
-    final showAdmin      = _visible(11);
+    final showAdmin      = _visible(11) || _visible(19);
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -190,28 +202,75 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                   const SizedBox(height: 4),
                   _NavSection('Admin'),
                   _item(Icons.manage_accounts_outlined, Icons.manage_accounts, 'Users', 11),
+                  _item(Icons.store_outlined, Icons.store, 'Business Profile', 19),
                 ],
               ],
             ),
           ),
 
-          // ── Footer: logout ────────────────────────────────────────────────
+          // ── Footer: logged-in user + logout ──────────────────────────────
           Container(
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: Colors.grey.shade200)),
             ),
-            child: Material(
-              color: Colors.transparent,
-              child: ListTile(
-                dense: true,
-                leading: const Icon(Icons.logout, size: 18, color: Colors.grey),
-                title: const Text('Logout',
-                    style: TextStyle(fontSize: 13, color: Colors.grey)),
-                onTap: () async {
-                  await AuthStorage.clear();
-                  if (context.mounted) context.go('/login');
-                },
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_userName != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.12),
+                          child: Text(
+                            _userName![0].toUpperCase(),
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _userName!,
+                                style: const TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                _roleLabel(_role),
+                                style: TextStyle(
+                                    fontSize: 10, color: Colors.grey[500]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.logout, size: 18, color: Colors.grey),
+                    title: const Text('Logout',
+                        style: TextStyle(fontSize: 13, color: Colors.grey)),
+                    onTap: () async {
+                      await AuthStorage.clear();
+                      if (context.mounted) context.go('/login');
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -260,6 +319,7 @@ class _NavItem extends StatelessWidget {
     '/attendance',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
     '/services',           // 18 — Master Data: Services
+    '/business-profile',   // 19 — Admin: Business Profile
   ];
 
   @override

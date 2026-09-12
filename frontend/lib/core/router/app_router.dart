@@ -19,6 +19,7 @@ import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/attendance/attendance_screen.dart';
 import '../../features/attendance/employees_screen.dart';
 import '../../features/users/users_screen.dart';
+import '../../features/admin/business_profile_screen.dart';
 import '../../features/ledger/ledger_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/accounts/party_detail_screen.dart';
@@ -64,6 +65,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/attendance',          builder: (ctx, st) => const AttendanceScreen()),
           GoRoute(path: '/employees',          builder: (ctx, st) => const EmployeesScreen()),
           GoRoute(path: '/users',              builder: (ctx, st) => const UsersScreen()),
+          GoRoute(path: '/business-profile',   builder: (ctx, st) => const BusinessProfileScreen()),
           GoRoute(path: '/parties',      builder: (ctx, st) => const VendorsScreen()),
           GoRoute(path: '/vehicles',     builder: (ctx, st) => const VehiclesScreen()),
           GoRoute(path: '/machines',     builder: (ctx, st) => const MachinesScreen()),

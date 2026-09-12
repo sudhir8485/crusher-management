@@ -23,9 +23,21 @@ public class Tenant {
     @Column(columnDefinition = "TEXT")
     private String address;
 
+    @Column(length = 50)
+    private String phone;
+
+    @Column(length = 200)
+    private String email;
+
+    @Column(columnDefinition = "TEXT")
+    private String logoBase64;
+
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column
+    private LocalDateTime updatedAt;
 }

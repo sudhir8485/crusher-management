@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── Date range preset ─────────────────────────────────────────────────────────
@@ -446,6 +447,7 @@ class _ReportTable extends StatelessWidget {
 
     final regular = await PdfGoogleFonts.notoSansRegular();
     final bold    = await PdfGoogleFonts.notoSansBold();
+    final companyName = await AuthStorage.getTenantName() ?? 'Your Company';
 
     final pdf = pw.Document();
     pdf.addPage(pw.MultiPage(
@@ -454,7 +456,7 @@ class _ReportTable extends StatelessWidget {
       header: (ctx) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text('DSP Construction',
+          pw.Text(companyName,
               style: pw.TextStyle(
                   font: bold, fontSize: 14, fontWeight: pw.FontWeight.bold)),
           pw.Text('$reportTitle - $filterLabel',
@@ -520,6 +522,7 @@ class _ReportTable extends StatelessWidget {
     final sum         = _summary;
     final rtype       = data['reportType'] as String? ?? '';
     final usedHeaders = headers.where((h) => h.isNotEmpty).toList();
+    final companyName = await AuthStorage.getTenantName() ?? 'Your Company';
 
     final wb    = xl.Excel.createExcel();
     final sheet = wb['Report'];
@@ -533,7 +536,7 @@ class _ReportTable extends StatelessWidget {
           : xl.TextCellValue(v.toString());
     }
 
-    cell(0, 0, 'DSP Construction — $reportTitle');
+    cell(0, 0, '$companyName - $reportTitle');
     cell(1, 0, 'Filter: $filterLabel');
     cell(2, 0, 'Period: $_period');
     cell(3, 0, 'Summary: ${_summaryText(rtype, sum)}');

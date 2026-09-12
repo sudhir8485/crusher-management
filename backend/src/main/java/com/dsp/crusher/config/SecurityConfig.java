@@ -41,6 +41,8 @@ public class SecurityConfig {
 
                 // ── Admin only ────────────────────────────────────────────────────────
                 .requestMatchers("/api/users/**").hasRole("OWNER_ADMIN")
+                // Tenant profile: GET open to all authenticated roles; PUT is OWNER_ADMIN only (enforced by @PreAuthorize)
+                .requestMatchers("/api/tenant/**").authenticated()
 
                 // ── Finance + Reports: no SITE_STAFF ─────────────────────────────────
                 .requestMatchers("/api/invoices/**", "/api/job-work-invoices/**",
