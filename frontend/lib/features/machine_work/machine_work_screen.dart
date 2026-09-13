@@ -164,7 +164,7 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, date, siteId),
+        onPressed: () => _onAddTapped(context, ref, date, key, siteId),
         icon: const Icon(Icons.add),
         label: const Text('Add Entry'),
       ),
@@ -178,21 +178,6 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
             onModeChanged: (m) => ref.read(_mwModeProvider.notifier).state = m,
             onCustomChanged: (r) => ref.read(_mwCustomProvider.notifier).state = r,
           ),
-          if (siteId == null)
-            Material(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'Select a site from the sidebar to add new entries',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                  )),
-                ]),
-              ),
-            ),
           logs.when(
             loading: () => const SizedBox(),
             error:   (_, _s) => const SizedBox(),
@@ -212,13 +197,12 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
                   );
                 }
                 return ListView.separated(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
                   itemCount: data.length,
                   separatorBuilder: (_, _i) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
                     showDate: mode != 'day',
-                    onTap:    () => _showLogDetail(context, data[i]),
                     onEdit:   () => _showForm(context, ref, data[i], date, siteId),
                     onDelete: () => _confirmDelete(context, ref, data[i], key),
                   ),
@@ -241,13 +225,60 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
     }
   }
 
+  Future<void> _onAddTapped(BuildContext context, WidgetRef ref,
+      DateTime date, String key, int? siteId) async {
+    if (siteId != null) {
+      _showForm(context, ref, null, date, siteId);
+      return;
+    }
+    final sites = ref.read(sitesProvider).valueOrNull ?? [];
+    if (!context.mounted) return;
+    final picked = await _showSitePickerForEntry(context, sites);
+    if (picked == null || !context.mounted) return;
+    _showForm(context, ref, null, date, siteId, siteOverride: picked);
+  }
+
+  Future<int?> _showSitePickerForEntry(
+      BuildContext context, List<Map<String, dynamic>> sites) async {
+    if (sites.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No sites available. Add a site first.')));
+      return null;
+    }
+    return showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Select site to add entry',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            ...sites.map((s) => ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(ctx, s['id'] as int?),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showForm(BuildContext ctx, WidgetRef ref, Map<String, dynamic>? log,
-      DateTime date, int? siteId) {
+      DateTime date, int? siteId, {int? siteOverride}) {
+    final effectiveSiteId = siteOverride ?? siteId;
     final key = _mwRangeKey(
       ref.read(_mwModeProvider),
       ref.read(_mwDateProvider),
       ref.read(_mwCustomProvider),
-      siteId,
+      effectiveSiteId,
     );
     showDialog(
       context: ctx,
@@ -255,7 +286,7 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
       builder: (_) => _LogForm(
         existing: log,
         defaultDate: date,
-        siteId: siteId,
+        siteId: effectiveSiteId,
         onSaved: () => ref.invalidate(_logsProvider(key)),
       ),
     );
@@ -744,22 +775,28 @@ Future<void> _printMachineWorkChallan(
 
 // ── log card ─────────────────────────────────────────────────────────────────
 
-class _LogCard extends StatelessWidget {
+class _LogCard extends StatefulWidget {
   final Map<String, dynamic> log;
   final bool showDate;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback onTap;
   const _LogCard({
     required this.log,
     this.showDate = false,
     required this.onEdit,
     required this.onDelete,
-    required this.onTap,
   });
 
   @override
+  State<_LogCard> createState() => _LogCardState();
+}
+
+class _LogCardState extends State<_LogCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final log = widget.log;
     final mode = (log['mode'] as String?)?.trim() ?? '';
     final machineName = log['machineName'] ?? '—';
     final machineType = log['machineType'] ?? '';
@@ -783,177 +820,248 @@ class _LogCard extends StatelessWidget {
     final isGstPending = hasGstInvoice && gstInvoiceStatus == 'PENDING';
     final isGstSet = hasGstInvoice && gstInvoiceStatus == 'SET';
 
+    final createdBy  = log['createdByName'] as String?;
+    final updatedBy  = log['updatedByName'] as String?;
+    final createdTs  = log['createdAt'] as String?;
+    final hasRecordInfo = createdBy != null || createdTs != null;
+
     return Card(
       color: (isPendingRate || isGstPending) ? Colors.amber.shade50 : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
+        onTap: hasRecordInfo ? () => setState(() => _expanded = !_expanded) : null,
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Row 1: badges (left) + date + menu (right)
-            Row(children: [
-              if (mode.isNotEmpty) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Row 1: badges (left) + date + menu (right)
+                Row(children: [
+                  if (mode.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(mode,
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue)),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (isBillable) ...[
+                    _BillableBadge(
+                      isPendingRate: isPendingRate,
+                      isGstPending: isGstPending,
+                      isGstSet: isGstSet,
+                    ),
+                  ],
+                  const Spacer(),
+                  if (widget.showDate && logDateStr != null)
+                    Text(
+                      DateFormat('d MMM').format(DateTime.parse(logDateStr)),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  PopupMenuButton<String>(
+                    onSelected: (v) async {
+                      await Future.delayed(Duration.zero);
+                      if (!context.mounted) return;
+                      if (v == 'print') _printMachineWorkChallan(context, log);
+                      if (v == 'edit') widget.onEdit();
+                      if (v == 'delete') widget.onDelete();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: 'print',
+                          child: Row(children: [
+                            Icon(Icons.print_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('Print Challan'),
+                          ])),
+                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                      const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete', style: TextStyle(color: Colors.red))),
+                    ],
                   ),
-                  child: Text(mode,
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue)),
-                ),
-                const SizedBox(width: 6),
-              ],
-              if (isBillable) ...[
-                _BillableBadge(
-                  isPendingRate: isPendingRate,
-                  isGstPending: isGstPending,
-                  isGstSet: isGstSet,
-                ),
-              ],
-              const Spacer(),
-              if (showDate && logDateStr != null)
-                Text(
-                  DateFormat('d MMM').format(DateTime.parse(logDateStr)),
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              PopupMenuButton<String>(
-                onSelected: (v) async {
-                  await Future.delayed(Duration.zero);
-                  if (!context.mounted) return;
-                  if (v == 'print') _printMachineWorkChallan(context, log);
-                  if (v == 'edit') onEdit();
-                  if (v == 'delete') onDelete();
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                      value: 'print',
-                      child: Row(children: [
-                        Icon(Icons.print_outlined, size: 18),
-                        SizedBox(width: 8),
-                        Text('Print Challan'),
-                      ])),
-                  const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Delete', style: TextStyle(color: Colors.red))),
+                ]),
+                // Row 2: machine name + type (full width)
+                Row(children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(machineName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        if (machineType.isNotEmpty)
+                          Text(machineType,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      ],
+                    ),
+                  ),
+                  // Amount / hours badge — right of name row
+                  if (isBillable && totalAmount != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '₹${_numFmt.format((totalAmount as num).toDouble())}',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.purple.shade700,
+                            fontSize: 14),
+                      ),
+                    )
+                  else if (totalHours != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${(totalHours as num).toStringAsFixed(2)} hrs',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14),
+                      ),
+                    ),
+                ]),
+                if (isBillable && customerName != null) ...[
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(customerName,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                    ),
+                    if (rate != null && rateStatus == 'SET') ...[
+                      const SizedBox(width: 8),
+                      Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
+                          style: TextStyle(fontSize: 12, color: Colors.purple.shade600)),
+                    ],
+                  ]),
                 ],
+                if (desc.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(desc, style: const TextStyle(fontSize: 13)),
+                ],
+                if (opening != null || closing != null) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _Reading(label: 'Opening', value: opening),
+                      const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
+                      _Reading(label: 'Closing', value: closing),
+                      if (totalHours != null && isBillable)
+                        _Reading(label: 'Hours', value: (totalHours as num).toDouble()),
+                    ],
+                  ),
+                ],
+                if (isPendingRate) ...[
+                  const SizedBox(height: 6),
+                  Text('Tap ⋮ → Edit to set the rate for this entry',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade700,
+                          fontStyle: FontStyle.italic)),
+                ] else if (isGstPending) ...[
+                  const SizedBox(height: 6),
+                  Text('GST rate not set — open party account to confirm GST',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.orange.shade700,
+                          fontStyle: FontStyle.italic)),
+                ],
+                if (notes.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(notes,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                ],
+                // Expand hint
+                if (hasRecordInfo) ...[
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 16, color: Colors.grey[400]),
+                    const SizedBox(width: 4),
+                    Text(_expanded ? 'Hide details' : 'Record info',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+                  ]),
+                ],
+              ],
               ),
-            ]),
-            // Row 2: machine name + type (full width)
-            Row(children: [
-              Expanded(
+            ),
+            // Expanded: Record Info
+            if (_expanded && hasRecordInfo) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(machineName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    if (machineType.isNotEmpty)
-                      Text(machineType,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    Text('RECORD INFO',
+                        style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w700,
+                            color: Colors.grey[500], letterSpacing: 0.8)),
+                    const SizedBox(height: 8),
+                    if (createdBy != null)
+                      _RecordInfoRow('Entered by', createdBy),
+                    if (createdTs != null)
+                      _RecordInfoRow('Entry date',
+                          DateFormat('d MMM yyyy').format(DateTime.parse(createdTs))),
+                    if (updatedBy != null)
+                      _RecordInfoRow('Last edited by', updatedBy),
                   ],
                 ),
               ),
-              // Amount / hours badge — right of name row
-              if (isBillable && totalAmount != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '₹${_numFmt.format((totalAmount as num).toDouble())}',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.purple.shade700,
-                        fontSize: 14),
-                  ),
-                )
-              else if (totalHours != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${(totalHours as num).toStringAsFixed(2)} hrs',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14),
-                  ),
-                ),
-            ]),
-            if (isBillable && customerName != null) ...[
-              const SizedBox(height: 6),
-              Row(children: [
-                Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(customerName,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                ),
-                if (rate != null && rateStatus == 'SET') ...[
-                  const SizedBox(width: 8),
-                  Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
-                      style: TextStyle(fontSize: 12, color: Colors.purple.shade600)),
-                ],
-              ]),
-            ],
-            if (desc.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(desc, style: const TextStyle(fontSize: 13)),
-            ],
-            if (opening != null || closing != null) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 16,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  _Reading(label: 'Opening', value: opening),
-                  const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
-                  _Reading(label: 'Closing', value: closing),
-                  if (totalHours != null && isBillable)
-                    _Reading(label: 'Hours', value: (totalHours as num).toDouble()),
-                ],
-              ),
-            ],
-            if (isPendingRate) ...[
-              const SizedBox(height: 6),
-              Text('Tap ⋮ → Edit to set the rate for this entry',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.orange.shade700,
-                      fontStyle: FontStyle.italic)),
-            ] else if (isGstPending) ...[
-              const SizedBox(height: 6),
-              Text('GST rate not set — open party account to confirm GST',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.orange.shade700,
-                      fontStyle: FontStyle.italic)),
-            ],
-            if (notes.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(notes,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             ],
           ],
         ),
       ),
-      ),
     );
   }
+}
+
+class _RecordInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _RecordInfoRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 110,
+              child: Text(label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
 }
 
 // ── log detail dialog ─────────────────────────────────────────────────────────
@@ -1230,7 +1338,7 @@ class _LogFormState extends ConsumerState<_LogForm> {
     if (!_formKey.currentState!.validate()) return;
     if (widget.existing == null && widget.siteId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Select a site from the sidebar before adding entries'),
+        content: Text('Select a site to add entries.'),
         backgroundColor: Colors.red,
         duration: Duration(seconds: 4),
       ));

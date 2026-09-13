@@ -32,6 +32,8 @@ List<DateTime> resolveTripsRange(String mode, DateTime anchor, List<DateTime> cu
     case 'month':
       return [DateTime(anchor.year, anchor.month, 1),
               DateTime(anchor.year, anchor.month + 1, 0)];
+    case 'year':
+      return [DateTime(anchor.year, 1, 1), DateTime(anchor.year, 12, 31)];
     case 'custom':
       return custom;
     default: // day
@@ -40,11 +42,10 @@ List<DateTime> resolveTripsRange(String mode, DateTime anchor, List<DateTime> cu
 }
 
 final tripsProvider = FutureProvider.autoDispose
-    .family<List<Map<String, dynamic>>, String>((ref, rangeKey) async {
-  final siteId = ref.watch(selectedSiteIdProvider);
-  final parts  = rangeKey.split('|');
+    .family<List<Map<String, dynamic>>, String>((ref, key) async {
+  final parts  = key.split('|');
   final params = <String, dynamic>{'from': parts[0], 'to': parts[1]};
-  if (siteId != null) params['siteId'] = siteId;
+  if (parts.length > 2 && parts[2].isNotEmpty) params['siteId'] = parts[2];
   final res = await ref.read(apiClientProvider).get('/api/trips', params: params);
   return List<Map<String, dynamic>>.from(res.data);
 });
@@ -102,7 +103,8 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
   Future<void> _scheduleOpenTrip(int tripId, DateTime date) async {
     final fmt = DateFormat('yyyy-MM-dd');
     final ds = fmt.format(date);
-    final key = '$ds|$ds';
+    final siteId = ref.read(selectedSiteIdProvider);
+    final key = '$ds|$ds|${siteId ?? ''}';
     for (int i = 0; i < 8; i++) {
       await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
@@ -121,10 +123,10 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
     }
   }
 
-  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom) {
+  String _rangeKey(String mode, DateTime anchor, List<DateTime> custom, int? siteId) {
     final fmt = DateFormat('yyyy-MM-dd');
     final range = resolveTripsRange(mode, anchor, custom);
-    return '${fmt.format(range[0])}|${fmt.format(range[1])}';
+    return '${fmt.format(range[0])}|${fmt.format(range[1])}|${siteId ?? ''}';
   }
 
   @override
@@ -133,7 +135,7 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
     final mode         = ref.watch(tripsModeProvider);
     final custom       = ref.watch(tripsCustomRangeProvider);
     final siteId       = ref.watch(selectedSiteIdProvider);
-    final rangeKey     = _rangeKey(mode, selectedDate, custom);
+    final rangeKey     = _rangeKey(mode, selectedDate, custom, siteId);
     final trips        = ref.watch(tripsProvider(rangeKey));
 
     void invalidate() => ref.invalidate(tripsProvider(rangeKey));
@@ -146,7 +148,7 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate, rangeKey),
+        onPressed: () => _onAddTapped(context, ref, selectedDate, rangeKey, siteId),
         icon: const Icon(Icons.add),
         label: const Text('Add Trip'),
       ),
@@ -160,29 +162,18 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
             onModeChanged: (m) => ref.read(tripsModeProvider.notifier).state = m,
             onCustomChanged: (r) => ref.read(tripsCustomRangeProvider.notifier).state = r,
           ),
-          if (siteId == null)
-            Material(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'Select a site from the sidebar to add new entries',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                  )),
-                ]),
-              ),
-            ),
           Expanded(
             child: trips.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
-                final emptyMsg = mode == 'day'
-                    ? 'No trips for ${DateFormat('d MMM yyyy').format(selectedDate)}'
-                    : 'No trips for this ${mode == 'week' ? 'week' : mode == 'month' ? 'month' : 'range'}';
+                final emptyMsg = switch (mode) {
+                  'week'   => 'No trips this week',
+                  'month'  => 'No trips in ${DateFormat('MMMM yyyy').format(selectedDate)}',
+                  'year'   => 'No trips in ${DateFormat('yyyy').format(selectedDate)}',
+                  'custom' => 'No trips for this range',
+                  _        => 'No trips for ${DateFormat('d MMM yyyy').format(selectedDate)}',
+                };
                 return list.isEmpty
                     ? AppEmptyState(
                         icon: Icons.swap_horiz_outlined,
@@ -204,14 +195,62 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
     );
   }
 
+  Future<void> _onAddTapped(BuildContext context, WidgetRef ref,
+      DateTime date, String rangeKey, int? siteId) async {
+    if (siteId != null) {
+      _showForm(context, ref, null, date, rangeKey);
+      return;
+    }
+    final sites = ref.read(sitesProvider).valueOrNull ?? [];
+    if (!context.mounted) return;
+    final picked = await _showSitePickerForEntry(context, sites);
+    if (picked == null || !context.mounted) return;
+    _showForm(context, ref, null, date, rangeKey, siteOverride: picked);
+  }
+
+  Future<int?> _showSitePickerForEntry(
+      BuildContext context, List<Map<String, dynamic>> sites) async {
+    if (sites.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No sites available. Add a site first.')));
+      return null;
+    }
+    return showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Select site to add entry',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            ...sites.map((s) => ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(ctx, s['id'] as int?),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showForm(BuildContext context, WidgetRef ref,
-      Map<String, dynamic>? existing, DateTime date, String rangeKey) {
+      Map<String, dynamic>? existing, DateTime date, String rangeKey,
+      {int? siteOverride}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => _TripForm(
         existing: existing,
         initialDate: date,
+        siteOverride: siteOverride,
         onSaved: () => ref.invalidate(tripsProvider(rangeKey)),
       ),
     );
@@ -280,6 +319,7 @@ class _DateRangeBar extends StatelessWidget {
     switch (mode) {
       case 'week':  onDateChanged(selectedDate.subtract(const Duration(days: 7))); break;
       case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month - 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year - 1, 1, 1)); break;
       default:      onDateChanged(selectedDate.subtract(const Duration(days: 1))); break;
     }
   }
@@ -288,6 +328,7 @@ class _DateRangeBar extends StatelessWidget {
     switch (mode) {
       case 'week':  onDateChanged(selectedDate.add(const Duration(days: 7))); break;
       case 'month': onDateChanged(DateTime(selectedDate.year, selectedDate.month + 1, 1)); break;
+      case 'year':  onDateChanged(DateTime(selectedDate.year + 1, 1, 1)); break;
       default:      onDateChanged(selectedDate.add(const Duration(days: 1))); break;
     }
   }
@@ -300,6 +341,8 @@ class _DateRangeBar extends StatelessWidget {
         return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
       case 'month':
         return DateFormat('MMMM yyyy').format(selectedDate);
+      case 'year':
+        return DateFormat('yyyy').format(selectedDate);
       case 'custom':
         return '${DateFormat('d MMM').format(range[0])} – ${fmt.format(range[1])}';
       default:
@@ -331,7 +374,7 @@ class _DateRangeBar extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips row
         Wrap(spacing: 6, runSpacing: 4, children: [
-          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
+          for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
             ChoiceChip(
               label: Text(m.$2),
               selected: mode == m.$1,
@@ -1726,8 +1769,9 @@ class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
 class _TripForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final DateTime initialDate;
+  final int? siteOverride; // set when user picked a site from the "All Sites" flow
   final VoidCallback onSaved;
-  const _TripForm({this.existing, required this.initialDate, required this.onSaved});
+  const _TripForm({this.existing, required this.initialDate, this.siteOverride, required this.onSaved});
 
   @override
   ConsumerState<_TripForm> createState() => _TripFormState();
@@ -2063,14 +2107,14 @@ class _TripFormState extends ConsumerState<_TripForm> {
     opt('notes',             _notes.text);
 
     final api    = ref.read(apiClientProvider);
-    final siteId = ref.read(selectedSiteIdProvider);
+    final siteId = widget.siteOverride ?? ref.read(selectedSiteIdProvider);
 
-    // Creating a trip requires a specific site to be selected
+    // Creating a trip requires a specific site
     if (widget.existing == null && siteId == null) {
       setState(() => _saving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Please select a specific site before creating a trip.'),
+          content: Text('Select a site to add a trip.'),
           backgroundColor: Colors.orange,
         ));
       }

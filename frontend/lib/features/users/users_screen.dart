@@ -81,7 +81,7 @@ class UsersScreen extends ConsumerWidget {
               data.where((u) => u['status'] != 'ACTIVE').toList();
 
           return ListView(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
             children: [
               if (active.isNotEmpty) ...[
                 _sectionHeader('Active (${active.length})'),

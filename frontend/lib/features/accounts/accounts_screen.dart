@@ -240,7 +240,7 @@ class _SummaryBar extends StatelessWidget {
         const Spacer(),
         _tile('Total Receivable', totalOwed, Colors.orange.shade700),
         const SizedBox(width: 12),
-        _tile('Total Payable', totalAdvance, Colors.blue.shade700),
+        _tile('Total Payable', totalAdvance, Colors.red.shade600),
       ]),
     );
   }
@@ -278,15 +278,16 @@ class _PartyBalanceCard extends StatelessWidget {
     final isAdvance = outstanding < -0.5;
     final isSettled = !isOwed && !isAdvance;
 
-    final dotColor = isOwed ? Colors.red.shade600
-        : isAdvance ? Colors.green.shade600
+    // Dot: orange = party owes us (Receivable), red = we owe party (Payable), grey = Settled
+    final dotColor = isOwed    ? Colors.orange.shade600
+        : isAdvance ? Colors.red.shade500
         : Colors.grey.shade400;
 
     final balLabel = isOwed    ? 'Receivable ${fmtCurr(outstanding)}'
         : isAdvance ? 'Payable ${fmtCurr(outstanding.abs())}'
         : 'Settled';
     final balColor = isOwed    ? Colors.orange.shade800
-        : isAdvance ? Colors.blue.shade700
+        : isAdvance ? Colors.red.shade600
         : Colors.grey.shade600;
 
     return Card(

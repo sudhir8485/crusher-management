@@ -218,14 +218,14 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
 
     // Column headers
     for (var c = 0; c < 7; c++) {
-      setCell(row, c, ['Date', 'Particulars', '', 'Voucher Type', 'Debit', 'Credit', 'Balance'][c], hdrStyle());
+      setCell(row, c, ['Date', 'Particulars', '', 'Type', 'Billed', 'Received', 'Running Balance'][c], hdrStyle());
     }
     row++;
 
     String balXl(double v) {
-      if (v > 0.5)  return '${_numFmt.format(v)} Dr';
-      if (v < -0.5) return '${_numFmt.format(v.abs())} Cr';
-      return '—';
+      if (v > 0.5)  return '${_numFmt.format(v)} Receivable';
+      if (v < -0.5) return '${_numFmt.format(v.abs())} Payable';
+      return 'Settled';
     }
 
     // Opening balance
@@ -312,7 +312,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         setCell(row, 0, dateStr,              mainRowStyle(debit: true));
         setCell(row, 1, particulars,          mainRowStyle(debit: true));
         setCell(row, 2, '',                   mainRowStyle(debit: true));
-        setCell(row, 3, 'Transport Payable',  mainRowStyle(debit: true));
+        setCell(row, 3, 'Transport',           mainRowStyle(debit: true));
         setCell(row, 4, '',                   mainRowStyle(debit: true));
         setCell(row, 5, '',                   mainRowStyle(debit: true));
         setCell(row, 6, '',                   mainRowStyle(debit: true));
@@ -345,7 +345,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         setCell(row, 0, dateStr,       mainRowStyle(debit: true));
         setCell(row, 1, particulars,   mainRowStyle(debit: true));
         setCell(row, 2, '',            mainRowStyle(debit: true));
-        setCell(row, 3, 'Paid Out',    mainRowStyle(debit: true));
+        setCell(row, 3, 'Payment Out', mainRowStyle(debit: true));
         setCell(row, 4, debit,         mainRowStyle(debit: true));
         setCell(row, 5, '',            mainRowStyle(debit: true));
         setCell(row, 6, balXl(runBal), mainRowStyle(debit: true));
@@ -411,7 +411,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
 
     final isOwed    = closing > 0.5;
     final isAdvance = closing < -0.5;
-    final balColor  = isOwed ? PdfColors.orange900 : isAdvance ? PdfColors.blue700 : PdfColors.green800;
+    final balColor  = isOwed ? PdfColors.orange900 : isAdvance ? PdfColors.red700 : PdfColors.green800;
 
     String rs(double v) => '₹${_numFmt.format(v)}';
     String n(double v)  => _numFmt.format(v);
@@ -478,17 +478,19 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
       6: pw.FixedColumnWidth(64),
     };
 
-    // Balance cell — colored Dr/Cr suffix
+    // Running balance cell — business terminology (Receivable / Payable / Settled)
     pw.Widget bal(double v) {
-      final isAdv = v < -0.5;
+      final isAdv     = v < -0.5;
       final isOwedBal = v > 0.5;
-      final label = isAdv ? '${n(v.abs())} Cr' : isOwedBal ? '${n(v)} Dr' : '—';
-      final color = isAdv ? PdfColors.blue700 : isOwedBal ? PdfColors.orange900 : PdfColors.green700;
+      final label = isAdv     ? '${n(v.abs())} Payable'
+                  : isOwedBal ? '${n(v)} Receivable'
+                  : 'Settled';
+      final color = isAdv ? PdfColors.red700 : isOwedBal ? PdfColors.orange900 : PdfColors.green700;
       return pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
         child: pw.Text(label,
             textAlign: pw.TextAlign.right,
-            style: pw.TextStyle(font: fontBold, fontSize: 8, color: color)));
+            style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: color)));
     }
 
     final rows = <pw.TableRow>[];
@@ -497,7 +499,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     rows.add(pw.TableRow(
       decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
       children: [
-        for (final h in ['Date', 'Particulars', '', 'Voucher Type', 'Debit ₹', 'Credit ₹', 'Balance ₹'])
+        for (final h in ['Date', 'Particulars', '', 'Type', 'Billed ₹', 'Received ₹', 'Running Balance ₹'])
           c(h, b: true),
       ],
     ));
@@ -537,7 +539,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
                   pw.Text(invoiceNo, style: small(color: PdfColors.blueGrey600)),
               ])),
             c(''),
-            c(isJobWorkPdf ? 'Job\nWork' : 'Sales', b: true),
+            c(isJobWorkPdf ? 'Job\nWork' : 'Billed', b: true),
             c(n(debit), b: true, a: pw.TextAlign.right),
             c(''),
             bal(runBal),
@@ -588,7 +590,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
                 pw.Text(particulars, style: bold()),
               ])),
             c(''),
-            c('Mach.\nWork', b: true),
+            c('Machine\nWork', b: true),
             debit != null
                 ? c(n(debit), b: true, a: pw.TextAlign.right)
                 : c('—', a: pw.TextAlign.right),
@@ -642,7 +644,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
                 pw.Text(particulars, style: bold()),
               ])),
             c(''),
-            c('Trans.\nPayable', b: true),
+            c('Transport', b: true),
             c('—', a: pw.TextAlign.right),
             c(''),
             c(''),
@@ -703,7 +705,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
             c(dateStr),
             c(particulars, b: true),
             c(''),
-            c('Paid Out'),
+            c('Payment\nOut'),
             c(n(debit), b: true, a: pw.TextAlign.right),
             c(''),
             bal(runBal),
@@ -866,12 +868,12 @@ class _LedgerBody extends StatelessWidget {
     final isAdvance = closing < -0.5;
     final balLabel  = isOwed    ? 'Receivable ${fmtCurr(closing)}'
         : isAdvance ? 'Payable ${fmtCurr(closing.abs())}'
-        : 'Settled Up';
+        : 'Settled';
     final balColor  = isOwed    ? Colors.orange.shade800
-        : isAdvance ? Colors.blue.shade700
+        : isAdvance ? Colors.red.shade600
         : Colors.green.shade700;
     final balBg     = isOwed    ? Colors.orange.shade50
-        : isAdvance ? Colors.blue.shade50
+        : isAdvance ? Colors.red.shade50
         : Colors.green.shade50;
 
     // Newest first
@@ -1011,37 +1013,30 @@ class _EntryCardState extends State<_EntryCard> {
         : balIsAdv  ? 'Payable ${fmtCurr(balance.abs())}'
         : 'Settled';
     final balColor  = balIsOwed ? Colors.orange.shade700
-        : balIsAdv  ? Colors.blue.shade700
+        : balIsAdv  ? Colors.red.shade600
         : Colors.green.shade700;
 
-    // Card background: pending = amber, payment-out = indigo tint, receipt = green tint, debit types = white/light
-    final cardBg = isPending
-        ? Colors.amber.shade50
-        : isPayment ? Colors.indigo.shade50
-        : isSales ? Colors.white
-        : isMachineWork ? Colors.lightBlue.shade50
-        : isJobWork ? Colors.purple.shade50
-        : isTransportPayable ? Colors.deepOrange.shade50
-        : isDelivery ? Colors.teal.shade50
-        : Colors.green.shade50; // Receipt
+    // Cards: white background always; amber only for pending (status communication).
+    // Color communicates financial status via text/badges, not card fill.
+    final cardBg = isPending ? Colors.amber.shade50 : Colors.white;
 
-    // Left icon per type
+    // Left icon per type — blue-gray for informational, green for receipt, orange for billing
     IconData? typeIcon;
     Color? typeIconColor;
-    if (isMachineWork)      { typeIcon = Icons.construction_outlined;    typeIconColor = Colors.blueGrey.shade600; }
-    else if (isJobWork)     { typeIcon = Icons.build_circle_outlined;    typeIconColor = Colors.purple.shade600; }
-    else if (isTransportPayable) { typeIcon = Icons.local_shipping_outlined; typeIconColor = Colors.deepOrange.shade600; }
-    else if (isDelivery)    { typeIcon = Icons.swap_horiz_outlined;      typeIconColor = Colors.teal.shade600; }
-    else if (isPayment)     { typeIcon = Icons.arrow_upward_rounded;     typeIconColor = Colors.indigo.shade600; }
+    if (isMachineWork)           { typeIcon = Icons.construction_outlined;    typeIconColor = Colors.blueGrey.shade500; }
+    else if (isJobWork)          { typeIcon = Icons.build_circle_outlined;    typeIconColor = Colors.blueGrey.shade500; }
+    else if (isTransportPayable) { typeIcon = Icons.local_shipping_outlined;  typeIconColor = Colors.blueGrey.shade500; }
+    else if (isDelivery)         { typeIcon = Icons.swap_horiz_outlined;      typeIconColor = Colors.blueGrey.shade500; }
+    else if (isPayment)          { typeIcon = Icons.arrow_upward_rounded;     typeIconColor = Colors.blue.shade600; }
 
-    // Right-side type label + color
+    // Right-side type label + color — spec: Orange=Billed, Green=Received, Blue-gray=Informational
     final (typeLabel, typeLabelColor) = isSales
-        ? ('Billed', Colors.orange.shade700)
-        : isMachineWork  ? ('Machine Work', Colors.blueGrey.shade600)
-        : isJobWork      ? ('Job Work',     Colors.purple.shade600)
-        : isTransportPayable ? ('Transport', Colors.deepOrange.shade600)
-        : isDelivery     ? ('Delivery',     Colors.teal.shade700)
-        : isPayment      ? ('Paid Out',     Colors.indigo.shade700)
+        ? ('Billed',        Colors.orange.shade700)
+        : isMachineWork    ? ('Machine Work', Colors.blueGrey.shade600)
+        : isJobWork        ? ('Job Work',     Colors.blueGrey.shade600)
+        : isTransportPayable ? ('Transport',  Colors.blueGrey.shade600)
+        : isDelivery       ? ('Trip / Delivery', Colors.blueGrey.shade600)
+        : isPayment        ? ('Paid Out',     Colors.blue.shade700)
         : ('Received', Colors.green.shade700);
 
     // Amount to display on the right
@@ -1052,12 +1047,12 @@ class _EntryCardState extends State<_EntryCard> {
                 ? (debit ?? 0.0)
                 : credit;
 
-    final amtColor = isSales ? Colors.orange.shade800
-        : isMachineWork ? Colors.blueGrey.shade700
-        : isJobWork ? Colors.purple.shade700
-        : isTransportPayable ? Colors.deepOrange.shade700
-        : isDelivery ? Colors.teal.shade800
-        : isPayment ? Colors.indigo.shade700
+    final amtColor = isSales          ? Colors.orange.shade800
+        : isMachineWork               ? Colors.blueGrey.shade700
+        : isJobWork                   ? Colors.blueGrey.shade700
+        : isTransportPayable          ? Colors.blueGrey.shade700
+        : isDelivery                  ? Colors.blueGrey.shade700
+        : isPayment                   ? Colors.blue.shade700
         : Colors.green.shade700;
 
     // All entries navigate to their home module; tapping returns here with onRefresh called

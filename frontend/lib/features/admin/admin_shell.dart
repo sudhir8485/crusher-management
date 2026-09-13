@@ -43,6 +43,10 @@ class _AdminSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
 
+    if (MediaQuery.of(context).size.width < 700) {
+      return _buildNarrowRail(context, location);
+    }
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: SizedBox(
@@ -161,6 +165,115 @@ class _AdminSidebar extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNarrowRail(BuildContext context, String location) {
+    final isTenantsSelected = location == '/admin/tenants';
+    const color = Colors.deepPurple;
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: SizedBox(
+        width: 56,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header icon
+            Container(
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: const Icon(Icons.admin_panel_settings,
+                  size: 20, color: Colors.deepPurple),
+            ),
+
+            // Nav items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                children: [
+                  Tooltip(
+                    message: 'Tenants',
+                    preferBelow: false,
+                    waitDuration: const Duration(milliseconds: 300),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: isTenantsSelected
+                            ? color.withValues(alpha: 0.1)
+                            : null,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => context.go('/admin/tenants'),
+                          child: SizedBox(
+                            height: 40,
+                            child: Center(
+                              child: Icon(
+                                isTenantsSelected
+                                    ? Icons.domain
+                                    : Icons.domain_outlined,
+                                size: 20,
+                                color: isTenantsSelected
+                                    ? color
+                                    : Colors.grey[600],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Footer
+            Container(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Tooltip(
+                message: userName != null ? '$userName — Logout' : 'Logout',
+                child: InkWell(
+                  onTap: () async {
+                    await AuthStorage.clear();
+                    if (context.mounted) context.go('/login');
+                  },
+                  child: SizedBox(
+                    height: 48,
+                    child: Center(
+                      child: userName != null
+                          ? CircleAvatar(
+                              radius: 13,
+                              backgroundColor:
+                                  color.withValues(alpha: 0.12),
+                              child: Text(
+                                userName![0].toUpperCase(),
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: color),
+                              ),
+                            )
+                          : const Icon(Icons.logout,
+                              size: 18, color: Colors.grey),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
