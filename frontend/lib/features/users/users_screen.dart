@@ -260,7 +260,7 @@ class _UserCard extends StatelessWidget {
                   ),
                 ),
                 if (role == 'SITE_STAFF' && siteName != null) ...[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   const Icon(Icons.location_on, size: 12, color: Colors.teal),
                   const SizedBox(width: 2),
                   Flexible(
@@ -269,14 +269,11 @@ class _UserCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis),
                   ),
                 ],
-                if (createdAt.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text('Added $createdAt',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey[500])),
-                ],
               ],
             ),
+            if (createdAt.isNotEmpty)
+              Text('Added $createdAt',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
           ],
         ),
         isThreeLine: true,

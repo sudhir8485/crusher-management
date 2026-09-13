@@ -172,19 +172,16 @@ class _PartiesTabState extends ConsumerState<_PartiesTab> {
           // ── Filter chips ─────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(children: [
+            child: Wrap(spacing: 6, runSpacing: 4, children: [
               for (final (label, value) in [
                 ('All', 'all'), ('Outstanding', 'outstanding'),
                 ('Advance', 'advance'), ('Settled', 'settled'), ('Occasional', 'occasional'),
               ])
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: FilterChip(
-                    label: Text(label, style: const TextStyle(fontSize: 12)),
-                    selected: _filter == value,
-                    onSelected: (_) => setState(() => _filter = value),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                FilterChip(
+                  label: Text(label, style: const TextStyle(fontSize: 12)),
+                  selected: _filter == value,
+                  onSelected: (_) => setState(() => _filter = value),
+                  visualDensity: VisualDensity.compact,
                 ),
             ]),
           ),
@@ -298,66 +295,73 @@ class _PartyBalanceCard extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(children: [
-            // Color dot
-            Container(
-              width: 10, height: 10,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(child: Text(name,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
-                  if (isGst)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: Colors.indigo.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.indigo.shade200),
-                      ),
-                      child: Text('GST', style: TextStyle(fontSize: 9,
-                          color: Colors.indigo.shade700, fontWeight: FontWeight.bold)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Row 1: dot + name (full width) + GST badge
+              Row(children: [
+                Container(
+                  width: 10, height: 10,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                ),
+                if (isGst) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.indigo.shade200),
                     ),
-                ]),
-                const SizedBox(height: 2),
-                Row(children: [
-                  if (contact.isNotEmpty)
-                    Text(contact, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                  if (contact.isNotEmpty && gstin.isNotEmpty)
-                    Text('  ·  ', style: TextStyle(color: Colors.grey[400])),
-                  if (gstin.isNotEmpty)
-                    Text(gstin, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                ]),
-                if (lastDate != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Last: ${_dateFmt.format(DateTime.parse(lastDate))}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                    child: Text('GST', style: TextStyle(fontSize: 9,
+                        color: Colors.indigo.shade700, fontWeight: FontWeight.bold)),
                   ),
                 ],
-              ],
-            )),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(balLabel, style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.bold, color: balColor)),
-              const SizedBox(height: 4),
-              if (isOwed)
-                TextButton.icon(
-                  onPressed: onRecordPayment,
-                  icon: const Icon(Icons.payments_outlined, size: 14),
-                  label: const Text('Pay', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.green.shade700,
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              ]),
+              // Row 2: contact · GSTIN · last date
+              if (contact.isNotEmpty || gstin.isNotEmpty || lastDate != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 20, top: 2),
+                  child: Text(
+                    [
+                      if (contact.isNotEmpty) contact,
+                      if (gstin.isNotEmpty) gstin,
+                      if (lastDate != null)
+                        'Last: ${_dateFmt.format(DateTime.parse(lastDate))}',
+                    ].join('  ·  '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                   ),
                 ),
-            ]),
-          ]),
+              // Row 3: balance label (left) + Pay button (right)
+              const SizedBox(height: 6),
+              Row(children: [
+                Text(balLabel,
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.bold, color: balColor)),
+                const Spacer(),
+                if (isOwed)
+                  TextButton.icon(
+                    onPressed: onRecordPayment,
+                    icon: const Icon(Icons.payments_outlined, size: 14),
+                    label: const Text('Pay', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.green.shade700,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    ),
+                  ),
+              ]),
+            ],
+          ),
         ),
       ),
     );

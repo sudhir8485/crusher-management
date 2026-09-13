@@ -67,11 +67,17 @@ class MasterListScreen<T> extends StatelessWidget {
                   ],
                 ),
               )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: value.length,
-                separatorBuilder: (ctx, i) => const Divider(height: 1),
-                itemBuilder: (ctx, i) => itemBuilder(value[i]),
+            : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 700),
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+                    itemCount: value.length,
+                    separatorBuilder: (ctx, i) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) => itemBuilder(value[i]),
+                  ),
+                ),
               ),
         _ => const SizedBox(),
       },

@@ -330,20 +330,17 @@ class _DateRangeBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips row
-        Row(children: [
+        Wrap(spacing: 6, runSpacing: 4, children: [
           for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(m.$2),
-                selected: mode == m.$1,
-                onSelected: (_) => onModeChanged(m.$1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                labelStyle: TextStyle(fontSize: 12,
-                    color: mode == m.$1 ? cs.onPrimary : null),
-                selectedColor: cs.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: mode == m.$1,
+              onSelected: (_) => onModeChanged(m.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: TextStyle(fontSize: 12,
+                  color: mode == m.$1 ? cs.onPrimary : null),
+              selectedColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           InkWell(
             onTap: () => _pickCustom(context),
@@ -2454,8 +2451,8 @@ class _TripFormState extends ConsumerState<_TripForm> {
               error: (e, _) => Text('Error loading materials: $e'),
               data: _materialPickerField,
             ),
-            const SizedBox(height: 14),
-            // Unit toggle — also auto-switches sale rate to the matching material default
+            const SizedBox(height: 12),
+            // Unit toggle
             Row(children: [
               Text('Unit:', style: TextStyle(fontSize: 13, color: Colors.grey[700])),
               const SizedBox(width: 12),
@@ -2469,7 +2466,9 @@ class _TripFormState extends ConsumerState<_TripForm> {
               Expanded(child: TextFormField(
                 controller: _loadedKg,
                 decoration: const InputDecoration(
-                    labelText: 'Loaded Weight', suffixText: 'kg'),
+                    labelText: 'Loaded Weight',
+                    suffixText: 'kg',
+                    border: OutlineInputBorder()),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (v) {
                   if (v != null && v.trim().isNotEmpty) {
@@ -2484,7 +2483,9 @@ class _TripFormState extends ConsumerState<_TripForm> {
               Expanded(child: TextFormField(
                 controller: _emptyKg,
                 decoration: const InputDecoration(
-                    labelText: 'Empty Weight', suffixText: 'kg'),
+                    labelText: 'Empty Weight',
+                    suffixText: 'kg',
+                    border: OutlineInputBorder()),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (v) {
                   if (v != null && v.trim().isNotEmpty) {
@@ -2528,61 +2529,67 @@ class _TripFormState extends ConsumerState<_TripForm> {
               ),
 
             const SizedBox(height: 12),
-            // Quantity × Sale Rate = Amount (auto when both filled, editable otherwise)
-            _formulaRow(
-              slot1: _qtyFromWeights && _billableQty != null
-                  ? _readonlyBox(
-                      '${numFmt.format(_billableQty!)} $_quantityUnit',
-                      'Qty ($_quantityUnit)')
-                  : TextFormField(
-                      controller: _manualQty,
-                      decoration: InputDecoration(
-                        labelText: 'Quantity *',
-                        suffixText: _quantityUnit,
-                        helperText: _netWeightKg == null ? 'Or fill weights above' : null,
+            // Row 1: Quantity  |  Rate
+            Row(children: [
+              Expanded(
+                child: _qtyFromWeights && _billableQty != null
+                    ? _readonlyBox(
+                        '${numFmt.format(_billableQty!)} $_quantityUnit',
+                        'Qty ($_quantityUnit)')
+                    : TextFormField(
+                        controller: _manualQty,
+                        decoration: InputDecoration(
+                          labelText: 'Quantity *',
+                          helperText: _netWeightKg == null ? 'Or fill weights above' : null,
+                          border: const OutlineInputBorder(),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Enter quantity';
+                          if (double.tryParse(v.trim()) == null) return 'Invalid';
+                          if (double.parse(v.trim()) < 0) return 'Must be ≥ 0';
+                          return null;
+                        },
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Enter quantity';
-                        if (double.tryParse(v.trim()) == null) return 'Invalid';
-                        if (double.parse(v.trim()) < 0) return 'Must be ≥ 0';
-                        return null;
-                      },
-                    ),
-              slot3: TextFormField(
-                controller: _saleRate,
-                decoration: InputDecoration(
-                  labelText: 'Rate',
-                  prefixText: '₹ ',
-                  suffixText: '/$_quantityUnit',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  if (v != null && v.trim().isNotEmpty &&
-                      double.tryParse(v.trim()) == null) return 'Invalid';
-                  return null;
-                },
               ),
-              // Total: read-only if qty×rate computable, editable otherwise
-              totalSlot: (_billableQty != null &&
-                      double.tryParse(_saleRate.text.trim()) != null)
-                  ? _readonlyBox(
-                      _materialAmount != null ? fmtCurr(_materialAmount!) : '—',
-                      'Amount', isTotal: true)
-                  : TextFormField(
-                      controller: _materialTotal,
-                      decoration: const InputDecoration(
-                        labelText: 'Amount',
-                        prefixText: '₹ ',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      validator: (v) {
-                        if (v != null && v.trim().isNotEmpty &&
-                            double.tryParse(v.trim()) == null) return 'Invalid';
-                        return null;
-                      },
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _saleRate,
+                  decoration: InputDecoration(
+                    labelText: 'Rate ($_quantityUnit)',
+                    prefixText: '₹ ',
+                    border: const OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) {
+                    if (v != null && v.trim().isNotEmpty &&
+                        double.tryParse(v.trim()) == null) return 'Invalid';
+                    return null;
+                  },
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            // Row 2: = Amount (full width)
+            (_billableQty != null && double.tryParse(_saleRate.text.trim()) != null)
+                ? _readonlyBox(
+                    _materialAmount != null ? fmtCurr(_materialAmount!) : '—',
+                    'Amount', isTotal: true)
+                : TextFormField(
+                    controller: _materialTotal,
+                    decoration: const InputDecoration(
+                      labelText: 'Amount',
+                      prefixText: '₹ ',
+                      border: OutlineInputBorder(),
                     ),
-            ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty &&
+                          double.tryParse(v.trim()) == null) return 'Invalid';
+                      return null;
+                    },
+                  ),
 
             // ── 4. Vehicle & Transportation ─────────────────────────────────
             _sectionHead('VEHICLE & TRANSPORTATION'),
@@ -2616,61 +2623,74 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 data: _vehiclePickerField,
               ),
               const SizedBox(height: 12),
-              const SizedBox(height: 4),
-              // Quantity × KM × Rate = Total (auto when dist+rate filled, editable otherwise)
-              _formulaRow(
-                slot1: _readonlyBox(
-                  _billableQty != null
-                      ? '${numFmt.format(_billableQty!)} $_quantityUnit'
-                      : '—',
-                  'Qty',
+              // Show the billable qty as context so users know what they're charging
+              if (_billableQty != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    Icon(Icons.info_outline, size: 14, color: Colors.grey[500]),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Qty: ${numFmt.format(_billableQty!)} $_quantityUnit',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ]),
                 ),
-                slot2: TextFormField(
-                  controller: _distance,
-                  decoration: const InputDecoration(
-                    labelText: 'Distance',
-                    suffixText: 'km',
+              // Row 1: Distance  |  Rate
+              Row(children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _distance,
+                    decoration: const InputDecoration(
+                      labelText: 'Distance (km)',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty &&
+                          double.tryParse(v.trim()) == null) return 'Invalid';
+                      return null;
+                    },
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  validator: (v) {
-                    if (v != null && v.trim().isNotEmpty &&
-                        double.tryParse(v.trim()) == null) return 'Invalid';
-                    return null;
-                  },
                 ),
-                slot3: TextFormField(
-                  controller: _transportRate,
-                  decoration: const InputDecoration(
-                    labelText: 'Rate',
-                    prefixText: '₹ ',
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _transportRate,
+                    decoration: const InputDecoration(
+                      labelText: 'Rate (₹/km)',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty &&
+                          double.tryParse(v.trim()) == null) return 'Invalid';
+                      return null;
+                    },
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  validator: (v) {
-                    if (v != null && v.trim().isNotEmpty &&
-                        double.tryParse(v.trim()) == null) return 'Invalid';
-                    return null;
-                  },
                 ),
-                // Total: read-only if dist+rate both filled, editable otherwise
-                totalSlot: (double.tryParse(_distance.text.trim()) != null &&
-                        double.tryParse(_transportRate.text.trim()) != null)
-                    ? _readonlyBox(
-                        _transportCharge != null ? fmtCurr(_transportCharge!) : '—',
-                        'Transport', isTotal: true)
-                    : TextFormField(
-                        controller: _transportChargeDirect,
-                        decoration: const InputDecoration(
-                          labelText: 'Transport',
-                          prefixText: '₹ ',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        validator: (v) {
-                          if (v != null && v.trim().isNotEmpty &&
-                              double.tryParse(v.trim()) == null) return 'Invalid';
-                          return null;
-                        },
+              ]),
+              const SizedBox(height: 8),
+              // Row 2: Transport total (full width)
+              (double.tryParse(_distance.text.trim()) != null &&
+                      double.tryParse(_transportRate.text.trim()) != null)
+                  ? _readonlyBox(
+                      _transportCharge != null ? fmtCurr(_transportCharge!) : '—',
+                      'Transport Charge', isTotal: true)
+                  : TextFormField(
+                      controller: _transportChargeDirect,
+                      decoration: const InputDecoration(
+                        labelText: 'Transport Charge',
+                        prefixText: '₹ ',
+                        border: OutlineInputBorder(),
                       ),
-              ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: (v) {
+                        if (v != null && v.trim().isNotEmpty &&
+                            double.tryParse(v.trim()) == null) return 'Invalid';
+                        return null;
+                      },
+                    ),
             ],
 
             // ── 5. Billing Summary ──────────────────────────────────────────

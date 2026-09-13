@@ -432,9 +432,12 @@ class _EmployeeAttendanceTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(name,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      Expanded(
+                        child: Text(name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 14)),
+                      ),
                       if (isPending) ...[
                         const SizedBox(width: 6),
                         Container(
@@ -457,42 +460,44 @@ class _EmployeeAttendanceTile extends StatelessWidget {
                       style:
                           TextStyle(fontSize: 11, color: Colors.grey[500]),
                     ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: _statuses.map((s) {
+                      final isSelected = currentStatus == s;
+                      final color = _statusColors[s]!;
+                      return GestureDetector(
+                        onTap: () => onStatusChanged(s),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? color
+                                : color.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isSelected
+                                  ? color
+                                  : color.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Text(
+                            _statusLabels[s]!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected ? Colors.white : color,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ],
               ),
-            ),
-            Wrap(
-              spacing: 6,
-              children: _statuses.map((s) {
-                final isSelected = currentStatus == s;
-                final color = _statusColors[s]!;
-                return GestureDetector(
-                  onTap: () => onStatusChanged(s),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? color
-                          : color.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected
-                            ? color
-                            : color.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Text(
-                      _statusLabels[s]!,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? Colors.white : color,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
             ),
           ],
         ),

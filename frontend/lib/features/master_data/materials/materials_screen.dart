@@ -31,21 +31,61 @@ class MaterialsScreen extends ConsumerWidget {
         if (rateBrass != null) subtitleParts.add('BRASS: ₹$rateBrass');
         if (rateTrans != null) subtitleParts.add('Transport: ₹$rateTrans/km');
         if (kpb       != null) subtitleParts.add('$kpb kg/brass');
-        return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.category)),
-          title: Text(m['name'] + (code != null && code.isNotEmpty ? '  ($code)' : '')),
-          subtitle: Text(subtitleParts.join('  ·  ')),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _showForm(context, ref, m)),
-              IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () =>
-                      _confirmDelete(context, ref, m['id'] as int, m['name'] as String)),
-            ],
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: Icon(Icons.category, size: 20,
+                      color: Theme.of(context).colorScheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        m['name'] + (code != null && code.isNotEmpty ? '  ($code)' : ''),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Text(
+                        subtitleParts.join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _showForm(context, ref, m),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      onPressed: () =>
+                          _confirmDelete(context, ref, m['id'] as int, m['name'] as String),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },

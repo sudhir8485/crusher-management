@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 String _apiError(dynamic err) {
@@ -371,20 +375,17 @@ class _MWDateRangeBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips
-        Row(children: [
+        Wrap(spacing: 6, runSpacing: 4, children: [
           for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(m.$2),
-                selected: mode == m.$1,
-                onSelected: (_) => onModeChanged(m.$1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                labelStyle: TextStyle(fontSize: 12,
-                    color: mode == m.$1 ? cs.onPrimary : null),
-                selectedColor: cs.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: mode == m.$1,
+              onSelected: (_) => onModeChanged(m.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: TextStyle(fontSize: 12,
+                  color: mode == m.$1 ? cs.onPrimary : null),
+              selectedColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           InkWell(
             onTap: () => _pickCustom(context),
@@ -480,8 +481,11 @@ class _SummaryBar extends StatelessWidget {
         children: [
           const Icon(Icons.construction, size: 18),
           const SizedBox(width: 8),
-          Text('${logs.length} ${logs.length == 1 ? 'entry' : 'entries'} $period',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text('${logs.length} ${logs.length == 1 ? 'entry' : 'entries'} $period',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
           const Spacer(),
           if (totalHours > 0) ...[
             const Icon(Icons.timer_outlined, size: 18),
@@ -500,6 +504,242 @@ class _SummaryBar extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── machine work challan PDF ──────────────────────────────────────────────────
+
+Future<void> _printMachineWorkChallan(
+    BuildContext context, Map<String, dynamic> log) async {
+  final font = await PdfGoogleFonts.notoSansRegular();
+  final fontBold = await PdfGoogleFonts.notoSansBold();
+  final businessName = await AuthStorage.getTenantName() ?? '';
+
+  final logDate = log['logDate'] as String? ?? '';
+  final machineName = log['machineName'] as String? ?? '—';
+  final machineType = log['machineType'] as String? ?? '';
+  final mode = (log['mode'] as String?)?.trim() ?? '';
+  final desc = (log['workDescription'] as String?)?.trim() ?? '';
+  final opening = log['openingReading'];
+  final closing = log['closingReading'];
+  final totalHours = log['totalHours'];
+  final notes = (log['notes'] as String?)?.trim() ?? '';
+
+  final workPurpose = (log['workPurpose'] ?? 'INTERNAL') as String;
+  final isBillable = workPurpose == 'CUSTOMER_BILLABLE';
+  final customerName = log['customerName'] as String?;
+  final rateStatus = log['rateStatus'] as String?;
+  final rate = log['rate'];
+  final totalAmount = log['totalAmount'];
+  final isPendingRate = isBillable && rateStatus == 'PENDING';
+
+  final hoursStr = totalHours != null
+      ? (totalHours as num).toStringAsFixed(2)
+      : '—';
+
+  String rs(dynamic v) =>
+      v != null ? '₹${_numFmt.format((v as num).toDouble())}' : '—';
+
+  pw.Widget col(String label, String val, {bool bold = false}) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 3),
+        child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.SizedBox(
+                  width: 110,
+                  child: pw.Text('$label:',
+                      style: pw.TextStyle(
+                          font: font,
+                          fontSize: 9,
+                          color: PdfColors.grey700))),
+              pw.Expanded(
+                  child: pw.Text(val,
+                      style: pw.TextStyle(
+                          font: bold ? fontBold : font,
+                          fontSize: 9,
+                          fontWeight: bold
+                              ? pw.FontWeight.bold
+                              : pw.FontWeight.normal))),
+            ]),
+      );
+
+  pw.Widget divider() => pw.Container(
+        margin: const pw.EdgeInsets.symmetric(vertical: 5),
+        height: 0.5,
+        color: PdfColors.grey400,
+      );
+
+  pw.Widget buildCopy(String copyLabel) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(14),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          // Header
+          pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      if (businessName.isNotEmpty)
+                        pw.Text(businessName,
+                            style: pw.TextStyle(
+                                font: fontBold,
+                                fontSize: 13,
+                                fontWeight: pw.FontWeight.bold)),
+                      pw.Text('MACHINE WORK CHALLAN',
+                          style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize:
+                                  businessName.isNotEmpty ? 11 : 14,
+                              fontWeight: pw.FontWeight.bold)),
+                      pw.Text(copyLabel,
+                          style: pw.TextStyle(
+                              font: font,
+                              fontSize: 9,
+                              color: PdfColors.grey600)),
+                    ]),
+                pw.Text('Date: $logDate',
+                    style: pw.TextStyle(font: font, fontSize: 9)),
+              ]),
+          divider(),
+
+          // Machine
+          pw.Text('MACHINE',
+              style: pw.TextStyle(
+                  font: fontBold,
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.grey600,
+                  letterSpacing: 0.5)),
+          pw.SizedBox(height: 4),
+          col('Machine', machineName, bold: true),
+          if (machineType.isNotEmpty) col('Type', machineType),
+          if (mode.isNotEmpty) col('Work Type', mode),
+          divider(),
+
+          // Work Details
+          pw.Text('WORK DETAILS',
+              style: pw.TextStyle(
+                  font: fontBold,
+                  fontSize: 8,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.grey600,
+                  letterSpacing: 0.5)),
+          pw.SizedBox(height: 4),
+          if (desc.isNotEmpty) col('Description', desc),
+          if (opening != null)
+            col('Opening Reading',
+                (opening as num).toStringAsFixed(2)),
+          if (closing != null)
+            col('Closing Reading',
+                (closing as num).toStringAsFixed(2)),
+          col('Total Hours', '$hoursStr hrs', bold: true),
+          divider(),
+
+          // Billing (only for CUSTOMER_BILLABLE)
+          if (isBillable) ...[
+            pw.Text('BILLING',
+                style: pw.TextStyle(
+                    font: fontBold,
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.grey600,
+                    letterSpacing: 0.5)),
+            pw.SizedBox(height: 4),
+            if (customerName != null) col('Customer', customerName),
+            if (!isPendingRate && rate != null)
+              col('Rate', '${rs(rate)} / hr'),
+            if (isPendingRate)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 3),
+                child: pw.Text('Rate: Pending — to be confirmed',
+                    style: pw.TextStyle(
+                        font: font,
+                        fontSize: 9,
+                        color: PdfColors.grey600,
+                        fontStyle: pw.FontStyle.italic)),
+              )
+            else ...[
+              pw.SizedBox(height: 4),
+              pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('TOTAL AMOUNT',
+                        style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 11,
+                            fontWeight: pw.FontWeight.bold)),
+                    pw.Text(rs(totalAmount),
+                        style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 13,
+                            fontWeight: pw.FontWeight.bold)),
+                  ]),
+            ],
+            divider(),
+          ],
+
+          // Notes
+          if (notes.isNotEmpty) ...[
+            pw.Text(notes,
+                style: pw.TextStyle(
+                    font: font, fontSize: 9, color: PdfColors.grey600)),
+            divider(),
+          ],
+
+          pw.SizedBox(height: 16),
+          // Signatures
+          pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Container(
+                          width: 140, height: 0.5, color: PdfColors.grey600),
+                      pw.SizedBox(height: 3),
+                      pw.Text('Operator / Supervisor',
+                          style: pw.TextStyle(
+                              font: font,
+                              fontSize: 8,
+                              color: PdfColors.grey600)),
+                    ]),
+                pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                          width: 140, height: 0.5, color: PdfColors.grey600),
+                      pw.SizedBox(height: 3),
+                      pw.Text('Authorised Signature',
+                          style: pw.TextStyle(
+                              font: font,
+                              fontSize: 8,
+                              color: PdfColors.grey600)),
+                    ]),
+              ]),
+        ],
+      ),
+    );
+  }
+
+  final doc =
+      pw.Document(theme: pw.ThemeData.withFont(base: font, bold: fontBold));
+  doc.addPage(pw.Page(
+    pageFormat: PdfPageFormat.a4.landscape,
+    margin: const pw.EdgeInsets.all(18),
+    build: (_) => pw.Row(
+      children: [
+        pw.Expanded(child: buildCopy('Original Copy')),
+        pw.SizedBox(width: 12),
+        pw.Expanded(child: buildCopy('Duplicate Copy')),
+      ],
+    ),
+  ));
+  await Printing.layoutPdf(onLayout: (_) => doc.save());
 }
 
 // ── log card ─────────────────────────────────────────────────────────────────
@@ -553,104 +793,115 @@ class _LogCard extends StatelessWidget {
           child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                if (mode.isNotEmpty) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(mode,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue)),
+            // Row 1: badges (left) + date + menu (right)
+            Row(children: [
+              if (mode.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  const SizedBox(width: 6),
-                ],
-                if (isBillable) ...[
-                  _BillableBadge(
-                    isPendingRate: isPendingRate,
-                    isGstPending: isGstPending,
-                    isGstSet: isGstSet,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(machineName,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
-                      if (machineType.isNotEmpty)
-                        Text(machineType,
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                    ],
-                  ),
-                ),
-                // Date badge for non-day modes
-                if (showDate && logDateStr != null) ...[
-                  Text(
-                    DateFormat('d MMM').format(DateTime.parse(logDateStr)),
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                if (isBillable && totalAmount != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '₹${_numFmt.format((totalAmount as num).toDouble())}',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.purple.shade700,
-                          fontSize: 14),
-                    ),
-                  )
-                else if (totalHours != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '${(totalHours as num).toStringAsFixed(2)} hrs',
+                  child: Text(mode,
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                          fontSize: 14),
-                    ),
-                  ),
-                PopupMenuButton<String>(
-                  onSelected: (v) {
-                    if (v == 'edit') onEdit();
-                    if (v == 'delete') onDelete();
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Delete',
-                            style: TextStyle(color: Colors.red))),
-                  ],
+                          fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue)),
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (isBillable) ...[
+                _BillableBadge(
+                  isPendingRate: isPendingRate,
+                  isGstPending: isGstPending,
+                  isGstSet: isGstSet,
                 ),
               ],
-            ),
+              const Spacer(),
+              if (showDate && logDateStr != null)
+                Text(
+                  DateFormat('d MMM').format(DateTime.parse(logDateStr)),
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              PopupMenuButton<String>(
+                onSelected: (v) async {
+                  await Future.delayed(Duration.zero);
+                  if (!context.mounted) return;
+                  if (v == 'print') _printMachineWorkChallan(context, log);
+                  if (v == 'edit') onEdit();
+                  if (v == 'delete') onDelete();
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'print',
+                      child: Row(children: [
+                        Icon(Icons.print_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('Print Challan'),
+                      ])),
+                  const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Delete', style: TextStyle(color: Colors.red))),
+                ],
+              ),
+            ]),
+            // Row 2: machine name + type (full width)
+            Row(children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(machineName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    if (machineType.isNotEmpty)
+                      Text(machineType,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  ],
+                ),
+              ),
+              // Amount / hours badge — right of name row
+              if (isBillable && totalAmount != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '₹${_numFmt.format((totalAmount as num).toDouble())}',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple.shade700,
+                        fontSize: 14),
+                  ),
+                )
+              else if (totalHours != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${(totalHours as num).toStringAsFixed(2)} hrs',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14),
+                  ),
+                ),
+            ]),
             if (isBillable && customerName != null) ...[
               const SizedBox(height: 6),
               Row(children: [
                 Icon(Icons.person_outline, size: 14, color: Colors.grey[600]),
                 const SizedBox(width: 4),
-                Text(customerName,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                Flexible(
+                  child: Text(customerName,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                ),
                 if (rate != null && rateStatus == 'SET') ...[
                   const SizedBox(width: 8),
                   Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
@@ -664,17 +915,16 @@ class _LogCard extends StatelessWidget {
             ],
             if (opening != null || closing != null) ...[
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 16,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _Reading(label: 'Opening', value: opening),
-                  const SizedBox(width: 16),
                   const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
-                  const SizedBox(width: 16),
                   _Reading(label: 'Closing', value: closing),
-                  if (totalHours != null && isBillable) ...[
-                    const SizedBox(width: 16),
+                  if (totalHours != null && isBillable)
                     _Reading(label: 'Hours', value: (totalHours as num).toDouble()),
-                  ],
                 ],
               ),
             ],

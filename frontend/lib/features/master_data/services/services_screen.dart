@@ -33,35 +33,71 @@ class ServicesScreen extends ConsumerWidget {
         else subtitleParts.add('GST: not set');
         if (sac != null && sac.isNotEmpty) subtitleParts.add('SAC $sac');
 
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: configured
-                ? Theme.of(context).colorScheme.primaryContainer
-                : Colors.amber.shade100,
-            child: Icon(Icons.handyman_outlined,
-                color: configured ? Theme.of(context).colorScheme.primary : Colors.orange),
-          ),
-          title: Text(s['name'] + (code != null && code.isNotEmpty ? '  ($code)' : '')),
-          subtitle: Text(subtitleParts.join('  ·  ')),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!configured)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Tooltip(
-                    message: 'GST rate not configured — invoices will be PENDING',
-                    child: Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade700),
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: configured
+                      ? Theme.of(context).colorScheme.primaryContainer
+                      : Colors.amber.shade100,
+                  child: Icon(Icons.handyman_outlined, size: 20,
+                      color: configured
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.orange),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s['name'] + (code != null && code.isNotEmpty ? '  ($code)' : ''),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Text(
+                        subtitleParts.join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
                   ),
                 ),
-              IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _showForm(context, ref, s)),
-              IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () =>
-                      _confirmDelete(context, ref, s['id'] as int, s['name'] as String)),
-            ],
+                const SizedBox(width: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!configured)
+                      Tooltip(
+                        message: 'GST rate not configured — invoices will be PENDING',
+                        child: Icon(Icons.warning_amber_rounded,
+                            size: 18, color: Colors.orange.shade700),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _showForm(context, ref, s),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      onPressed: () =>
+                          _confirmDelete(context, ref, s['id'] as int, s['name'] as String),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },

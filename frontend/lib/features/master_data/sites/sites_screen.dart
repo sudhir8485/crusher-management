@@ -30,51 +30,93 @@ class SitesScreen extends ConsumerWidget {
         final siteType       = s['siteType'] as String? ?? 'OWN';
         final isClient       = siteType == 'CLIENT_SITE';
         final linkedPartyName = s['linkedPartyName'] as String?;
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: isClient
-                ? Colors.purple.withValues(alpha: 0.12)
-                : Colors.green.withValues(alpha: 0.12),
-            child: Icon(
-              isClient ? Icons.business_outlined : Icons.location_on_outlined,
-              color: isClient ? Colors.purple : Colors.green,
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: isClient
+                      ? Colors.purple.withValues(alpha: 0.12)
+                      : Colors.green.withValues(alpha: 0.12),
+                  child: Icon(
+                    isClient ? Icons.business_outlined : Icons.location_on_outlined,
+                    size: 20,
+                    color: isClient ? Colors.purple : Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Expanded(
+                          child: Text(
+                            s['name'] as String,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isClient
+                                ? Colors.purple.withValues(alpha: 0.1)
+                                : Colors.green.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: isClient
+                                    ? Colors.purple.withValues(alpha: 0.4)
+                                    : Colors.green.withValues(alpha: 0.4)),
+                          ),
+                          child: Text(
+                            isClient ? 'Client Site' : 'Own Site',
+                            style: TextStyle(
+                                fontSize: 10, fontWeight: FontWeight.w600,
+                                color: isClient ? Colors.purple : Colors.green),
+                          ),
+                        ),
+                      ]),
+                      Text(
+                        [
+                          if (s['location'] != null && (s['location'] as String).isNotEmpty)
+                            s['location'] as String,
+                          if (isClient && linkedPartyName != null) 'Party: $linkedPartyName',
+                        ].join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _showForm(context, ref, s),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      onPressed: () => _confirmDelete(context, ref, s['id'] as int, s['name'] as String),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          title: Row(children: [
-            Expanded(child: Text(s['name'])),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: isClient
-                    ? Colors.purple.withValues(alpha: 0.1)
-                    : Colors.green.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                    color: isClient
-                        ? Colors.purple.withValues(alpha: 0.4)
-                        : Colors.green.withValues(alpha: 0.4)),
-              ),
-              child: Text(
-                isClient ? 'Client Site' : 'Own Site',
-                style: TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.w600,
-                    color: isClient ? Colors.purple : Colors.green),
-              ),
-            ),
-          ]),
-          subtitle: Text([
-            if (s['location'] != null && (s['location'] as String).isNotEmpty)
-              s['location'] as String,
-            if (isClient && linkedPartyName != null) 'Party: $linkedPartyName',
-          ].join('  ·  ')),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _showForm(context, ref, s)),
-              IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => _confirmDelete(context, ref, s['id'] as int, s['name'] as String)),
-            ],
           ),
         );
       },

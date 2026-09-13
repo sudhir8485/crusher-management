@@ -59,54 +59,108 @@ class _VehiclesScreenState extends ConsumerState<VehiclesScreen> {
 
         return Opacity(
           opacity: isActive ? 1.0 : 0.55,
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isActive ? null : Colors.grey.shade200,
-              child: Icon(Icons.local_shipping, color: isActive ? null : Colors.grey),
-            ),
-            title: Row(children: [
-              Expanded(child: Text('$plate${display != null ? "  ($display)" : ""}')),
-              if (!isActive)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(4),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Left: avatar
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: isActive
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : Colors.grey.shade200,
+                    child: Icon(Icons.local_shipping, size: 20,
+                        color: isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey),
                   ),
-                  child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-                ),
-            ]),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${v['owner']} · ${v['vehicleType'] ?? ""}'),
-                if (linkedMachineName != null)
-                  Row(children: [
-                    Icon(Icons.construction, size: 12, color: Colors.teal.shade600),
-                    const SizedBox(width: 4),
-                    Text('Linked to Machine: $linkedMachineName',
-                        style: TextStyle(fontSize: 11, color: Colors.teal.shade700)),
-                  ]),
-              ],
+                  const SizedBox(width: 10),
+                  // Centre: plate, owner/type, linked machine — Expanded
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(
+                            child: Text(
+                              '$plate${display != null ? "  ($display)" : ""}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                          ),
+                          if (!isActive)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text('Inactive',
+                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                            ),
+                        ]),
+                        Text(
+                          '${v['owner']} · ${v['vehicleType'] ?? ""}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                        if (linkedMachineName != null)
+                          Row(children: [
+                            Icon(Icons.construction, size: 12, color: Colors.teal.shade600),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Linked: $linkedMachineName',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11, color: Colors.teal.shade700),
+                              ),
+                            ),
+                          ]),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Right: fixed-width actions — always same position
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          isActive ? Icons.toggle_on : Icons.toggle_off,
+                          size: 28,
+                          color: isActive ? Colors.green : Colors.grey,
+                        ),
+                        onPressed: () => _toggleActive(context, ref, v['id'] as int, plate),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () => _showForm(context, ref, v),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        onPressed: () => _confirmDelete(context, ref, v['id'] as int,
+                            '$plate${display != null ? " ($display)" : ""}'),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            isThreeLine: linkedMachineName != null,
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              // Active/Inactive toggle
-              Switch(
-                value: isActive,
-                onChanged: (_) => _toggleActive(context, ref, v['id'] as int, plate),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                onPressed: () => _showForm(context, ref, v),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () => _confirmDelete(context, ref, v['id'] as int,
-                    '$plate${display != null ? " ($display)" : ""}'),
-              ),
-            ]),
           ),
         );
       },

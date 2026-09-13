@@ -69,15 +69,21 @@ class _VendorsScreenState extends ConsumerState<VendorsScreen> {
               Text('Tap + to add a party', style: TextStyle(fontSize: 13, color: Colors.grey)),
             ]));
           }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-            itemCount: list.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) => _PartyCard(
-              party: list[i],
-              onEdit: () => _showForm(context, ref, list[i]),
-              onDelete: () => _confirmDelete(context, ref, list[i]['id'] as int, list[i]['name'] as String),
-              onToggle: () => _toggleActive(context, ref, list[i]['id'] as int),
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+                itemCount: list.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (_, i) => _PartyCard(
+                  party: list[i],
+                  onEdit: () => _showForm(context, ref, list[i]),
+                  onDelete: () => _confirmDelete(context, ref, list[i]['id'] as int, list[i]['name'] as String),
+                  onToggle: () => _toggleActive(context, ref, list[i]['id'] as int),
+                ),
+              ),
             ),
           );
         },
@@ -183,56 +189,82 @@ class _PartyCard extends StatelessWidget {
       opacity: isActive ? 1.0 : 0.6,
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            CircleAvatar(
-              backgroundColor: !isActive
-                  ? Colors.grey.shade200
-                  : hasOutstanding ? Colors.red.shade50 : Colors.green.shade50,
-              child: Icon(Icons.people,
-                  color: !isActive ? Colors.grey : hasOutstanding ? Colors.red : Colors.green),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
-                if (!isActive)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
-                    child: Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+          padding: const EdgeInsets.fromLTRB(12, 12, 4, 4),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              // Left: avatar
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: !isActive
+                    ? Colors.grey.shade200
+                    : hasOutstanding ? Colors.red.shade50 : Colors.green.shade50,
+                child: Icon(Icons.people, size: 20,
+                    color: !isActive ? Colors.grey : hasOutstanding ? Colors.red : Colors.green),
+              ),
+              const SizedBox(width: 10),
+              // Centre: name, contact/GSTIN, badge — fills remaining space
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text(
+                      [if (gstin.isNotEmpty) gstin, if (contact.isNotEmpty) contact].join('  ·  '),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 4),
+                    if (isActive)
+                      hasOutstanding
+                          ? _badge(_currFmt.format(outstanding), Colors.red)
+                          : _badge('Settled', Colors.green),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              // Right: fixed-width actions — always same position on every card
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isActive)
+                    IconButton(
+                      icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                      tooltip: 'Ledger',
+                      onPressed: () => context.go('/ledger'),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      isActive ? Icons.toggle_on : Icons.toggle_off,
+                      size: 28,
+                      color: isActive ? Colors.green : Colors.grey,
+                    ),
+                    onPressed: onToggle,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   ),
-              ]),
-              if (gstin.isNotEmpty || contact.isNotEmpty)
-                Text([if (gstin.isNotEmpty) gstin, if (contact.isNotEmpty) contact].join('  ·  '),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 6),
-              if (isActive) ...[
-                hasOutstanding
-                    ? _badge('Outstanding: ${_currFmt.format(outstanding)}', Colors.red)
-                    : _badge('No outstanding', Colors.green),
-              ],
-            ])),
-            Column(mainAxisSize: MainAxisSize.min, children: [
-              if (isActive)
-                TextButton(
-                  onPressed: () => context.go('/ledger'),
-                  child: const Text('Ledger', style: TextStyle(fontSize: 12)),
-                ),
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                // Active/Inactive toggle
-                Switch(
-                  value: isActive,
-                  onChanged: (_) => onToggle(),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                  onPressed: onDelete,
-                ),
-              ]),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    onPressed: onEdit,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                    onPressed: onDelete,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                ],
+              ),
             ]),
           ]),
         ),

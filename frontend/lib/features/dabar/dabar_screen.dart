@@ -343,20 +343,17 @@ class _DabarDateRangeBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips row
-        Row(children: [
+        Wrap(spacing: 6, runSpacing: 4, children: [
           for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(m.$2),
-                selected: mode == m.$1,
-                onSelected: (_) => onModeChanged(m.$1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                labelStyle: TextStyle(fontSize: 12,
-                    color: mode == m.$1 ? cs.onPrimary : null),
-                selectedColor: cs.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: mode == m.$1,
+              onSelected: (_) => onModeChanged(m.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: TextStyle(fontSize: 12,
+                  color: mode == m.$1 ? cs.onPrimary : null),
+              selectedColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           InkWell(
             onTap: () => _pickCustom(context),
@@ -839,17 +836,13 @@ class _DabarCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('Party: $vendor', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     const SizedBox(height: 6),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
-                        if (trips != null)
-                          _Badge('$trips Trips', Colors.orange.shade700),
-                        if (trips != null && brass != null) const SizedBox(width: 8),
-                        if (brass != null)
-                          _Badge('$brass Brass', Colors.green),
-                        if (hasPayable) ...[
-                          const SizedBox(width: 8),
-                          _Badge('Payable', Colors.deepOrange),
-                        ],
+                        if (trips != null) _Badge('$trips Trips', Colors.orange.shade700),
+                        if (brass != null) _Badge('$brass Brass', Colors.green),
+                        if (hasPayable)    _Badge('Payable', Colors.deepOrange),
                       ],
                     ),
                     if (entry['notes'] != null && (entry['notes'] as String).isNotEmpty)
