@@ -16,7 +16,16 @@ class MasterShell extends StatelessWidget {
 
     if (isMobile) {
       return Scaffold(
-        body: SafeArea(bottom: false, child: child),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _MobileAppHeader(),
+              Expanded(child: child),
+            ],
+          ),
+        ),
         bottomNavigationBar: _MobileBottomNav(location: location),
       );
     }
@@ -49,6 +58,62 @@ class MasterShell extends StatelessWidget {
   }
 }
 
+
+// ── Mobile app header ─────────────────────────────────────────────────────────
+
+class _MobileAppHeader extends StatelessWidget {
+  const _MobileAppHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+      ),
+      child: Row(
+        children: [
+          // Icon badge
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [primary, primary.withValues(alpha: 0.75)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.terrain, color: Colors.white, size: 17),
+          ),
+          const SizedBox(width: 9),
+          // App name with gradient text
+          ShaderMask(
+            shaderCallback: (bounds) => LinearGradient(
+              colors: [primary, Color.lerp(primary, Colors.indigo, 0.5)!],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ).createShader(bounds),
+            blendMode: BlendMode.srcIn,
+            child: const Text(
+              'SITE MANAGER',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2.5,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 // ── Mobile bottom navigation (6 items) ───────────────────────────────────────
 
