@@ -31,4 +31,8 @@ public interface AttendanceRepository extends JpaRepository<AttendanceRecord, Lo
     List<Object[]> countByStatusForEmployee(@Param("empId") Long empId,
                                             @Param("from") LocalDate from,
                                             @Param("to") LocalDate to);
+
+    // All attendance records for one employee strictly before a date (for opening balance computation)
+    List<AttendanceRecord> findByEmployeeIdAndAttendanceDateBeforeOrderByAttendanceDateAsc(
+            Long employeeId, LocalDate before);
 }

@@ -47,7 +47,7 @@ public class TripResponse {
     private BigDecimal totalBill;
 
     // ── Documents & Additional ────────────────────────────────────────────────
-    private String dspChallanNo;
+    private String challanNo;
     private String vendorChallanNo;
     private String channelNo;
     private String loadingLocation;

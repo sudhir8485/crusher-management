@@ -1,8 +1,6 @@
 package com.dsp.crusher.controller;
 
-import com.dsp.crusher.dto.ConsolidatedDailyReport;
 import com.dsp.crusher.dto.ReportResponse;
-import com.dsp.crusher.service.DailyReportService;
 import com.dsp.crusher.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -18,13 +16,6 @@ import java.time.LocalDate;
 public class ReportController {
 
     private final ReportService service;
-    private final DailyReportService dailyService;
-
-    @GetMapping("/daily")
-    public ConsolidatedDailyReport daily(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return dailyService.build(date != null ? date : LocalDate.now());
-    }
 
     private LocalDate defaultFrom(LocalDate to) {
         return to.withDayOfMonth(1);
@@ -33,22 +24,25 @@ public class ReportController {
     @GetMapping("/machine-work")
     public ReportResponse machineWork(
             @RequestParam(required = false) Long machineId,
+            @RequestParam(required = false) Long customerId,
             @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.machineWorkReport(machineId, siteId, effectiveFrom, effectiveTo);
+        return service.machineWorkReport(machineId, customerId, siteId, effectiveFrom, effectiveTo);
     }
 
     @GetMapping("/diesel")
     public ReportResponse diesel(
             @RequestParam(required = false) Long siteId,
+            @RequestParam(required = false) Long vehicleId,
+            @RequestParam(required = false) Long machineId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.dieselReport(siteId, effectiveFrom, effectiveTo);
+        return service.dieselReport(siteId, vehicleId, machineId, effectiveFrom, effectiveTo);
     }
 
     @GetMapping("/trips")
@@ -79,11 +73,22 @@ public class ReportController {
     @GetMapping("/attendance")
     public ReportResponse attendance(
             @RequestParam(required = false) Long employeeId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
+        LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
+        return service.attendanceReport(employeeId, effectiveFrom, effectiveTo);
+    }
+
+    @GetMapping("/materials")
+    public ReportResponse materials(
+            @RequestParam(required = false) Long materialId,
+            @RequestParam(required = false) Long vendorId,
             @RequestParam(required = false) Long siteId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         LocalDate effectiveTo   = to   != null ? to   : LocalDate.now();
         LocalDate effectiveFrom = from != null ? from : defaultFrom(effectiveTo);
-        return service.attendanceReport(employeeId, siteId, effectiveFrom, effectiveTo);
+        return service.materialsReport(materialId, vendorId, siteId, effectiveFrom, effectiveTo);
     }
 }

@@ -94,8 +94,8 @@ public class Trip {
 
     // ── Documents & Additional ────────────────────────────────────────────────
 
-    @Column(name = "dsp_challan_no", length = 50)
-    private String dspChallanNo;
+    @Column(name = "challan_no", length = 50)
+    private String challanNo;
 
     @Column(name = "vendor_challan_no", length = 50)
     private String vendorChallanNo;

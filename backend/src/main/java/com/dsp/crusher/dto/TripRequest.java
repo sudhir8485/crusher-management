@@ -47,7 +47,7 @@ public class TripRequest {
     private BigDecimal transportationChargeDirect; // used when transportMode == DIRECT
 
     // ── Documents & Additional ────────────────────────────────────────────────
-    private String dspChallanNo;
+    private String challanNo;
     private String vendorChallanNo;
     private String channelNo;
     private String loadingLocation;

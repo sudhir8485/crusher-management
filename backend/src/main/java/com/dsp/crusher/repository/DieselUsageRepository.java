@@ -33,5 +33,9 @@ public interface DieselUsageRepository extends JpaRepository<DieselUsage, Long> 
     @Query("SELECT COALESCE(SUM(u.quantityLiters), 0) FROM DieselUsage u WHERE u.status = 'ACTIVE' AND (:siteId IS NULL OR u.siteId = :siteId)")
     BigDecimal sumTotalUsedBySite(@Param("siteId") Long siteId);
 
+    // Combined filter for Diesel report (vehicle/machine consumer filter)
+    @Query("SELECT u FROM DieselUsage u WHERE u.usageDate BETWEEN :from AND :to AND u.status = 'ACTIVE' AND (:siteId IS NULL OR u.siteId = :siteId) AND (:vehicleId IS NULL OR u.vehicleId = :vehicleId) AND (:machineId IS NULL OR u.machineId = :machineId) ORDER BY u.usageDate ASC, u.id ASC")
+    List<DieselUsage> findByDateRangeAndFilters(@Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId, @Param("vehicleId") Long vehicleId, @Param("machineId") Long machineId);
+
     boolean existsByVehicleId(Long vehicleId);
 }

@@ -43,9 +43,15 @@ public class ReportResponse {
         private BigDecimal totalUsed;
         private BigDecimal closingStock;
 
-        // Trips / Dabar
+        // Trips / Dabar / Materials
         private int tripCount;
         private BigDecimal totalBrass;
+        private BigDecimal totalTon;
+        private BigDecimal totalAmount;
+        private BigDecimal totalTransport;
+
+        // Machine work billable total
+        private BigDecimal totalBilledAmount;
 
         // Attendance
         private int presentCount;

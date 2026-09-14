@@ -1,8 +1,6 @@
-// ignore: avoid_web_libraries_in_flutter
 import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
@@ -64,6 +62,9 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _emailCtrl;
   late final TextEditingController _gstinCtrl;
+  late final TextEditingController _bankNameCtrl;
+  late final TextEditingController _bankAccountNoCtrl;
+  late final TextEditingController _bankIfscCtrl;
   String? _logoBase64;
   bool _saving = false;
 
@@ -71,37 +72,33 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
   void initState() {
     super.initState();
     final p = widget.profile;
-    _nameCtrl    = TextEditingController(text: p['name'] as String? ?? '');
-    _addressCtrl = TextEditingController(text: p['address'] as String? ?? '');
-    _phoneCtrl   = TextEditingController(text: p['phone'] as String? ?? '');
-    _emailCtrl   = TextEditingController(text: p['email'] as String? ?? '');
-    _gstinCtrl   = TextEditingController(text: p['gstin'] as String? ?? '');
-    _logoBase64  = p['logoBase64'] as String?;
+    _nameCtrl         = TextEditingController(text: p['name']          as String? ?? '');
+    _addressCtrl      = TextEditingController(text: p['address']        as String? ?? '');
+    _phoneCtrl        = TextEditingController(text: p['phone']          as String? ?? '');
+    _emailCtrl        = TextEditingController(text: p['email']          as String? ?? '');
+    _gstinCtrl        = TextEditingController(text: p['gstin']          as String? ?? '');
+    _bankNameCtrl     = TextEditingController(text: p['bankName']       as String? ?? '');
+    _bankAccountNoCtrl= TextEditingController(text: p['bankAccountNo']  as String? ?? '');
+    _bankIfscCtrl     = TextEditingController(text: p['bankIfsc']       as String? ?? '');
+    _logoBase64       = p['logoBase64'] as String?;
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose(); _addressCtrl.dispose();
     _phoneCtrl.dispose(); _emailCtrl.dispose(); _gstinCtrl.dispose();
+    _bankNameCtrl.dispose(); _bankAccountNoCtrl.dispose(); _bankIfscCtrl.dispose();
     super.dispose();
   }
 
-  void _pickLogo() {
-    final input = html.FileUploadInputElement()
-      ..accept = 'image/png,image/jpeg,image/svg+xml'
-      ..click();
-    input.onChange.listen((event) {
-      final file = input.files?.first;
-      if (file == null) return;
-      final reader = html.FileReader();
-      reader.readAsArrayBuffer(file);
-      reader.onLoad.listen((_) {
-        final bytes = reader.result as Uint8List;
-        final b64 = base64Encode(bytes);
-        final mime = file.type;
-        setState(() => _logoBase64 = 'data:$mime;base64,$b64');
-      });
-    });
+  Future<void> _pickLogo() async {
+    final picker = ImagePicker();
+    final file   = await picker.pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    final b64   = base64Encode(bytes);
+    final mime  = file.mimeType ?? 'image/jpeg';
+    setState(() => _logoBase64 = 'data:$mime;base64,$b64');
   }
 
   Future<void> _save() async {
@@ -109,12 +106,15 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
     setState(() => _saving = true);
     try {
       await ref.read(apiClientProvider).put('/api/tenant/profile', data: {
-        'name':        _nameCtrl.text.trim(),
-        'address':     _addressCtrl.text.trim(),
-        'phone':       _phoneCtrl.text.trim(),
-        'email':       _emailCtrl.text.trim(),
-        'gstin':       _gstinCtrl.text.trim(),
-        'logoBase64':  _logoBase64,
+        'name':          _nameCtrl.text.trim(),
+        'address':       _addressCtrl.text.trim(),
+        'phone':         _phoneCtrl.text.trim(),
+        'email':         _emailCtrl.text.trim(),
+        'gstin':         _gstinCtrl.text.trim(),
+        'bankName':      _bankNameCtrl.text.trim(),
+        'bankAccountNo': _bankAccountNoCtrl.text.trim(),
+        'bankIfsc':      _bankIfscCtrl.text.trim().toUpperCase(),
+        'logoBase64':    _logoBase64,
       });
       widget.onSaved();
       if (mounted) {
@@ -155,29 +155,31 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                   children: [
                     _LogoPreview(logoBase64: _logoBase64),
                     const SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _pickLogo,
-                          icon: const Icon(Icons.upload, size: 18),
-                          label: const Text('Upload Logo'),
-                        ),
-                        if (_logoBase64 != null) ...[
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: () => setState(() => _logoBase64 = null),
-                            icon: const Icon(Icons.delete_outline,
-                                size: 16, color: Colors.red),
-                            label: const Text('Remove',
-                                style: TextStyle(color: Colors.red)),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _pickLogo,
+                            icon: const Icon(Icons.upload, size: 18),
+                            label: const Text('Upload Logo'),
                           ),
+                          if (_logoBase64 != null) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () => setState(() => _logoBase64 = null),
+                              icon: const Icon(Icons.delete_outline,
+                                  size: 16, color: Colors.red),
+                              label: const Text('Remove',
+                                  style: TextStyle(color: Colors.red)),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Text('PNG, JPG or SVG — shown on PDFs and invoices',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey[600])),
                         ],
-                        const SizedBox(height: 4),
-                        Text('PNG, JPG or SVG — shown on PDFs and invoices',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey[600])),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -236,6 +238,42 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                     labelText: 'GSTIN',
                     border: OutlineInputBorder(),
                     hintText: 'e.g. 27AABCD1234E1Z5',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                ),
+
+                const SizedBox(height: 24),
+
+                // Bank Details
+                _Section('Bank Details'),
+                const SizedBox(height: 4),
+                Text('Shown on printed invoices for payment',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _bankNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bank Name',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g. State Bank of India',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _bankAccountNoCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Account Number',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _bankIfscCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'IFSC Code',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g. SBIN0001234',
                   ),
                   textCapitalization: TextCapitalization.characters,
                 ),

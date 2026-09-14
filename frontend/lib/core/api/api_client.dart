@@ -1,8 +1,19 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const _baseUrl = 'http://localhost:8080';
+// Priority order:
+//   1. --dart-define=BASE_URL=<url>   (start.sh dev, start-mobile.sh ADB, start-apk.sh network)
+//   2. kIsWeb → Uri.base.origin       (start-server.sh: nginx proxies /api/ to backend)
+//   3. Native fallback                 (shouldn't normally be reached)
+const _dartDefineUrl = String.fromEnvironment('BASE_URL');
+
+String get _baseUrl {
+  if (_dartDefineUrl.isNotEmpty) return _dartDefineUrl;
+  if (kIsWeb) return Uri.base.origin;
+  return 'http://localhost:8080';
+}
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
 

@@ -15,8 +15,8 @@ public class SwaggerConfig {
     public OpenAPI openAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("DSP Crusher Management API")
-                        .description("Site management system for DSP Construction, Ratnagiri")
+                        .title("Crusher Management API")
+                        .description("Multi-tenant site management platform")
                         .version("1.0.0"))
                 .addSecurityItem(new SecurityRequirement().addList("Bearer"))
                 .components(new Components()

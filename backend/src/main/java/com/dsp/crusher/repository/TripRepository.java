@@ -124,6 +124,10 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     @Query("SELECT COALESCE(SUM(t.totalBill), 0) FROM Trip t WHERE t.vendorId = :vendorId AND t.autoInvoiced = true AND t.gstInvoiceId IS NULL AND t.totalBill > 0 AND t.status = 'ACTIVE'")
     java.math.BigDecimal sumAllAutoInvoicedDirectByVendorId(@Param("vendorId") Long vendorId);
 
+    // Combined AND-filter for reports (all params optional)
+    @Query("SELECT t FROM Trip t WHERE t.tripDate BETWEEN :from AND :to AND t.status = 'ACTIVE' AND (:siteId IS NULL OR t.siteId = :siteId) AND (:vehicleId IS NULL OR t.vehicleId = :vehicleId) AND (:materialId IS NULL OR t.materialId = :materialId) AND (:vendorId IS NULL OR t.vendorId = :vendorId) ORDER BY t.tripDate ASC, t.id ASC")
+    List<Trip> findByAllFiltersAndDateRange(@Param("vehicleId") Long vehicleId, @Param("materialId") Long materialId, @Param("vendorId") Long vendorId, @Param("from") LocalDate from, @Param("to") LocalDate to, @Param("siteId") Long siteId);
+
     // Reference-check for delete guard
     boolean existsByVehicleId(Long vehicleId);
     boolean existsByVendorId(Long vendorId);

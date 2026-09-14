@@ -48,6 +48,9 @@ public class SecurityConfig {
                 // SUPER_ADMIN excluded — has no tenant scope
                 .requestMatchers("/api/tenant/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
 
+                // ── Workforce: OWNER_ADMIN only ───────────────────────────────────────
+                .requestMatchers("/api/attendance/**", "/api/payroll/**").hasRole("OWNER_ADMIN")
+
                 // ── Finance + Reports: no SITE_STAFF ─────────────────────────────────
                 .requestMatchers("/api/invoices/**", "/api/job-work-invoices/**",
                         "/api/party-payments/**", "/api/ledger/**",
@@ -62,15 +65,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/diesel/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers("/api/dabar/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers("/api/machine-work/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
-                .requestMatchers("/api/attendance/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
-
                 // ── Reference/master data: reads needed by all three (form pickers) ───
                 .requestMatchers(HttpMethod.GET, "/api/sites/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/vehicles/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/materials/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/machines/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
                 .requestMatchers(HttpMethod.GET, "/api/services/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
-                .requestMatchers(HttpMethod.GET, "/api/employees/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT", "SITE_STAFF")
+                .requestMatchers("/api/employees/**").hasRole("OWNER_ADMIN")
 
                 // ── Parties: financial sub-resources excluded for SITE_STAFF ──────────
                 // More-specific paths must come before the catch-all /api/parties/**
@@ -85,8 +86,7 @@ public class SecurityConfig {
 
                 // ── Write operations on master data (method-level @PreAuthorize handles specifics) ──
                 .requestMatchers("/api/sites/**", "/api/vehicles/**", "/api/materials/**",
-                        "/api/machines/**", "/api/services/**",
-                        "/api/employees/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
+                        "/api/machines/**", "/api/services/**").hasAnyRole("OWNER_ADMIN", "OFFICE_ACCOUNTANT")
 
                 // ── Default deny: anything not explicitly listed is blocked ───────────
                 .anyRequest().denyAll()

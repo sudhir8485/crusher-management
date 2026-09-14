@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/providers/site_provider.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
@@ -124,14 +123,7 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
   }
 
   Future<void> _saveAll(
-      String dateKey, List<Map<String, dynamic>> employees, int? siteId) async {
-    if (siteId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Select a site from the sidebar before saving')),
-      );
-      return;
-    }
+      String dateKey, List<Map<String, dynamic>> employees) async {
     final toSave = employees.where(_needsSave).toList();
     if (toSave.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -148,7 +140,6 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
           'date': dateKey,
           'employeeId': id,
           'status': _effectiveStatus(emp),
-          'siteId': siteId,
         });
       }
       _overrides.clear();
@@ -169,7 +160,6 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(_attendanceDateProvider);
     final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-    final siteId = ref.watch(selectedSiteIdProvider);
 
     // Reset local overrides when navigating to a new date.
     if (dateKey != _currentDateKey) {
@@ -186,27 +176,6 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
           onPick: (d) =>
               ref.read(_attendanceDateProvider.notifier).state = d,
         ),
-        // Banner when no site is selected (OWNER_ADMIN / OFFICE_ACCOUNTANT)
-        if (siteId == null)
-          Material(
-            color: Colors.orange.shade50,
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(children: [
-                Icon(Icons.info_outline,
-                    size: 16, color: Colors.orange.shade800),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Select a site from the sidebar to save attendance',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.orange.shade900),
-                  ),
-                ),
-              ]),
-            ),
-          ),
         data.when(
           loading: () => const SizedBox(),
           error: (_, s) => const SizedBox(),
@@ -257,12 +226,10 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
                       },
                     ),
                   ),
-                  // Sticky save button
                   _SaveBar(
                     pendingCount: employees.where(_needsSave).length,
                     saving: _saving,
-                    siteSelected: siteId != null,
-                    onSave: () => _saveAll(dateKey, employees, siteId),
+                    onSave: () => _saveAll(dateKey, employees),
                   ),
                 ],
               );
@@ -343,26 +310,19 @@ class _SummaryChip extends StatelessWidget {
 class _SaveBar extends StatelessWidget {
   final int pendingCount;
   final bool saving;
-  final bool siteSelected;
   final VoidCallback onSave;
 
   const _SaveBar({
     required this.pendingCount,
     required this.saving,
-    required this.siteSelected,
     required this.onSave,
   });
 
   @override
   Widget build(BuildContext context) {
-    final String label;
-    if (!siteSelected) {
-      label = 'Select a Site to Save';
-    } else if (pendingCount == 0) {
-      label = 'Attendance Saved';
-    } else {
-      label = 'Save Attendance ($pendingCount)';
-    }
+    final label = pendingCount == 0
+        ? 'Attendance Saved'
+        : 'Save Attendance ($pendingCount)';
 
     return Container(
       color: Colors.white,
@@ -370,7 +330,7 @@ class _SaveBar extends StatelessWidget {
       child: SizedBox(
         width: double.infinity,
         child: FilledButton(
-          onPressed: (saving || pendingCount == 0 || !siteSelected) ? null : onSave,
+          onPressed: (saving || pendingCount == 0) ? null : onSave,
           child: saving
               ? const SizedBox(
                   width: 20,

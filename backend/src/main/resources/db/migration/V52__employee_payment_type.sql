@@ -1,0 +1,2 @@
+ALTER TABLE employee_payments
+    ADD COLUMN IF NOT EXISTS payment_type VARCHAR(20) NOT NULL DEFAULT 'ADVANCE';

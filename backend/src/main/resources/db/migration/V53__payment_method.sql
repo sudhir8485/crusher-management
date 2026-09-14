@@ -1,0 +1,2 @@
+ALTER TABLE employee_payments
+    ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) NOT NULL DEFAULT 'CASH';

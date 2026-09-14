@@ -19,7 +19,7 @@ public class AttendanceRecord {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
-    @Column(name = "site_id", nullable = false)
+    @Column(name = "site_id")
     private Long siteId;
 
     @Column(name = "attendance_date", nullable = false)

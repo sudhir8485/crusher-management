@@ -271,7 +271,7 @@ public class TripService {
         }
 
         // Documents & additional
-        t.setDspChallanNo(req.getDspChallanNo());
+        t.setChallanNo(req.getChallanNo());
         t.setVendorChallanNo(req.getVendorChallanNo());
         t.setChannelNo(req.getChannelNo());
         t.setLoadingLocation(req.getLoadingLocation());
@@ -399,8 +399,8 @@ public class TripService {
         String plate = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
         p.setNotes("Transport for Trip #" + t.getId()
                 + " — " + plate
-                + (t.getDspChallanNo() != null && !t.getDspChallanNo().isBlank()
-                   ? " (Challan " + t.getDspChallanNo() + ")" : ""));
+                + (t.getChallanNo() != null && !t.getChallanNo().isBlank()
+                   ? " (Challan " + t.getChallanNo() + ")" : ""));
         p = paymentRepo.save(p);
         t.setTransportPaymentId(p.getId());
     }
@@ -500,8 +500,8 @@ public class TripService {
         inv.setGrandTotal(grandTotal);
         inv.setGstStatus(gstStatus);
         inv.setNotes("Auto-generated from Trip"
-                + (t.getDspChallanNo() != null && !t.getDspChallanNo().isBlank()
-                   ? " — Challan " + t.getDspChallanNo() : ""));
+                + (t.getChallanNo() != null && !t.getChallanNo().isBlank()
+                   ? " — Challan " + t.getChallanNo() : ""));
 
         GstInvoiceItem item = new GstInvoiceItem();
         item.setInvoice(inv);
@@ -628,7 +628,7 @@ public class TripService {
             }
 
             // Documents & additional
-            r.setDspChallanNo(t.getDspChallanNo());
+            r.setChallanNo(t.getChallanNo());
             r.setVendorChallanNo(t.getVendorChallanNo());
             r.setChannelNo(t.getChannelNo());
             r.setLoadingLocation(t.getLoadingLocation());

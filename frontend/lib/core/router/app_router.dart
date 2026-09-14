@@ -9,7 +9,6 @@ import '../../features/master_data/materials/materials_screen.dart';
 import '../../features/master_data/sites/sites_screen.dart';
 import '../../features/master_data/services/services_screen.dart';
 import '../../features/trips/trips_screen.dart';
-import '../../features/trips/daily_report_screen.dart';
 import '../../features/dabar/dabar_screen.dart';
 import '../../features/diesel/diesel_screen.dart';
 import '../../features/machine_work/machine_work_screen.dart';
@@ -27,6 +26,7 @@ import '../../features/ledger/ledger_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/accounts/party_detail_screen.dart';
 import '../../features/reports/reports_screen.dart';
+import '../../features/payroll/payroll_screen.dart';
 import '../storage/auth_storage.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -85,7 +85,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(path: '/dashboard',     builder: (ctx, st) => const DashboardScreen()),
           GoRoute(path: '/trips',         builder: (ctx, st) => const TripsScreen()),
-          GoRoute(path: '/daily-report', builder: (ctx, st) => const DailyReportScreen()),
           GoRoute(path: '/dabar',        builder: (ctx, st) => const DabarScreen()),
           GoRoute(path: '/diesel',        builder: (ctx, st) => const DieselScreen()),
           GoRoute(path: '/machine-work',      builder: (ctx, st) => const MachineWorkScreen()),
@@ -103,6 +102,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/reports',            builder: (ctx, st) => const ReportsScreen()),
           GoRoute(path: '/attendance',          builder: (ctx, st) => const AttendanceScreen()),
           GoRoute(path: '/employees',          builder: (ctx, st) => const EmployeesScreen()),
+          GoRoute(path: '/payroll',            builder: (ctx, st) => const PayrollScreen()),
           GoRoute(path: '/users',              builder: (ctx, st) => const UsersScreen()),
           GoRoute(path: '/business-profile',   builder: (ctx, st) => const BusinessProfileScreen()),
           GoRoute(path: '/parties',      builder: (ctx, st) => const VendorsScreen()),

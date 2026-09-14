@@ -1,6 +1,5 @@
 package com.dsp.crusher.service;
 
-import com.dsp.crusher.config.SiteContext;
 import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.AttendanceMarkRequest;
@@ -25,15 +24,10 @@ public class AttendanceService {
     private final AttendanceRepository attendanceRepo;
     private final EmployeeRepository employeeRepo;
 
-    // Returns all active employees + their attendance status for the given date.
-    // Employees not yet marked show attendanceStatus = null.
+    // Returns all active employees + their attendance status for the given date (tenant-wide).
     public AttendanceDayResponse getDay(LocalDate date) {
-        return getDay(date, SiteContext.get());
-    }
-
-    public AttendanceDayResponse getDay(LocalDate date, Long siteId) {
         List<Employee> activeEmployees = employeeRepo.findByStatusOrderByNameAsc("ACTIVE");
-        List<AttendanceRecord> records = attendanceRepo.findByDateAndSite(date, siteId);
+        List<AttendanceRecord> records = attendanceRepo.findByAttendanceDateOrderByEmployeeIdAsc(date);
 
         Map<Long, AttendanceRecord> byEmployee = records.stream()
                 .collect(Collectors.toMap(AttendanceRecord::getEmployeeId, r -> r));
@@ -81,7 +75,7 @@ public class AttendanceService {
         return r;
     }
 
-    // Upsert: create or update attendance for one employee on a date.
+    // Upsert: create or update attendance for one employee on a date (tenant-wide, no site required).
     @Transactional
     public AttendanceDayResponse mark(AttendanceMarkRequest req) {
         Optional<AttendanceRecord> existing =
@@ -90,9 +84,6 @@ public class AttendanceService {
         AttendanceRecord rec = existing.orElseGet(() -> {
             AttendanceRecord nr = new AttendanceRecord();
             nr.setTenantId(TenantContext.get());
-            Long attSite = SiteContext.get() != null ? SiteContext.get() : req.getSiteId();
-            if (attSite == null) throw new IllegalArgumentException("Select a site before marking attendance");
-            nr.setSiteId(attSite);
             nr.setAttendanceDate(req.getDate());
             nr.setEmployeeId(req.getEmployeeId());
             return nr;

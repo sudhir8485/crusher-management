@@ -265,19 +265,16 @@ class _RangeBar extends ConsumerWidget {
       color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
+        Wrap(spacing: 6, runSpacing: 4, children: [
           for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month')])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(m.$2),
-                selected: mode == m.$1,
-                onSelected: (_) => _setMode(ref, m.$1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                labelStyle: TextStyle(fontSize: 12, color: mode == m.$1 ? cs.onPrimary : null),
-                selectedColor: cs.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: mode == m.$1,
+              onSelected: (_) => _setMode(ref, m.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: TextStyle(fontSize: 12, color: mode == m.$1 ? cs.onPrimary : null),
+              selectedColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
         ]),
         const SizedBox(height: 4),
@@ -1055,7 +1052,7 @@ class _PaymentFormState extends ConsumerState<_PaymentForm> {
                     ]),
                   )),
                   const Divider(height: 16),
-                  Row(children: [
+                  Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                     Text('New Balance after this payment: ',
                         style: TextStyle(fontSize: 12, color: Colors.grey[700])),
                     Text(

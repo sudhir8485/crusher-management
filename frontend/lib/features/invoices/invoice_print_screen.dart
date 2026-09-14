@@ -1,15 +1,13 @@
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import 'invoice_pdf.dart';
 
-/// Standalone full-page print screen — no sidebar, no app chrome.
-/// Fetches the invoice, generates the PDF, and replaces the current tab
-/// with the blob URL so the browser's native PDF viewer takes over.
-/// The user then prints or downloads using browser controls.
+/// Standalone full-page invoice print/preview screen — no sidebar.
+/// Uses PdfPreview widget which works on Android, iOS, and web.
 class InvoicePrintScreen extends ConsumerStatefulWidget {
   final String type; // 'gst' or 'jw'
   final int id;
@@ -21,36 +19,51 @@ class InvoicePrintScreen extends ConsumerStatefulWidget {
 
 class _InvoicePrintScreenState extends ConsumerState<InvoicePrintScreen> {
   String? _error;
+  bool _loading = true;
+  Map<String, dynamic>? _inv;
+  Map<String, dynamic>? _profile;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _generate());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _generate() async {
+  Future<void> _load() async {
     try {
-      final api = ref.read(apiClientProvider);
+      final api      = ref.read(apiClientProvider);
       final endpoint = widget.type == 'gst'
           ? '/api/invoices/${widget.id}'
           : '/api/job-work-invoices/${widget.id}';
-      final res = await api.get(endpoint);
-      final inv = Map<String, dynamic>.from(res.data as Map)
+      final res      = await api.get(endpoint);
+      final inv      = Map<String, dynamic>.from(res.data as Map)
         ..['_src'] = widget.type;
-      final profile = await fetchTenantProfile(api);
-      final doc     = await buildInvoicePdf(inv, profile);
-      final bytes   = await doc.save();
-      final blob    = html.Blob([bytes], 'application/pdf');
-      final url     = html.Url.createObjectUrlFromBlob(blob);
-      // Replace current history entry → browser Back returns to /invoices
-      html.window.location.replace(url);
+      final profile  = await fetchTenantProfile(api);
+      if (mounted) setState(() { _inv = inv; _profile = profile; _loading = false; });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 20),
+              Text('Preparing invoice…',
+                  style: TextStyle(fontSize: 15, color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_error != null) {
       return Scaffold(
         body: Center(
@@ -79,21 +92,27 @@ class _InvoicePrintScreenState extends ConsumerState<InvoicePrintScreen> {
       );
     }
 
-    return const Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
-            Text('Preparing invoice…',
-                style: TextStyle(fontSize: 15, color: Colors.grey)),
-            SizedBox(height: 8),
-            Text('Your PDF will open automatically.',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
+    final inv     = _inv!;
+    final profile = _profile!;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(inv['invoiceNo'] as String? ?? 'Invoice'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/invoices'),
         ),
+      ),
+      body: PdfPreview(
+        build: (format) async {
+          final doc = await buildInvoicePdf(inv, profile);
+          return doc.save();
+        },
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        initialPageFormat: PdfPageFormat.a4,
+        pdfFileName: '${(inv['invoiceNo'] as String? ?? 'invoice').replaceAll('/', '_')}.pdf',
       ),
     );
   }

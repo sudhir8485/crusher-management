@@ -1519,9 +1519,6 @@ class _UnifiedInvoiceFormState extends ConsumerState<_UnifiedInvoiceForm> {
     final vendors    = ref.watch(_vendorsProvider);
     final sites      = ref.watch(_invoiceSitesProvider);
     final sub   = _subtotal;
-    final cgst  = sub * 0.09;
-    final sgst  = sub * 0.09;
-    final grand = sub + cgst + sgst;
     final isEdit = widget.existing != null;
     final hasSite = _siteId != null;
 
@@ -1643,13 +1640,9 @@ class _UnifiedInvoiceFormState extends ConsumerState<_UnifiedInvoiceForm> {
 
             if (sub > 0) ...[
               const Divider(height: 20),
-              _PreviewRow('Subtotal', sub),
-              _PreviewRow('CGST 9%', cgst),
-              _PreviewRow('SGST 9%', sgst),
-              const Divider(height: 8),
-              _PreviewRow('Grand Total (approx.)', grand, bold: true),
+              _PreviewRow('Subtotal (excl. GST)', sub, bold: true),
               const SizedBox(height: 4),
-              Text('Final GST computed from master rates on save',
+              Text('GST rate applied from service master on save',
                   style: TextStyle(fontSize: 10, color: Colors.grey[500])),
             ],
 

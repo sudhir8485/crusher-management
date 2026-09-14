@@ -18,6 +18,7 @@ echo "  Backend ready ✓"
 echo "[2/2] Starting frontend on :3000 ..."
 cd "$ROOT/frontend"
 nohup flutter run -d web-server --web-port 3000 --web-hostname 0.0.0.0 \
+  --dart-define=BASE_URL=http://localhost:8080 \
   > /tmp/crusher-frontend.log 2>&1 &
 echo "  Frontend PID: $!"
 

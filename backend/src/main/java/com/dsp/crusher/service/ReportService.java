@@ -47,28 +47,20 @@ public class ReportService {
 
     // ── Machine Work Report ───────────────────────────────────────────────────
 
-    public ReportResponse machineWorkReport(Long machineId, Long siteId, LocalDate from, LocalDate to) {
+    public ReportResponse machineWorkReport(Long machineId, Long customerId, Long siteId, LocalDate from, LocalDate to) {
         siteId = resolvedSiteId(siteId);
 
-        List<MachineWorkLog> logs;
-        String filterLabel;
-
-        if (machineId != null) {
-            logs = machineWorkRepo.findByMachineIdAndDateRangeAndSite(machineId, from, to, siteId);
-            filterLabel = machineRepo.findById(machineId)
-                    .map(Machine::getName)
-                    .orElse("Machine " + machineId);
-        } else {
-            logs = machineWorkRepo.findByDateRangeAndSiteAsc(from, to, siteId);
-            filterLabel = "All Machines";
-        }
+        List<MachineWorkLog> logs = machineWorkRepo.findByAllFiltersAndDateRange(machineId, customerId, from, to, siteId);
 
         Map<Long, Machine> machineMap = machineRepo.findAll().stream()
                 .collect(Collectors.toMap(Machine::getId, m -> m));
+        Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
+                .collect(Collectors.toMap(Vendor::getId, v -> v));
 
         BigDecimal totalHours = BigDecimal.ZERO;
         BigDecimal bucketHours = BigDecimal.ZERO;
         BigDecimal breakerHours = BigDecimal.ZERO;
+        BigDecimal totalBilled = BigDecimal.ZERO;
         List<Row> rows = new ArrayList<>();
 
         for (MachineWorkLog l : logs) {
@@ -81,6 +73,14 @@ public class ReportService {
             } else {
                 breakerHours = breakerHours.add(hrs);
             }
+            if (l.getTotalAmount() != null) {
+                totalBilled = totalBilled.add(l.getTotalAmount());
+            }
+
+            String customerName = "—";
+            if (l.getCustomerId() != null && vendorMap.containsKey(l.getCustomerId())) {
+                customerName = vendorMap.get(l.getCustomerId()).getName();
+            }
 
             Row row = new Row();
             row.setDate(l.getLogDate());
@@ -90,7 +90,7 @@ public class ReportService {
             row.setCol4(l.getOpeningReading() != null ? l.getOpeningReading().toPlainString() : "—");
             row.setCol5(l.getClosingReading() != null ? l.getClosingReading().toPlainString() : "—");
             row.setCol6(hrs.compareTo(BigDecimal.ZERO) > 0 ? hrs.toPlainString() + " hrs" : "—");
-            row.setCol7(l.getNotes() != null ? l.getNotes() : "");
+            row.setCol7(customerName.equals("—") ? (l.getNotes() != null ? l.getNotes() : "") : customerName);
             rows.add(row);
         }
 
@@ -99,12 +99,14 @@ public class ReportService {
         summary.setTotalHours(totalHours);
         summary.setBucketHours(bucketHours);
         summary.setBreakerHours(breakerHours);
+        if (totalBilled.compareTo(BigDecimal.ZERO) > 0) {
+            summary.setTotalBilledAmount(totalBilled);
+        }
 
         ReportResponse res = new ReportResponse();
         res.setReportType("MACHINE_WORK");
         res.setFromDate(from);
         res.setToDate(to);
-        res.setFilterLabel(filterLabel);
         res.setSummary(summary);
         res.setRows(rows);
         return res;
@@ -112,15 +114,17 @@ public class ReportService {
 
     // ── Diesel Report ─────────────────────────────────────────────────────────
 
-    public ReportResponse dieselReport(Long siteId, LocalDate from, LocalDate to) {
+    public ReportResponse dieselReport(Long siteId, Long vehicleId, Long machineId, LocalDate from, LocalDate to) {
         siteId = resolvedSiteId(siteId);
 
-        BigDecimal openingReceived = receiptRepo.sumReceivedBeforeAndSite(from, siteId);
-        BigDecimal openingUsed     = usageRepo.sumUsedBeforeAndSite(from, siteId);
+        boolean consumerFiltered = vehicleId != null || machineId != null;
+
+        BigDecimal openingReceived = consumerFiltered ? BigDecimal.ZERO : receiptRepo.sumReceivedBeforeAndSite(from, siteId);
+        BigDecimal openingUsed     = consumerFiltered ? BigDecimal.ZERO : usageRepo.sumUsedBeforeAndSite(from, siteId);
         BigDecimal openingStock    = openingReceived.subtract(openingUsed);
 
-        List<DieselReceipt> receipts = receiptRepo.findByDateRangeAndSite(from, to, siteId);
-        List<DieselUsage> usages = usageRepo.findByDateRangeAndSite(from, to, siteId);
+        List<DieselReceipt> receipts = consumerFiltered ? List.of() : receiptRepo.findByDateRangeAndSite(from, to, siteId);
+        List<DieselUsage> usages = usageRepo.findByDateRangeAndFilters(from, to, siteId, vehicleId, machineId);
 
         Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
@@ -206,28 +210,7 @@ public class ReportService {
                                        Long siteId, LocalDate from, LocalDate to) {
         siteId = resolvedSiteId(siteId);
 
-        List<Trip> trips;
-        String filterLabel;
-
-        if (vehicleId != null) {
-            trips = tripRepo.findByVehicleIdAndDateRangeAndSite(vehicleId, from, to, siteId);
-            filterLabel = vehicleRepo.findById(vehicleId)
-                    .map(v -> v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber())
-                    .orElse("Vehicle " + vehicleId);
-        } else if (materialId != null) {
-            trips = tripRepo.findByMaterialIdAndDateRangeAndSite(materialId, from, to, siteId);
-            filterLabel = materialRepo.findById(materialId)
-                    .map(Material::getName)
-                    .orElse("Material " + materialId);
-        } else if (vendorId != null) {
-            trips = tripRepo.findByVendorIdAndDateRangeAndSite(vendorId, from, to, siteId);
-            filterLabel = vendorRepo.findById(vendorId)
-                    .map(Vendor::getName)
-                    .orElse("Vendor " + vendorId);
-        } else {
-            trips = tripRepo.findByDateRangeAndSiteAsc(from, to, siteId);
-            filterLabel = "All Trips";
-        }
+        List<Trip> trips = tripRepo.findByAllFiltersAndDateRange(vehicleId, materialId, vendorId, from, to, siteId);
 
         Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
                 .collect(Collectors.toMap(Vehicle::getId, v -> v));
@@ -237,6 +220,8 @@ public class ReportService {
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
 
         BigDecimal totalBrass = BigDecimal.ZERO;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal totalTransport = BigDecimal.ZERO;
         List<Row> rows = new ArrayList<>();
 
         for (Trip t : trips) {
@@ -247,10 +232,12 @@ public class ReportService {
             String vehicleName = v != null
                     ? (v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber()) : "—";
             String matName = m != null ? m.getName() : "—";
-            String vendorName = vnd != null ? vnd.getName() : "—";
+            String vendorName = vnd != null ? vnd.getName() : t.getOneTimeCustomerName() != null ? t.getOneTimeCustomerName() : "—";
 
             BigDecimal brass = t.getQuantityBrass() != null ? t.getQuantityBrass() : BigDecimal.ZERO;
             totalBrass = totalBrass.add(brass);
+            if (t.getMaterialAmount() != null) totalAmount = totalAmount.add(t.getMaterialAmount());
+            if (t.getTransportationCharge() != null) totalTransport = totalTransport.add(t.getTransportationCharge());
 
             Row row = new Row();
             row.setDate(t.getTripDate());
@@ -258,7 +245,7 @@ public class ReportService {
             row.setCol2(matName);
             row.setCol3(brass.compareTo(BigDecimal.ZERO) > 0 ? brass.toPlainString() + " Brass" : "—");
             row.setCol4(vendorName);
-            String challan = buildChallan(t.getDspChallanNo(), t.getVendorChallanNo());
+            String challan = buildChallan(t.getChallanNo(), t.getVendorChallanNo());
             row.setCol5(challan);
             row.setCol6(t.getChannelNo() != null ? t.getChannelNo() : "—");
             row.setCol7(t.getLoadingLocation() != null ? t.getLoadingLocation() : "—");
@@ -269,12 +256,13 @@ public class ReportService {
         summary.setTotalRows(rows.size());
         summary.setTripCount(rows.size());
         summary.setTotalBrass(totalBrass);
+        if (totalAmount.compareTo(BigDecimal.ZERO) > 0) summary.setTotalAmount(totalAmount);
+        if (totalTransport.compareTo(BigDecimal.ZERO) > 0) summary.setTotalTransport(totalTransport);
 
         ReportResponse res = new ReportResponse();
         res.setReportType("TRIPS");
         res.setFromDate(from);
         res.setToDate(to);
-        res.setFilterLabel(filterLabel);
         res.setSummary(summary);
         res.setRows(rows);
         return res;
@@ -344,10 +332,9 @@ public class ReportService {
 
     // ── Attendance Report ─────────────────────────────────────────────────────
 
-    public ReportResponse attendanceReport(Long employeeId, Long siteId, LocalDate from, LocalDate to) {
-        siteId = resolvedSiteId(siteId);
-
-        List<AttendanceRecord> records = attendanceRepo.findByDateRangeAndFilters(from, to, siteId, employeeId);
+    public ReportResponse attendanceReport(Long employeeId, LocalDate from, LocalDate to) {
+        // Attendance is tenant-wide — no site filter
+        List<AttendanceRecord> records = attendanceRepo.findByDateRangeAndFilters(from, to, null, employeeId);
 
         Map<Long, Employee> employeeMap = employeeRepo.findAll().stream()
                 .collect(Collectors.toMap(Employee::getId, e -> e));
@@ -392,6 +379,68 @@ public class ReportService {
         res.setFromDate(from);
         res.setToDate(to);
         res.setFilterLabel(filterLabel);
+        res.setSummary(summary);
+        res.setRows(rows);
+        return res;
+    }
+
+    // ── Materials Report ──────────────────────────────────────────────────────
+
+    public ReportResponse materialsReport(Long materialId, Long vendorId, Long siteId, LocalDate from, LocalDate to) {
+        siteId = resolvedSiteId(siteId);
+
+        List<Trip> trips = tripRepo.findByAllFiltersAndDateRange(null, materialId, vendorId, from, to, siteId);
+
+        Map<Long, Vehicle> vehicleMap = vehicleRepo.findAll().stream()
+                .collect(Collectors.toMap(Vehicle::getId, v -> v));
+        Map<Long, Material> materialMap = materialRepo.findAll().stream()
+                .collect(Collectors.toMap(Material::getId, m -> m));
+        Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
+                .collect(Collectors.toMap(Vendor::getId, v -> v));
+
+        BigDecimal totalBrass = BigDecimal.ZERO;
+        BigDecimal totalTon   = BigDecimal.ZERO;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        List<Row> rows = new ArrayList<>();
+
+        for (Trip t : trips) {
+            Vehicle v = vehicleMap.get(t.getVehicleId());
+            Material m = materialMap.get(t.getMaterialId());
+            Vendor vnd = t.getVendorId() != null ? vendorMap.get(t.getVendorId()) : null;
+
+            String matName    = m != null ? m.getName() : "—";
+            String vendorName = vnd != null ? vnd.getName() : t.getOneTimeCustomerName() != null ? t.getOneTimeCustomerName() : "—";
+            String vehicleName = v != null ? (v.getDisplayName() != null ? v.getDisplayName() : v.getPlateNumber()) : "—";
+
+            boolean isTon = "TON".equals(t.getQuantityUnit());
+            BigDecimal brass = (!isTon && t.getQuantityBrass() != null) ? t.getQuantityBrass() : BigDecimal.ZERO;
+            BigDecimal ton   = (isTon  && t.getBillableQuantity() != null) ? t.getBillableQuantity() : BigDecimal.ZERO;
+            totalBrass = totalBrass.add(brass);
+            totalTon   = totalTon.add(ton);
+            if (t.getMaterialAmount() != null) totalAmount = totalAmount.add(t.getMaterialAmount());
+
+            Row row = new Row();
+            row.setDate(t.getTripDate());
+            row.setCol1(matName);
+            row.setCol2(vendorName);
+            row.setCol3(brass.compareTo(BigDecimal.ZERO) > 0 ? brass.toPlainString() + " Brass" : "—");
+            row.setCol4(ton.compareTo(BigDecimal.ZERO)   > 0 ? ton.toPlainString() + " TON"   : "—");
+            row.setCol5(t.getMaterialAmount() != null ? "₹" + t.getMaterialAmount().toPlainString() : "—");
+            row.setCol6(vehicleName);
+            row.setCol7(t.getNotes() != null ? t.getNotes() : "");
+            rows.add(row);
+        }
+
+        Summary summary = new Summary();
+        summary.setTotalRows(rows.size());
+        if (totalBrass.compareTo(BigDecimal.ZERO) > 0) summary.setTotalBrass(totalBrass);
+        if (totalTon.compareTo(BigDecimal.ZERO)   > 0) summary.setTotalTon(totalTon);
+        if (totalAmount.compareTo(BigDecimal.ZERO) > 0) summary.setTotalAmount(totalAmount);
+
+        ReportResponse res = new ReportResponse();
+        res.setReportType("MATERIALS");
+        res.setFromDate(from);
+        res.setToDate(to);
         res.setSummary(summary);
         res.setRows(rows);
         return res;

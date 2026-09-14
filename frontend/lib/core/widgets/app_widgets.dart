@@ -433,7 +433,8 @@ class _SearchPickerDialogState extends State<_SearchPickerDialog> {
                       final isSelected = id == widget.currentId;
                       return ListTile(
                         dense: true,
-                        title: Text(widget.itemLabel(item)),
+                        title: Text(widget.itemLabel(item),
+                            overflow: TextOverflow.ellipsis),
                         trailing: isSelected
                             ? Icon(Icons.check, color: cs.primary, size: 20)
                             : null,

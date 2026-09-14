@@ -1,12 +1,16 @@
-// ignore: avoid_web_libraries_in_flutter
 import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
+
+// ── Font cache — loaded once, reused for every PDF ────────────────────────────
+pw.Font? _cachedFont;
+pw.Font? _cachedFontBold;
+
+Future<pw.Font> _font()     async => _cachedFont     ??= await PdfGoogleFonts.notoSansRegular();
+Future<pw.Font> _fontBold() async => _cachedFontBold ??= await PdfGoogleFonts.notoSansBold();
 
 // ── Number-to-words (Indian numbering) ────────────────────────────────────────
 
@@ -71,9 +75,9 @@ Future<pw.Document> buildInvoicePdf(
   Map<String, dynamic> inv,
   Map<String, dynamic> profile,
 ) async {
-  // ── Fonts (Noto Sans — handles ₹ U+20B9 correctly) ───────────────────────
-  final font     = await PdfGoogleFonts.notoSansRegular();
-  final fontBold = await PdfGoogleFonts.notoSansBold();
+  // ── Fonts (Noto Sans — cached after first load) ───────────────────────────
+  final font     = await _font();
+  final fontBold = await _fontBold();
 
   final isJw = inv['_src'] == 'jw';
 
@@ -578,12 +582,7 @@ Future<void> downloadInvoicePdf(Map<String, dynamic> inv, ApiClient api) async {
   final doc       = await buildInvoicePdf(inv, profile);
   final bytes     = await doc.save();
   final invoiceNo = (inv['invoiceNo'] as String? ?? 'invoice').replaceAll('/', '_');
-  final blob      = html.Blob([bytes], 'application/pdf');
-  final url       = html.Url.createObjectUrlFromBlob(blob);
-  html.AnchorElement(href: url)
-    ..setAttribute('download', '$invoiceNo.pdf')
-    ..click();
-  html.Url.revokeObjectUrl(url);
+  await Printing.sharePdf(bytes: bytes, filename: '$invoiceNo.pdf');
 }
 
 // ── Extension ──────────────────────────────────────────────────────────────────
