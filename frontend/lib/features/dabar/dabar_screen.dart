@@ -158,51 +158,43 @@ class _DabarScreenState extends ConsumerState<DabarScreen> {
       ),
       body: Column(
         children: [
-          _DabarDateRangeBar(
-            selectedDate: selectedDate,
-            mode: mode,
-            custom: custom,
-            onDateChanged: (d) => ref.read(_dabarDateProvider.notifier).state = d,
-            onModeChanged: (m) => ref.read(_dabarModeProvider.notifier).state = m,
-            onCustomChanged: (r) => ref.read(_dabarCustomRangeProvider.notifier).state = r,
-          ),
-          if (siteId == null)
-            Material(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'Select a site to view dabar entries and add new ones',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                  )),
-                ]),
-              ),
+          if (siteId != null)
+            _DabarDateRangeBar(
+              selectedDate: selectedDate,
+              mode: mode,
+              custom: custom,
+              onDateChanged: (d) => ref.read(_dabarDateProvider.notifier).state = d,
+              onModeChanged: (m) => ref.read(_dabarModeProvider.notifier).state = m,
+              onCustomChanged: (r) => ref.read(_dabarCustomRangeProvider.notifier).state = r,
             ),
           Expanded(
-            child: entries.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (list) {
-                if (list.isEmpty) {
-                  return AppEmptyState(
+            child: siteId == null
+                ? const AppEmptyState(
                     icon: Icons.terrain_outlined,
-                    message: 'No dabar entries ${emptyPeriod()}',
-                    hint: 'Tap + to add an entry',
-                  );
-                }
-                return _DabarList(
-                  list: list,
-                  mode: mode,
-                  date: selectedDate,
-                  custom: custom,
-                  onEdit:   (e) => _showForm(context, ref, e, selectedDate, rangeKey),
-                  onDelete: (e) => _confirmDelete(context, ref, e, rangeKey),
-                );
-              },
-            ),
+                    message: 'Select a site to see dabar entries',
+                    hint: 'Open the menu and tap on the site row',
+                  )
+                : entries.when(
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(child: Text('Error: $e')),
+                    data: (list) {
+                      if (list.isEmpty) {
+                        return AppEmptyState(
+                          icon: Icons.terrain_outlined,
+                          message: 'No dabar entries ${emptyPeriod()}',
+                          hint: 'Tap + to add an entry',
+                        );
+                      }
+                      return _DabarList(
+                        list: list,
+                        mode: mode,
+                        date: selectedDate,
+                        custom: custom,
+                        onEdit:   (e) => _showForm(context, ref, e, selectedDate, rangeKey),
+                        onDelete: (e) => _confirmDelete(context, ref, e, rangeKey),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

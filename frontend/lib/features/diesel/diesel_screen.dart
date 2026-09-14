@@ -168,45 +168,34 @@ class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerPr
           : dieselUsageFab(context, ref, _refresh),
       body: Column(
         children: [
-          // Require site selection — same UX as Machine Work
-          if (siteId == null)
-            Material(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'Select a site to view diesel stock and add entries',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                  )),
-                ]),
-              ),
-            ),
-          // Per-site balance banner — only when site is selected
-          if (siteId != null)
+          if (siteId != null) ...[
             ref.watch(_balanceProvider(siteId)).when(
               loading: () => const SizedBox.shrink(),
               error:   (_, __) => const SizedBox.shrink(),
               data:    (b) => _BalanceBanner(balance: b),
             ),
-          // Shared period navigation bar
-          _DieselDateRangeBar(
-            selectedDate: date,
-            mode: mode,
-            custom: custom,
-            onDateChanged: (d) => ref.read(_dieselDateProvider.notifier).state = d,
-            onModeChanged: (m) => ref.read(_dieselModeProvider.notifier).state = m,
-            onCustomChanged: (r) => ref.read(_dieselCustomProvider.notifier).state = r,
-          ),
+            _DieselDateRangeBar(
+              selectedDate: date,
+              mode: mode,
+              custom: custom,
+              onDateChanged: (d) => ref.read(_dieselDateProvider.notifier).state = d,
+              onModeChanged: (m) => ref.read(_dieselModeProvider.notifier).state = m,
+              onCustomChanged: (r) => ref.read(_dieselCustomProvider.notifier).state = r,
+            ),
+          ],
           Expanded(
-            child: TabBarView(
-              controller: _tabs,
-              children: [
-                _ReceiptsTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
-                _UsagesTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
-              ],
+            child: siteId == null
+                ? const AppEmptyState(
+                    icon: Icons.local_gas_station_outlined,
+                    message: 'Select a site to see diesel data',
+                    hint: 'Open the menu and tap on the site row',
+                  )
+                : TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _ReceiptsTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
+                      _UsagesTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
+                    ],
             ),
           ),
         ],
@@ -1488,10 +1477,55 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
 
 // ── FAB overlay ───────────────────────────────────────────────────────────────
 
+Future<bool> _ensureSiteSelected(BuildContext context, WidgetRef ref) async {
+  final siteId = ref.read(selectedSiteIdProvider);
+  if (siteId != null) return true;
+  final sites = ref.read(sitesProvider).valueOrNull ?? [];
+  if (!context.mounted) return false;
+  if (sites.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No sites available. Add a site first.')));
+    return false;
+  }
+  final picked = await showModalBottomSheet<int>(
+    context: context,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text('Select site to add entry',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          ...sites.map((s) => ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.pop(ctx, s['id'] as int?),
+              )),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+  if (picked != null) {
+    ref.read(selectedSiteIdProvider.notifier).state = picked;
+    return true;
+  }
+  return false;
+}
+
 FloatingActionButton dieselReceiptFab(BuildContext context, WidgetRef ref, VoidCallback onChanged) =>
     FloatingActionButton.extended(
       heroTag: 'diesel_receipt_fab',
-      onPressed: () => _showReceiptForm(context, ref, null, ref.read(_dieselDateProvider), onChanged),
+      onPressed: () async {
+        if (!await _ensureSiteSelected(context, ref)) return;
+        if (!context.mounted) return;
+        _showReceiptForm(context, ref, null, ref.read(_dieselDateProvider), onChanged);
+      },
       icon: const Icon(Icons.add),
       label: const Text('Add Receipt'),
     );
@@ -1499,7 +1533,11 @@ FloatingActionButton dieselReceiptFab(BuildContext context, WidgetRef ref, VoidC
 FloatingActionButton dieselUsageFab(BuildContext context, WidgetRef ref, VoidCallback onChanged) =>
     FloatingActionButton.extended(
       heroTag: 'diesel_usage_fab',
-      onPressed: () => _showUsageForm(context, ref, null, ref.read(_dieselDateProvider), onChanged),
+      onPressed: () async {
+        if (!await _ensureSiteSelected(context, ref)) return;
+        if (!context.mounted) return;
+        _showUsageForm(context, ref, null, ref.read(_dieselDateProvider), onChanged);
+      },
       icon: const Icon(Icons.add),
       label: const Text('Add Usage'),
     );

@@ -543,6 +543,14 @@ class _QuickActions extends StatelessWidget {
                     icon: Icons.payments,
                     label: '+ Payment',
                     route: '/party-payments'),
+                _QBtn(
+                    icon: Icons.bar_chart_outlined,
+                    label: 'Reports',
+                    route: '/reports'),
+                _QBtn(
+                    icon: Icons.fact_check_outlined,
+                    label: 'Attendance',
+                    route: '/attendance'),
               ],
             ),
           ],
@@ -893,15 +901,18 @@ class _BillingBreakdown extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Billing by Source — $monthName',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                Flexible(
+                  child: Text(
+                    'Billing by Source — $monthName',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   'net of GST',
                   style: TextStyle(
@@ -932,12 +943,13 @@ class _BillingBreakdown extends StatelessWidget {
                   color: Colors.orange),
             const Divider(height: 14),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Net Billed',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold)),
+                const Expanded(
+                  child: Text('Net Billed',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
+                ),
                 Text(
                   fmtCurr(total),
                   style: const TextStyle(
@@ -1130,6 +1142,8 @@ class _TodayTile extends StatelessWidget {
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: color),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
               const SizedBox(height: 2),
               Text(

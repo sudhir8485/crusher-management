@@ -15,19 +15,8 @@ class MasterShell extends StatelessWidget {
     final isMobile = MediaQuery.of(context).size.width < 700;
 
     if (isMobile) {
-      // Accounts module is party-level (not site-specific) — hide site bar
-      final showSiteBar = !location.startsWith('/accounts');
       return Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (showSiteBar) _MobileSiteBar(),
-              Expanded(child: child),
-            ],
-          ),
-        ),
+        body: SafeArea(bottom: false, child: child),
         bottomNavigationBar: _MobileBottomNav(location: location),
       );
     }
@@ -60,170 +49,6 @@ class MasterShell extends StatelessWidget {
   }
 }
 
-// ── Mobile site switcher bar ──────────────────────────────────────────────────
-
-class _MobileSiteBar extends ConsumerStatefulWidget {
-  const _MobileSiteBar();
-
-  @override
-  ConsumerState<_MobileSiteBar> createState() => _MobileSiteBarState();
-}
-
-class _MobileSiteBarState extends ConsumerState<_MobileSiteBar> {
-  String? _role;
-
-  @override
-  void initState() {
-    super.initState();
-    AuthStorage.getRole().then((r) {
-      if (mounted) setState(() => _role = r);
-    });
-    // Auto-select site for SITE_STAFF on mobile (desktop does this in _AppSidebarState)
-    AuthStorage.getSiteId().then((sid) {
-      if (sid != null && mounted) {
-        ref.read(selectedSiteIdProvider.notifier).state = sid;
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sites     = ref.watch(sitesProvider);
-    final selectedId = ref.watch(selectedSiteIdProvider);
-
-    // SITE_STAFF: show read-only site label
-    if (_role == 'SITE_STAFF') {
-      final name = sites.valueOrNull
-              ?.where((s) => s['id'] == selectedId)
-              .firstOrNull?['name'] as String? ??
-          '...';
-      return Material(
-        color: Colors.green.withValues(alpha: 0.06),
-        child: Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.location_on, size: 14, color: Colors.green),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.green,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Loading or unrecognised role — hide
-    if (_role != 'OWNER_ADMIN' && _role != 'OFFICE_ACCOUNTANT') {
-      return const SizedBox.shrink();
-    }
-
-    final color = Theme.of(context).colorScheme.primary;
-    final siteName = sites.valueOrNull
-            ?.where((s) => s['id'] == selectedId)
-            .firstOrNull?['name'] as String? ??
-        'All Sites';
-
-    return Material(
-      color: color.withValues(alpha: 0.05),
-      child: InkWell(
-        onTap: () => _showSiteSheet(context, sites.valueOrNull ?? []),
-        child: Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.location_on, size: 14, color: color),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  siteName,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: color,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: color),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showSiteSheet(BuildContext context, List<Map<String, dynamic>> sites) {
-    final selectedId = ref.read(selectedSiteIdProvider);
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetCtx) {
-        final cs = Theme.of(context).colorScheme;
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text('Select Site',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ),
-              ListTile(
-                leading: Icon(Icons.all_inclusive,
-                    color: selectedId == null ? cs.primary : Colors.grey),
-                title: const Text('All Sites'),
-                selected: selectedId == null,
-                selectedColor: cs.primary,
-                onTap: () {
-                  ref.read(selectedSiteIdProvider.notifier).state = null;
-                  Navigator.pop(sheetCtx);
-                },
-              ),
-              ...sites.map((s) {
-                final id = s['id'] as int?;
-                return ListTile(
-                  leading: Icon(Icons.location_on,
-                      color: id == selectedId ? cs.primary : Colors.grey),
-                  title: Text(s['name'] as String,
-                      overflow: TextOverflow.ellipsis),
-                  selected: id == selectedId,
-                  selectedColor: cs.primary,
-                  onTap: () {
-                    ref.read(selectedSiteIdProvider.notifier).state = id;
-                    Navigator.pop(sheetCtx);
-                  },
-                );
-              }),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
 
 // ── Mobile bottom navigation (6 items) ───────────────────────────────────────
 
@@ -247,6 +72,12 @@ class _MobileBottomNavState extends ConsumerState<_MobileBottomNav> {
     });
     AuthStorage.getName().then((n) {
       if (mounted) setState(() => _userName = n);
+    });
+    // Auto-select site for SITE_STAFF on mobile
+    AuthStorage.getSiteId().then((sid) {
+      if (sid != null && mounted) {
+        ref.read(selectedSiteIdProvider.notifier).state = sid;
+      }
     });
   }
 
@@ -391,7 +222,7 @@ class _NavBarItem extends StatelessWidget {
 
 // ── More bottom sheet ─────────────────────────────────────────────────────────
 
-class _MobileMoreSheet extends StatelessWidget {
+class _MobileMoreSheet extends ConsumerWidget {
   final String? role;
   final String? userName;
   final String location;
@@ -418,9 +249,68 @@ class _MobileMoreSheet extends StatelessWidget {
     }
   }
 
+  void _showSiteSheet(BuildContext context, WidgetRef ref, List<Map<String, dynamic>> sites) {
+    final selectedId = ref.read(selectedSiteIdProvider);
+    showModalBottomSheet(
+      context: context,
+      useRootNavigator: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetCtx) {
+        final cs = Theme.of(context).colorScheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text('Select Site',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              ListTile(
+                leading: Icon(Icons.all_inclusive,
+                    color: selectedId == null ? cs.primary : Colors.grey),
+                title: const Text('All Sites'),
+                selected: selectedId == null,
+                selectedColor: cs.primary,
+                onTap: () {
+                  ref.read(selectedSiteIdProvider.notifier).state = null;
+                  Navigator.pop(sheetCtx);
+                },
+              ),
+              ...sites.map((s) {
+                final id = s['id'] as int?;
+                return ListTile(
+                  leading: Icon(Icons.location_on,
+                      color: id == selectedId ? cs.primary : Colors.grey),
+                  title: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                  selected: id == selectedId,
+                  selectedColor: cs.primary,
+                  onTap: () {
+                    ref.read(selectedSiteIdProvider.notifier).state = id;
+                    Navigator.pop(sheetCtx);
+                  },
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final color = Theme.of(context).colorScheme.primary;
+    final sites      = ref.watch(sitesProvider);
+    final selectedId = ref.watch(selectedSiteIdProvider);
+    final siteName   = sites.valueOrNull
+            ?.where((s) => s['id'] == selectedId)
+            .firstOrNull?['name'] as String? ??
+        (role == 'SITE_STAFF' ? '...' : 'All Sites');
 
     Widget item(IconData icon, IconData activeIcon, String label, String route) {
       final isActive = location == route;
@@ -521,6 +411,25 @@ class _MobileMoreSheet extends StatelessWidget {
               ],
             ),
           ),
+          // Site selector row
+          if (role == 'SITE_STAFF')
+            ListTile(
+              leading: const Icon(Icons.location_on, color: Colors.green, size: 20),
+              title: Text(siteName,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.green),
+                  overflow: TextOverflow.ellipsis),
+              subtitle: const Text('Your site', style: TextStyle(fontSize: 11, color: Colors.green)),
+            )
+          else if (role == 'OWNER_ADMIN' || role == 'OFFICE_ACCOUNTANT')
+            ListTile(
+              leading: Icon(Icons.location_on, color: color, size: 20),
+              title: Text(siteName,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: color),
+                  overflow: TextOverflow.ellipsis),
+              subtitle: const Text('Tap to change site', style: TextStyle(fontSize: 11)),
+              trailing: Icon(Icons.keyboard_arrow_down_rounded, color: color, size: 20),
+              onTap: () => _showSiteSheet(context, ref, sites.valueOrNull ?? []),
+            ),
           const Divider(height: 1),
           Expanded(
             child: ListView(
