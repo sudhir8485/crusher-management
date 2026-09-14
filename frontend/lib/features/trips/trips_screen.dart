@@ -202,7 +202,8 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
       return;
     }
     final sites = ref.read(sitesProvider).valueOrNull
-        ?? await ref.read(sitesProvider.future);
+        ?? await ref.read(sitesProvider.future)
+        ?? <Map<String, dynamic>>[];
     if (!context.mounted) return;
     final picked = await _showSitePickerForEntry(context, sites);
     if (picked == null || !context.mounted) return;

@@ -1481,7 +1481,8 @@ Future<bool> _ensureSiteSelected(BuildContext context, WidgetRef ref) async {
   final siteId = ref.read(selectedSiteIdProvider);
   if (siteId != null) return true;
   final sites = ref.read(sitesProvider).valueOrNull
-      ?? await ref.read(sitesProvider.future);
+      ?? await ref.read(sitesProvider.future)
+      ?? <Map<String, dynamic>>[];
   if (!context.mounted) return false;
   if (sites.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
