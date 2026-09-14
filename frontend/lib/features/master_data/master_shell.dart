@@ -484,9 +484,9 @@ class _MobileMoreSheet extends ConsumerWidget {
                 ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                  leading: const Icon(Icons.logout, color: Colors.grey, size: 20),
+                  leading: const Icon(Icons.logout, color: Colors.red, size: 20),
                   title: const Text('Logout',
-                      style: TextStyle(fontSize: 14, color: Colors.grey)),
+                      style: TextStyle(fontSize: 14, color: Colors.red, fontWeight: FontWeight.w500)),
                   onTap: () async {
                     Navigator.pop(context);
                     await AuthStorage.clear();
