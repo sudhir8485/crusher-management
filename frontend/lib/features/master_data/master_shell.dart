@@ -18,12 +18,15 @@ class MasterShell extends StatelessWidget {
       // Accounts module is party-level (not site-specific) — hide site bar
       final showSiteBar = !location.startsWith('/accounts');
       return Scaffold(
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (showSiteBar) _MobileSiteBar(),
-            Expanded(child: child),
-          ],
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (showSiteBar) _MobileSiteBar(),
+              Expanded(child: child),
+            ],
+          ),
         ),
         bottomNavigationBar: _MobileBottomNav(location: location),
       );
@@ -47,6 +50,8 @@ class MasterShell extends StatelessWidget {
     '/attendance',
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
     '/services',
+    '/business-profile',
+    '/payroll',   // index 19
   ];
 
   int _indexFor(String location) {
@@ -73,19 +78,60 @@ class _MobileSiteBarState extends ConsumerState<_MobileSiteBar> {
     AuthStorage.getRole().then((r) {
       if (mounted) setState(() => _role = r);
     });
+    // Auto-select site for SITE_STAFF on mobile (desktop does this in _AppSidebarState)
+    AuthStorage.getSiteId().then((sid) {
+      if (sid != null && mounted) {
+        ref.read(selectedSiteIdProvider.notifier).state = sid;
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // SITE_STAFF are pinned to their assigned site — no switcher needed
+    final sites     = ref.watch(sitesProvider);
+    final selectedId = ref.watch(selectedSiteIdProvider);
+
+    // SITE_STAFF: show read-only site label
+    if (_role == 'SITE_STAFF') {
+      final name = sites.valueOrNull
+              ?.where((s) => s['id'] == selectedId)
+              .firstOrNull?['name'] as String? ??
+          '...';
+      return Material(
+        color: Colors.green.withValues(alpha: 0.06),
+        child: Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.location_on, size: 14, color: Colors.green),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.green,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Loading or unrecognised role — hide
     if (_role != 'OWNER_ADMIN' && _role != 'OFFICE_ACCOUNTANT') {
       return const SizedBox.shrink();
     }
 
-    final sites = ref.watch(sitesProvider);
-    final selectedId = ref.watch(selectedSiteIdProvider);
     final color = Theme.of(context).colorScheme.primary;
-
     final siteName = sites.valueOrNull
             ?.where((s) => s['id'] == selectedId)
             .firstOrNull?['name'] as String? ??
@@ -191,12 +237,16 @@ class _MobileBottomNav extends ConsumerStatefulWidget {
 
 class _MobileBottomNavState extends ConsumerState<_MobileBottomNav> {
   String? _role;
+  String? _userName;
 
   @override
   void initState() {
     super.initState();
     AuthStorage.getRole().then((r) {
       if (mounted) setState(() => _role = r);
+    });
+    AuthStorage.getName().then((n) {
+      if (mounted) setState(() => _userName = n);
     });
   }
 
@@ -283,7 +333,7 @@ class _MobileBottomNavState extends ConsumerState<_MobileBottomNav> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _MobileMoreSheet(role: _role, location: widget.location),
+      builder: (_) => _MobileMoreSheet(role: _role, userName: _userName, location: widget.location),
     );
   }
 }
@@ -343,18 +393,27 @@ class _NavBarItem extends StatelessWidget {
 
 class _MobileMoreSheet extends StatelessWidget {
   final String? role;
+  final String? userName;
   final String location;
-  const _MobileMoreSheet({this.role, required this.location});
+  const _MobileMoreSheet({this.role, this.userName, required this.location});
+
+  String _roleLabel(String? r) => switch (r) {
+        'OWNER_ADMIN'       => 'Owner / Admin',
+        'OFFICE_ACCOUNTANT' => 'Office / Accountant',
+        'SITE_STAFF'        => 'Site Staff',
+        _                   => '',
+      };
 
   bool _visible(int index) {
     switch (role) {
       case 'OWNER_ADMIN':
         return true;
       case 'OFFICE_ACCOUNTANT':
-        return index != 10 && index != 18;
+        // Workforce (9=attendance, 11=employees, 19=payroll) + Users (10) + Business Profile (18) are OWNER_ADMIN only
+        return !const {9, 10, 11, 18, 19}.contains(index);
       default:
         // SITE_STAFF or null (loading) — most restrictive
-        return !const {5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+        return !const {5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
             .contains(index);
     }
   }
@@ -400,7 +459,7 @@ class _MobileMoreSheet extends StatelessWidget {
         );
 
     final showFinance = _visible(5) || _visible(6);
-    final showWorkforce = _visible(9) || _visible(11);
+    final showWorkforce = _visible(9) || _visible(11) || _visible(19);
     final showMasterData = _visible(12) || _visible(13) ||
         _visible(14) || _visible(15) || _visible(16) || _visible(17);
     final showAdmin = _visible(10) || _visible(18);
@@ -425,18 +484,41 @@ class _MobileMoreSheet extends StatelessWidget {
               ),
             ),
           ),
+          // User info card
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Menu',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[800],
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: color.withValues(alpha: 0.12),
+                  child: Text(
+                    (userName?.isNotEmpty == true ? userName![0] : '?').toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName ?? '—',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _roleLabel(role),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           const Divider(height: 1),
@@ -463,6 +545,7 @@ class _MobileMoreSheet extends StatelessWidget {
                   section('Workforce'),
                   if (_visible(9))  item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', '/attendance'),
                   if (_visible(11)) item(Icons.badge_outlined, Icons.badge, 'Employees', '/employees'),
+                  if (_visible(19)) item(Icons.payments_outlined, Icons.payments, 'Payroll', '/payroll'),
                 ],
 
                 // MASTER DATA
@@ -553,7 +636,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
         return index != 10 && index != 18;
       default:
         // SITE_STAFF or null (loading): operations only
-        return !const {5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}.contains(index);
+        return !const {5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}.contains(index);
     }
   }
 
@@ -576,7 +659,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
   @override
   Widget build(BuildContext context) {
     final showFinance    = _visible(6) || _visible(7) || _visible(8);
-    final showWorkforce  = _visible(9) || _visible(11);
+    final showWorkforce  = _visible(9) || _visible(11) || _visible(19);
     final showMasterData = _visible(12) || _visible(13) || _visible(14) || _visible(15) || _visible(16) || _visible(17);
     final showAdmin      = _visible(10) || _visible(18);
 
@@ -652,6 +735,7 @@ class _AppSidebarState extends ConsumerState<_AppSidebar> {
                     _NavSection('Workforce'),
                     _item(Icons.fact_check_outlined, Icons.fact_check, 'Attendance', 9),
                     _item(Icons.badge_outlined, Icons.badge, 'Employees', 11),
+                    _item(Icons.payments_outlined, Icons.payments, 'Payroll', 19),
                   ],
 
                   if (showMasterData) ...[
@@ -788,6 +872,7 @@ class _NavItem extends StatelessWidget {
     '/users', '/employees', '/parties', '/vehicles', '/machines', '/materials', '/sites',
     '/services',           // 17 — Master Data: Services
     '/business-profile',   // 18 — Admin: Business Profile
+    '/payroll',            // 19 — Workforce: Payroll
   ];
 
   @override

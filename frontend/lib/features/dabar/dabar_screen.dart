@@ -152,7 +152,7 @@ class _DabarScreenState extends ConsumerState<DabarScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showForm(context, ref, null, selectedDate, rangeKey),
+        onPressed: () => _onAddTapped(context, ref, selectedDate, rangeKey, siteId),
         icon: const Icon(Icons.add),
         label: const Text('Add Entry'),
       ),
@@ -175,7 +175,7 @@ class _DabarScreenState extends ConsumerState<DabarScreen> {
                   Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
                   const SizedBox(width: 8),
                   Expanded(child: Text(
-                    'Select a site from the sidebar to add new entries',
+                    'Select a site to view dabar entries and add new ones',
                     style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
                   )),
                 ]),
@@ -209,22 +209,68 @@ class _DabarScreenState extends ConsumerState<DabarScreen> {
     );
   }
 
+  Future<void> _onAddTapped(BuildContext context, WidgetRef ref,
+      DateTime date, String rangeKey, int? siteId) async {
+    if (siteId != null) {
+      _showForm(context, ref, null, date, rangeKey);
+      return;
+    }
+    final sites = ref.read(sitesProvider).valueOrNull ?? [];
+    if (!context.mounted) return;
+    final picked = await _showSitePickerForEntry(context, sites);
+    if (picked == null || !context.mounted) return;
+    _showForm(context, ref, null, date, rangeKey, siteOverride: picked);
+  }
+
+  Future<int?> _showSitePickerForEntry(
+      BuildContext context, List<Map<String, dynamic>> sites) async {
+    if (sites.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No sites available. Add a site first.')));
+      return null;
+    }
+    return showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Select site to add entry',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            ...sites.map((s) => ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(ctx, s['id'] as int?),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showForm(BuildContext context, WidgetRef ref, Map<String, dynamic>? existing,
-      DateTime date, String rangeKey) {
+      DateTime date, String rangeKey, {int? siteOverride}) {
+    final effectiveSiteId = siteOverride ?? ref.read(selectedSiteIdProvider);
+    final key = _rangeKey(
+      ref.read(_dabarModeProvider),
+      ref.read(_dabarDateProvider),
+      ref.read(_dabarCustomRangeProvider),
+      effectiveSiteId,
+    );
     showDialog(
       context: context,
       builder: (_) => _DabarForm(
         existing: existing,
         initialDate: date,
-        onSaved: () {
-          final key = _rangeKey(
-            ref.read(_dabarModeProvider),
-            ref.read(_dabarDateProvider),
-            ref.read(_dabarCustomRangeProvider),
-            ref.read(selectedSiteIdProvider),
-          );
-          ref.invalidate(_dabarProvider(key));
-        },
+        siteId: effectiveSiteId,
+        onSaved: () => ref.invalidate(_dabarProvider(key)),
       ),
     );
   }
@@ -895,8 +941,9 @@ class _Badge extends StatelessWidget {
 class _DabarForm extends ConsumerStatefulWidget {
   final Map<String, dynamic>? existing;
   final DateTime initialDate;
+  final int? siteId;
   final VoidCallback onSaved;
-  const _DabarForm({this.existing, required this.initialDate, required this.onSaved});
+  const _DabarForm({this.existing, required this.initialDate, this.siteId, required this.onSaved});
 
   @override
   ConsumerState<_DabarForm> createState() => _DabarFormState();
@@ -975,7 +1022,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
       }
     }
 
-    final siteId = ref.read(selectedSiteIdProvider);
+    final siteId = widget.siteId ?? ref.read(selectedSiteIdProvider);
     if (siteId == null) return;
 
     try {
@@ -1042,12 +1089,12 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
     }
 
     final api = ref.read(apiClientProvider);
-    final siteId = ref.read(selectedSiteIdProvider);
+    final siteId = widget.siteId ?? ref.read(selectedSiteIdProvider);
     if (widget.existing == null && siteId == null) {
       setState(() => _saving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Select a site from the sidebar before adding entries'),
+          content: Text('Select a site before adding entries'),
           backgroundColor: Colors.orange,
         ));
       }
@@ -1159,7 +1206,7 @@ class _DabarFormState extends ConsumerState<_DabarForm> {
                 ),
                 child: SwitchListTile(
                   title: const Text(
-                    'Arranged by DSP (creates a payable)',
+                    'Arranged by us (creates a payable)',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(

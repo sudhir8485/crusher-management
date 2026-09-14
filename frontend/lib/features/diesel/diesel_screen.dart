@@ -178,7 +178,7 @@ class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerPr
                   Icon(Icons.info_outline, size: 16, color: Colors.orange.shade800),
                   const SizedBox(width: 8),
                   Expanded(child: Text(
-                    'Select a site from the sidebar to view diesel stock and add entries',
+                    'Select a site to view diesel stock and add entries',
                     style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
                   )),
                 ]),
@@ -344,20 +344,17 @@ class _DieselDateRangeBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         // Mode chips
-        Row(children: [
+        Wrap(spacing: 6, runSpacing: 4, children: [
           for (final m in [('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year')])
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(m.$2),
-                selected: mode == m.$1,
-                onSelected: (_) => onModeChanged(m.$1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                labelStyle: TextStyle(fontSize: 12,
-                    color: mode == m.$1 ? cs.onPrimary : null),
-                selectedColor: cs.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: mode == m.$1,
+              onSelected: (_) => onModeChanged(m.$1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: TextStyle(fontSize: 12,
+                  color: mode == m.$1 ? cs.onPrimary : null),
+              selectedColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
           InkWell(
             onTap: () => _pickCustom(context),
@@ -1015,7 +1012,8 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
   void initState() {
     super.initState();
     _date           = widget.initialDate;
-    _source         = widget.existing?['source'] ?? 'PUMP';
+    final existingSource = widget.existing?['source'];
+    _source = (existingSource == 'PARTY_ADVANCE') ? 'PARTY_ADVANCE' : 'PUMP';
     _vendorId       = widget.existing?['vendorId'];
     _advancePartyId = widget.existing?['advancePartyId'];
     _qty.addListener(() => setState(() {}));
@@ -1108,7 +1106,6 @@ class _ReceiptFormState extends ConsumerState<_ReceiptForm> {
                 SegmentedButton<String>(
                   segments: const [
                     ButtonSegment(value: 'PUMP',          label: Text('Pump'),          icon: Icon(Icons.local_gas_station)),
-                    ButtonSegment(value: 'DIRECT',        label: Text('Direct'),        icon: Icon(Icons.inventory_2_outlined)),
                     ButtonSegment(value: 'PARTY_ADVANCE', label: Text('Party Advance'), icon: Icon(Icons.account_balance_wallet_outlined)),
                   ],
                   selected: {_source},
