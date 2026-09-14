@@ -201,7 +201,8 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
       _showForm(context, ref, null, date, rangeKey);
       return;
     }
-    final sites = ref.read(sitesProvider).valueOrNull ?? [];
+    final sites = ref.read(sitesProvider).valueOrNull
+        ?? await ref.read(sitesProvider.future);
     if (!context.mounted) return;
     final picked = await _showSitePickerForEntry(context, sites);
     if (picked == null || !context.mounted) return;
@@ -488,7 +489,7 @@ class _TripsListState extends State<_TripsList> {
         final plate   = (t['vehiclePlateNumber'] as String? ?? '').toLowerCase();
         final display = (t['vehicleDisplayName']  as String? ?? '').toLowerCase();
         final party   = (t['partyDisplayName']    as String? ?? '').toLowerCase();
-        final challan = (t['dspChallanNo']         as String? ?? '').toLowerCase();
+        final challan = (t['challanNo']         as String? ?? '').toLowerCase();
         final vchal   = (t['vendorChallanNo']      as String? ?? '').toLowerCase();
         return plate.contains(_search) || display.contains(_search) ||
                party.contains(_search) || challan.contains(_search) ||
@@ -696,7 +697,7 @@ class _TripCardState extends State<_TripCard> {
     final matAmt     = trip['materialAmount'];
     final transChg   = trip['transportationCharge'];
     final totalBill  = trip['totalBill'];
-    final challanNo  = trip['dspChallanNo'] ?? '';
+    final challanNo  = trip['challanNo'] ?? '';
     final distKm     = trip['distanceKm'];
     final transRate  = trip['transportRatePerKm'];
     final tripDate   = trip['tripDate'] ?? '';
@@ -892,7 +893,7 @@ class _TripCardState extends State<_TripCard> {
     final transChg = (trip['transportationCharge'] as num?)?.toDouble() ?? 0;
     final gstRate  = (trip['gstRate']              as num?)?.toDouble() ?? 0;
     final isOwn    = trip['vehicleMode'] == 'OWN_VEHICLE';
-    final challanNo = trip['dspChallanNo'] ?? '';
+    final challanNo = trip['challanNo'] ?? '';
     final tripDate  = trip['tripDate'] ?? '';
 
     // Tax calculations (SGST + CGST only, same state assumed)
@@ -1890,7 +1891,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
       }
 
       _vehicleName   = e['vehicleDisplayName'] ?? e['vehiclePlateNumber'] ?? '';
-      _dspChallan.text   = e['dspChallanNo'] ?? '';
+      _dspChallan.text   = e['challanNo'] ?? '';
       _vdrChallan.text   = e['vendorChallanNo'] ?? '';
       _loadingLoc.text   = e['loadingLocation'] ?? '';
       _unloadingLoc.text = e['unloadingLocation'] ?? '';
@@ -2100,7 +2101,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
       final t = val.trim();
       if (t.isNotEmpty) b[key] = t;
     }
-    opt('dspChallanNo',      _dspChallan.text);
+    opt('challanNo',      _dspChallan.text);
     opt('vendorChallanNo',   _vdrChallan.text);
     opt('loadingLocation',   _loadingLoc.text);
     opt('unloadingLocation', _unloadingLoc.text);

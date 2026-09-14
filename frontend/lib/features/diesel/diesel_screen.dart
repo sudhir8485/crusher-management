@@ -1480,7 +1480,8 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
 Future<bool> _ensureSiteSelected(BuildContext context, WidgetRef ref) async {
   final siteId = ref.read(selectedSiteIdProvider);
   if (siteId != null) return true;
-  final sites = ref.read(sitesProvider).valueOrNull ?? [];
+  final sites = ref.read(sitesProvider).valueOrNull
+      ?? await ref.read(sitesProvider.future);
   if (!context.mounted) return false;
   if (sites.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(

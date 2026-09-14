@@ -231,7 +231,8 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
       _showForm(context, ref, null, date, siteId);
       return;
     }
-    final sites = ref.read(sitesProvider).valueOrNull ?? [];
+    final sites = ref.read(sitesProvider).valueOrNull
+        ?? await ref.read(sitesProvider.future);
     if (!context.mounted) return;
     final picked = await _showSitePickerForEntry(context, sites);
     if (picked == null || !context.mounted) return;
