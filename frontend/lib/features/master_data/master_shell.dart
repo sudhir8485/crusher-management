@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
 
@@ -66,45 +67,41 @@ class _MobileAppHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    const logoColor = Color(0xFF1565C0);
     return Container(
-      height: 46,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200, width: 1)),
       ),
       child: Row(
         children: [
-          // Icon badge
+          // Same logo as login screen
           Container(
-            width: 30,
-            height: 30,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [primary, primary.withValues(alpha: 0.75)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: logoColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.terrain, color: Colors.white, size: 17),
+            child: const Icon(Icons.business, size: 19, color: logoColor),
           ),
-          const SizedBox(width: 9),
-          // App name with gradient text
+          const SizedBox(width: 10),
+          // Modern Poppins font with gradient
           ShaderMask(
-            shaderCallback: (bounds) => LinearGradient(
-              colors: [primary, Color.lerp(primary, Colors.indigo, 0.5)!],
+            shaderCallback: (bounds) => const LinearGradient(
+              colors: [Color(0xFF1565C0), Color(0xFF5C6BC0)],
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ).createShader(bounds),
             blendMode: BlendMode.srcIn,
-            child: const Text(
-              'SITE MANAGER',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.5,
+            child: Text(
+              'Site Manager',
+              style: GoogleFonts.poppins(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
                 color: Colors.white,
               ),
             ),
