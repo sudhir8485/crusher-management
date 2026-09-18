@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -111,59 +110,6 @@ public class JobWorkInvoiceService {
         dabarBillingRepo.deleteByJobWorkInvoiceId(id);
         inv.setStatus("INACTIVE");
         invoiceRepo.save(inv);
-    }
-
-    /** Recalculate GST from Service Master — only valid when gst_status = PENDING. */
-    @Transactional
-    public JobWorkInvoiceResponse recalculateGst(Long id) {
-        JobWorkInvoice inv = load(id);
-        if (!"PENDING".equals(inv.getGstStatus())) {
-            throw new IllegalStateException(
-                    "GST is already locked (SET) for " + inv.getInvoiceNo() + ". Recalculate is only available for PENDING invoices.");
-        }
-
-        BigDecimal newGstRate = inv.getItems().stream()
-                .filter(i -> i.getServiceId() != null)
-                .map(i -> serviceRepo.findById(i.getServiceId()).orElse(null))
-                .filter(s -> s != null && s.isGstRateConfigured())
-                .map(ServiceRecord::getGstRate)
-                .findFirst()
-                .orElse(BigDecimal.ZERO);
-
-        BigDecimal half = newGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-
-        inv.setGstPrevSgstRate(inv.getSgstRate());
-        inv.setGstPrevCgstRate(inv.getCgstRate());
-        inv.setGstRecalculatedBy(currentUserName());
-        inv.setGstRecalculatedAt(LocalDateTime.now());
-        inv.setSgstRate(half);
-        inv.setCgstRate(half);
-
-        computeTotals(inv, half, half);
-        inv.setGstStatus("SET");
-        return enrich(List.of(invoiceRepo.save(inv))).get(0);
-    }
-
-    /** Set GST rate directly on a PENDING invoice — no Service Master lookup. */
-    @Transactional
-    public JobWorkInvoiceResponse setGstRate(Long id, BigDecimal totalGstRate) {
-        JobWorkInvoice inv = load(id);
-        if (!"PENDING".equals(inv.getGstStatus())) {
-            throw new IllegalStateException(
-                    "GST is already locked (SET) for " + inv.getInvoiceNo() + ". Rate can only be changed on PENDING invoices.");
-        }
-
-        BigDecimal half = totalGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-        inv.setGstPrevSgstRate(inv.getSgstRate());
-        inv.setGstPrevCgstRate(inv.getCgstRate());
-        inv.setGstRecalculatedBy(currentUserName());
-        inv.setGstRecalculatedAt(LocalDateTime.now());
-        inv.setSgstRate(half);
-        inv.setCgstRate(half);
-
-        computeTotals(inv, half, half);
-        inv.setGstStatus("SET");
-        return enrich(List.of(invoiceRepo.save(inv))).get(0);
     }
 
     // ── Auto-Qty ─────────────────────────────────────────────────────────────────
@@ -318,11 +264,15 @@ public class JobWorkInvoiceService {
         }
 
         boolean anyPending = false;
+        BigDecimal firstItemGstRate = null;
+
         for (JobWorkInvoiceItemRequest ir : req.getItems()) {
             if (ir.getAmount() == null || ir.getAmount().compareTo(BigDecimal.ZERO) <= 0)
                 throw new IllegalArgumentException("Each line item amount must be greater than zero");
             if (ir.getDescription() == null || ir.getDescription().isBlank())
                 throw new IllegalArgumentException("Each line item must have a description");
+            if (ir.getGstRate() != null && ir.getGstRate().compareTo(BigDecimal.ZERO) < 0)
+                throw new IllegalArgumentException("GST rate cannot be negative");
 
             JobWorkInvoiceItem item = new JobWorkInvoiceItem();
             item.setInvoice(inv);
@@ -332,51 +282,43 @@ public class JobWorkInvoiceService {
             item.setQuantity(ir.getQuantity());
             item.setRate(ir.getRate());
             item.setAmount(ir.getAmount());
+            item.setGstRate(ir.getGstRate()); // null = PENDING
             inv.getItems().add(item);
 
-            if (ir.getServiceId() != null) {
-                ServiceRecord svc = serviceRepo.findById(ir.getServiceId()).orElse(null);
-                if (svc != null && !svc.isGstRateConfigured()) {
-                    anyPending = true;
-                }
+            if (ir.getGstRate() == null) {
+                anyPending = true;
+            } else if (firstItemGstRate == null) {
+                firstItemGstRate = ir.getGstRate();
             }
         }
 
-        BigDecimal cgstRate;
-        BigDecimal sgstRate;
-        BigDecimal materialGst = inv.getItems().stream()
-                .filter(i -> i.getServiceId() != null)
-                .map(i -> serviceRepo.findById(i.getServiceId()).orElse(null))
-                .filter(s -> s != null && s.isGstRateConfigured())
-                .map(ServiceRecord::getGstRate)
-                .findFirst()
-                .orElse(null);
+        // Invoice-level rates for PDF display: first non-null item's rate ÷ 2
+        BigDecimal halfRate = firstItemGstRate != null
+                ? firstItemGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        inv.setCgstRate(halfRate);
+        inv.setSgstRate(halfRate);
 
-        if (materialGst != null) {
-            BigDecimal half = materialGst.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-            cgstRate = half;
-            sgstRate = half;
-        } else {
-            cgstRate = BigDecimal.ZERO;
-            sgstRate = BigDecimal.ZERO;
-        }
-
-        inv.setCgstRate(cgstRate);
-        inv.setSgstRate(sgstRate);
-        computeTotals(inv, cgstRate, sgstRate);
-        inv.setGstStatus(anyPending ? "PENDING" : "SET");
-    }
-
-    private void computeTotals(JobWorkInvoice inv, BigDecimal cgstRate, BigDecimal sgstRate) {
         BigDecimal subtotal = inv.getItems().stream()
                 .map(JobWorkInvoiceItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal cgstAmt = subtotal.multiply(cgstRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal sgstAmt = subtotal.multiply(sgstRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+        // Per-item GST amounts summed (items with null gstRate contribute 0)
+        BigDecimal cgstAmt = BigDecimal.ZERO;
+        for (JobWorkInvoiceItem item : inv.getItems()) {
+            if (item.getGstRate() != null) {
+                BigDecimal half = item.getGstRate().divide(new BigDecimal("2"), 4, RoundingMode.HALF_UP);
+                cgstAmt = cgstAmt.add(
+                        item.getAmount().multiply(half).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            }
+        }
+        BigDecimal sgstAmt = cgstAmt;
+
         inv.setSubtotal(subtotal);
         inv.setCgstAmount(cgstAmt);
         inv.setSgstAmount(sgstAmt);
         inv.setGrandTotal(subtotal.add(cgstAmt).add(sgstAmt));
+        inv.setGstStatus(anyPending ? "PENDING" : "SET");
     }
 
     private String currentUserName() {
@@ -402,6 +344,13 @@ public class JobWorkInvoiceService {
         List<Long> siteIds = rows.stream().map(JobWorkInvoice::getSiteId).distinct().collect(Collectors.toList());
         Map<Long, Site> sites = siteRepo.findAllById(siteIds).stream()
                 .collect(Collectors.toMap(Site::getId, s -> s));
+
+        // Batch-load service masters for mismatch indicator
+        Set<Long> serviceIds = rows.stream().flatMap(inv -> inv.getItems().stream())
+                .map(JobWorkInvoiceItem::getServiceId).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        Map<Long, ServiceRecord> services = serviceIds.isEmpty() ? Map.of()
+                : serviceRepo.findAllById(serviceIds).stream()
+                        .collect(Collectors.toMap(ServiceRecord::getId, s -> s));
 
         return rows.stream().map(inv -> {
             JobWorkInvoiceResponse r = new JobWorkInvoiceResponse();
@@ -444,6 +393,11 @@ public class JobWorkInvoiceService {
                 ir.setQuantity(item.getQuantity());
                 ir.setRate(item.getRate());
                 ir.setAmount(item.getAmount());
+                ir.setGstRate(item.getGstRate());
+                if (item.getServiceId() != null) {
+                    ServiceRecord svc = services.get(item.getServiceId());
+                    if (svc != null && svc.isGstRateConfigured()) ir.setMasterGstRate(svc.getGstRate());
+                }
                 return ir;
             }).collect(Collectors.toList()));
 

@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 
 @Getter @Setter
 public class JobWorkInvoiceItemRequest {
-    /** Optional FK to Service Master — enables Recalculate GST action. */
+    /** Optional FK to Service Master. */
     private Long serviceId;
     /** Snapshot description (e.g. service name) — stored as-is on the item. */
     private String description;
@@ -14,4 +14,6 @@ public class JobWorkInvoiceItemRequest {
     private BigDecimal quantity;
     private BigDecimal rate;
     private BigDecimal amount;
+    /** Combined GST rate for this line item. null = PENDING; 0 = zero-rated. */
+    private BigDecimal gstRate;
 }

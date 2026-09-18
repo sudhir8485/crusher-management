@@ -11,7 +11,6 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @RestController
@@ -48,19 +47,6 @@ public class JobWorkInvoiceController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.deactivate(id);
         return ResponseEntity.noContent().build();
-    }
-
-    /** Recalculate GST from Service Master — only on PENDING invoices. */
-    @PostMapping("/{id}/recalculate-gst")
-    public JobWorkInvoiceResponse recalculateGst(@PathVariable Long id) {
-        return service.recalculateGst(id);
-    }
-
-    /** Set GST rate directly on a PENDING invoice (no Service Master lookup). */
-    @PostMapping("/{id}/set-gst-rate")
-    public JobWorkInvoiceResponse setGstRate(@PathVariable Long id,
-                                              @RequestParam BigDecimal rate) {
-        return service.setGstRate(id, rate);
     }
 
     /** Auto-calculate quantity from underlying records for a Job-Work invoice line.

@@ -21,9 +21,6 @@ public class GstInvoiceRequest {
     private LocalDate supplyDate;
     private String poNo;
 
-    private BigDecimal cgstRate;   // null → infer from material, then fall back to 9%
-    private BigDecimal sgstRate;
-
     @NotEmpty
     @Valid
     private List<GstInvoiceItemRequest> items;

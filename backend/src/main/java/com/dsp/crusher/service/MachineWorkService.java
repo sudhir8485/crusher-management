@@ -349,22 +349,25 @@ public class MachineWorkService {
         Machine machine = machineRepo.findById(log.getMachineId()).orElse(null);
         String machineName = machine != null ? machine.getName() : "Machine";
 
-        // Resolve GST defaults from work type
-        BigDecimal gstRate = BigDecimal.ZERO;
+        // Item GST rate: null (PENDING) when no defaultGstRate > 0 on the work type
+        BigDecimal itemGstRate = null;
         if (log.getWorkTypeId() != null) {
             MachineWorkType wt = workTypeRepo.findById(log.getWorkTypeId()).orElse(null);
             if (wt != null && wt.getDefaultGstRate() != null
                     && wt.getDefaultGstRate().compareTo(BigDecimal.ZERO) > 0) {
-                gstRate = wt.getDefaultGstRate();
+                itemGstRate = wt.getDefaultGstRate();
             }
         }
-        BigDecimal halfGst = gstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
+        BigDecimal halfGst = itemGstRate != null
+                ? itemGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
         BigDecimal subtotal = log.getTotalAmount();
-        BigDecimal sgstAmt = subtotal.multiply(halfGst)
-                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal cgstAmt = sgstAmt;
-        BigDecimal grandTotal = subtotal.add(sgstAmt).add(cgstAmt);
-        String gstStatus = gstRate.compareTo(BigDecimal.ZERO) > 0 ? "SET" : "PENDING";
+        BigDecimal cgstAmt = itemGstRate != null
+                ? subtotal.multiply(halfGst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal sgstAmt = cgstAmt;
+        BigDecimal grandTotal = subtotal.add(cgstAmt).add(sgstAmt);
+        String gstStatus = itemGstRate != null ? "SET" : "PENDING";
 
         GstInvoice inv = new GstInvoice();
         inv.setTenantId(TenantContext.get());
@@ -373,7 +376,7 @@ public class MachineWorkService {
         inv.setInvoiceNo(nextInvoiceNo(log.getLogDate()));
         inv.setNotes(gstStatus.equals("SET")
                 ? "Auto-generated from Machine Work"
-                : "Auto-generated from Machine Work — set GST rate in party account to confirm");
+                : "Auto-generated from Machine Work — open invoice to enter GST rate");
         inv.setSgstRate(halfGst);
         inv.setCgstRate(halfGst);
         inv.setSubtotal(subtotal);
@@ -388,6 +391,7 @@ public class MachineWorkService {
         item.setRate(log.getRate());
         item.setQuantityBrass(log.getTotalHours());
         item.setAmount(subtotal);
+        item.setGstRate(itemGstRate); // null when PENDING
         inv.getItems().add(item);
 
         return inv;

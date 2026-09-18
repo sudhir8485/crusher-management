@@ -481,12 +481,19 @@ public class TripService {
         String hsnCode = mat != null ? mat.getHsnCode() : null;
         boolean gstConfigured = mat != null && mat.isGstRateConfigured();
 
-        BigDecimal gstRate = t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO;
-        BigDecimal halfGst = gstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
+        // Item GST rate: null (PENDING) when not configured; otherwise use the snapshot rate
+        BigDecimal itemGstRate = gstConfigured
+                ? (t.getGstRate() != null ? t.getGstRate() : BigDecimal.ZERO)
+                : null;
+        BigDecimal halfGst = itemGstRate != null
+                ? itemGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
         BigDecimal subtotal   = t.getTotalBill();
-        BigDecimal sgstAmt    = subtotal.multiply(halfGst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal cgstAmt    = sgstAmt;
-        BigDecimal grandTotal = subtotal.add(sgstAmt).add(cgstAmt);
+        BigDecimal cgstAmt    = itemGstRate != null
+                ? subtotal.multiply(halfGst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal sgstAmt    = cgstAmt;
+        BigDecimal grandTotal = subtotal.add(cgstAmt).add(sgstAmt);
         String gstStatus = gstConfigured ? "SET" : "PENDING";
 
         GstInvoice inv = new GstInvoice();
@@ -513,6 +520,7 @@ public class TripService {
         item.setRate(t.getSaleRate());
         item.setMaterialId(t.getMaterialId());
         item.setAmount(subtotal);
+        item.setGstRate(itemGstRate); // null when PENDING
         inv.getItems().add(item);
 
         return inv;

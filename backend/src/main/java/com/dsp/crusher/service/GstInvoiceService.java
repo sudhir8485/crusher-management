@@ -4,15 +4,11 @@ import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.*;
 import com.dsp.crusher.entity.GstInvoice;
 import com.dsp.crusher.entity.GstInvoiceItem;
-import com.dsp.crusher.entity.MachineWorkLog;
-import com.dsp.crusher.entity.MachineWorkType;
 import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.entity.ServiceRecord;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
-import com.dsp.crusher.repository.MachineWorkLogRepository;
-import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.ServiceRepository;
 import com.dsp.crusher.repository.UserRepository;
@@ -29,9 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,8 +42,6 @@ public class GstInvoiceService {
     private final ServiceRepository         serviceRepo;
     private final UserRepository            userRepo;
     private final InvoiceNumberingService   numbering;
-    private final MachineWorkLogRepository  machineWorkRepo;
-    private final MachineWorkTypeRepository workTypeRepo;
 
     public PageResponse<GstInvoiceResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -94,108 +89,6 @@ public class GstInvoiceService {
         invoiceRepo.save(inv);
     }
 
-    /**
-     * Explicit Recalculate GST action — only valid when gst_status = PENDING.
-     * Pulls each item's current Material or Service GST rate, recomputes totals,
-     * locks the invoice as SET, and writes an audit record.
-     */
-    @Transactional
-    public GstInvoiceResponse recalculateGst(Long id) {
-        GstInvoice inv = invoiceRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found: " + id));
-
-        if (!"PENDING".equals(inv.getGstStatus())) {
-            throw new IllegalStateException(
-                    "GST is already locked (SET) for invoice " + inv.getInvoiceNo()
-                    + ". Recalculate is only available for PENDING invoices.");
-        }
-
-        // Pull rate: (1) material item, (2) configured service item, (3) machine work type
-        BigDecimal newGstRate = inv.getItems().stream()
-                .filter(i -> i.getMaterialId() != null)
-                .map(i -> materialRepo.findById(i.getMaterialId()).orElse(null))
-                .filter(m -> m != null)
-                .map(Material::getGstRate)
-                .findFirst()
-                .orElseGet(() -> inv.getItems().stream()
-                        .filter(i -> i.getServiceId() != null)
-                        .map(i -> serviceRepo.findById(i.getServiceId()).orElse(null))
-                        .filter(s -> s != null && s.isGstRateConfigured())
-                        .map(ServiceRecord::getGstRate)
-                        .findFirst()
-                        .orElseGet(() -> machineWorkRepo.findFirstByGstInvoiceId(inv.getId())
-                                .map(mwl -> mwl.getWorkTypeId() != null
-                                        ? workTypeRepo.findById(mwl.getWorkTypeId())
-                                                .map(MachineWorkType::getDefaultGstRate)
-                                                .orElse(BigDecimal.ZERO)
-                                        : BigDecimal.ZERO)
-                                .orElse(BigDecimal.ZERO)));
-
-        BigDecimal newHalf = newGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-
-        inv.setGstPrevSgstRate(inv.getSgstRate());
-        inv.setGstPrevCgstRate(inv.getCgstRate());
-        inv.setGstRecalculatedBy(getCurrentUserName());
-        inv.setGstRecalculatedAt(LocalDateTime.now());
-
-        inv.setSgstRate(newHalf);
-        inv.setCgstRate(newHalf);
-
-        BigDecimal subtotal = inv.getItems().stream()
-                .map(GstInvoiceItem::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal sgstAmt = subtotal.multiply(newHalf).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal cgstAmt = subtotal.multiply(newHalf).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-
-        inv.setSubtotal(subtotal);
-        inv.setSgstAmount(sgstAmt);
-        inv.setCgstAmount(cgstAmt);
-        inv.setGrandTotal(subtotal.add(sgstAmt).add(cgstAmt));
-        inv.setGstStatus("SET");
-
-        return enrich(List.of(invoiceRepo.save(inv))).get(0);
-    }
-
-    /**
-     * Set a specific GST rate directly on a PENDING invoice.
-     * totalGstRate is the combined rate (e.g. 18 → SGST 9% + CGST 9%). Locks as SET.
-     */
-    @Transactional
-    public GstInvoiceResponse setGstRate(Long id, BigDecimal totalGstRate) {
-        GstInvoice inv = invoiceRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Invoice not found: " + id));
-
-        if (!"PENDING".equals(inv.getGstStatus())) {
-            throw new IllegalStateException(
-                    "GST is already locked (SET) for invoice " + inv.getInvoiceNo()
-                    + ". Rate can only be changed on PENDING invoices.");
-        }
-
-        BigDecimal half = totalGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-
-        inv.setGstPrevSgstRate(inv.getSgstRate());
-        inv.setGstPrevCgstRate(inv.getCgstRate());
-        inv.setGstRecalculatedBy(getCurrentUserName());
-        inv.setGstRecalculatedAt(LocalDateTime.now());
-
-        inv.setSgstRate(half);
-        inv.setCgstRate(half);
-
-        BigDecimal subtotal = inv.getItems().stream()
-                .map(GstInvoiceItem::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal sgstAmt = subtotal.multiply(half).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal cgstAmt = subtotal.multiply(half).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-
-        inv.setSubtotal(subtotal);
-        inv.setSgstAmount(sgstAmt);
-        inv.setCgstAmount(cgstAmt);
-        inv.setGrandTotal(subtotal.add(sgstAmt).add(cgstAmt));
-        inv.setGstStatus("SET");
-
-        return enrich(List.of(invoiceRepo.save(inv))).get(0);
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void apply(GstInvoice inv, GstInvoiceRequest req) {
@@ -210,6 +103,8 @@ public class GstInvoiceService {
         }
 
         boolean anyPending = false;
+        BigDecimal firstItemGstRate = null;
+
         for (GstInvoiceItemRequest ir : req.getItems()) {
             if (ir.getAmount() == null || ir.getAmount().compareTo(BigDecimal.ZERO) <= 0)
                 throw new IllegalArgumentException("Each line item amount must be greater than zero");
@@ -217,6 +112,8 @@ public class GstInvoiceService {
                 throw new IllegalArgumentException("Quantity cannot be negative");
             if (ir.getRate() != null && ir.getRate().compareTo(BigDecimal.ZERO) < 0)
                 throw new IllegalArgumentException("Rate cannot be negative");
+            if (ir.getGstRate() != null && ir.getGstRate().compareTo(BigDecimal.ZERO) < 0)
+                throw new IllegalArgumentException("GST rate cannot be negative");
 
             GstInvoiceItem item = new GstInvoiceItem();
             item.setInvoice(inv);
@@ -227,62 +124,38 @@ public class GstInvoiceService {
             item.setAmount(ir.getAmount());
             item.setMaterialId(ir.getMaterialId());
             item.setServiceId(ir.getServiceId());
+            item.setGstRate(ir.getGstRate()); // null = PENDING for this item
             inv.getItems().add(item);
 
-            // PENDING if linked to a material without a configured GST rate
-            if (ir.getMaterialId() != null) {
-                Material mat = materialRepo.findById(ir.getMaterialId()).orElse(null);
-                if (mat != null && !mat.isGstRateConfigured()) anyPending = true;
-            }
-            // PENDING if linked to a service without a configured GST rate
-            if (ir.getServiceId() != null) {
-                ServiceRecord svc = serviceRepo.findById(ir.getServiceId()).orElse(null);
-                if (svc != null && !svc.isGstRateConfigured()) anyPending = true;
+            if (ir.getGstRate() == null) {
+                anyPending = true;
+            } else if (firstItemGstRate == null) {
+                firstItemGstRate = ir.getGstRate();
             }
         }
 
-        // Rate resolution — explicit > material master > service master > fallback 9%
-        BigDecimal cgstRate;
-        BigDecimal sgstRate;
-        if (req.getCgstRate() != null && req.getSgstRate() != null) {
-            cgstRate = req.getCgstRate();
-            sgstRate = req.getSgstRate();
-        } else {
-            BigDecimal fromMaterial = inv.getItems().stream()
-                    .filter(i -> i.getMaterialId() != null)
-                    .map(i -> materialRepo.findById(i.getMaterialId()).orElse(null))
-                    .filter(m -> m != null && m.isGstRateConfigured())
-                    .map(Material::getGstRate)
-                    .findFirst().orElse(null);
+        // Invoice-level CGST/SGST rate: first non-null item's rate ÷ 2 (for PDF display)
+        BigDecimal halfRate = firstItemGstRate != null
+                ? firstItemGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        inv.setCgstRate(halfRate);
+        inv.setSgstRate(halfRate);
 
-            BigDecimal fromService = fromMaterial == null
-                    ? inv.getItems().stream()
-                            .filter(i -> i.getServiceId() != null)
-                            .map(i -> serviceRepo.findById(i.getServiceId()).orElse(null))
-                            .filter(s -> s != null && s.isGstRateConfigured())
-                            .map(ServiceRecord::getGstRate)
-                            .findFirst().orElse(null)
-                    : null;
-
-            BigDecimal resolved = fromMaterial != null ? fromMaterial : fromService;
-            if (resolved != null) {
-                BigDecimal half = resolved.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
-                cgstRate = half;
-                sgstRate = half;
-            } else {
-                // Neither material nor service has a configured rate — use 9% as placeholder
-                cgstRate = new BigDecimal("9.00");
-                sgstRate = new BigDecimal("9.00");
-            }
-        }
-        inv.setCgstRate(cgstRate);
-        inv.setSgstRate(sgstRate);
-
+        // Subtotal = sum of all item amounts
         BigDecimal subtotal = inv.getItems().stream()
                 .map(GstInvoiceItem::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal cgstAmt = subtotal.multiply(cgstRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-        BigDecimal sgstAmt = subtotal.multiply(sgstRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+        // Per-item GST amounts summed for invoice totals (items with null gstRate = 0 tax)
+        BigDecimal cgstAmt = BigDecimal.ZERO;
+        for (GstInvoiceItem item : inv.getItems()) {
+            if (item.getGstRate() != null) {
+                BigDecimal half = item.getGstRate().divide(new BigDecimal("2"), 4, RoundingMode.HALF_UP);
+                cgstAmt = cgstAmt.add(
+                        item.getAmount().multiply(half).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+            }
+        }
+        BigDecimal sgstAmt = cgstAmt; // always 50/50
 
         inv.setSubtotal(subtotal);
         inv.setCgstAmount(cgstAmt);
@@ -306,6 +179,18 @@ public class GstInvoiceService {
                 .map(GstInvoice::getVendorId).distinct().collect(Collectors.toList());
         Map<Long, Vendor> vendors = vendorRepo.findAllById(vendorIds).stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
+
+        // Batch-load material and service masters for the mismatch indicator
+        Set<Long> materialIds = rows.stream().flatMap(inv -> inv.getItems().stream())
+                .map(GstInvoiceItem::getMaterialId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<Long> serviceIds = rows.stream().flatMap(inv -> inv.getItems().stream())
+                .map(GstInvoiceItem::getServiceId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, Material> materials = materialIds.isEmpty() ? Map.of()
+                : materialRepo.findAllById(materialIds).stream()
+                        .collect(Collectors.toMap(Material::getId, m -> m));
+        Map<Long, ServiceRecord> services = serviceIds.isEmpty() ? Map.of()
+                : serviceRepo.findAllById(serviceIds).stream()
+                        .collect(Collectors.toMap(ServiceRecord::getId, s -> s));
 
         return rows.stream().map(inv -> {
             GstInvoiceResponse r = new GstInvoiceResponse();
@@ -349,6 +234,16 @@ public class GstInvoiceService {
                 ir.setAmount(item.getAmount());
                 ir.setMaterialId(item.getMaterialId());
                 ir.setServiceId(item.getServiceId());
+                ir.setGstRate(item.getGstRate());
+                // Master rate (for informational mismatch indicator — only when configured)
+                if (item.getMaterialId() != null) {
+                    Material m = materials.get(item.getMaterialId());
+                    if (m != null && m.isGstRateConfigured()) ir.setMasterGstRate(m.getGstRate());
+                }
+                if (item.getServiceId() != null) {
+                    ServiceRecord s = services.get(item.getServiceId());
+                    if (s != null && s.isGstRateConfigured()) ir.setMasterGstRate(s.getGstRate());
+                }
                 return ir;
             }).collect(Collectors.toList()));
 

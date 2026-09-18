@@ -1074,10 +1074,10 @@ class _EntryCardState extends State<_EntryCard> {
     VoidCallback onTapHeader;
     if (sourceId != null && (isSales || isJobWork)) {
       onTapHeader = () => _nav(
-        isSales ? '/invoices' : '/invoices',
+        '/invoices',
         isSales
-          ? {'editGstId': sourceId, 'entryDate': entryDate}
-          : {'editJwId': sourceId, 'entryDate': entryDate},
+          ? {'viewGstId': sourceId, 'entryDate': entryDate}
+          : {'viewJwId': sourceId, 'entryDate': entryDate},
       );
     } else if (sourceId != null && isMachineWork) {
       onTapHeader = () => _nav('/machine-work', {'editLogId': sourceId, 'entryDate': entryDate});
@@ -1197,7 +1197,7 @@ class _EntryCardState extends State<_EntryCard> {
                       padding: const EdgeInsets.fromLTRB(28, 0, 16, 8),
                       child: Text(
                         isTransportPayable ? 'Tap to open Dabar entry and set agreed amount'
-                            : (isSales || isJobWork) ? 'Tap to open Invoice and set GST rate'
+                            : (isSales || isJobWork) ? 'GST rate pending — tap to open invoice and enter rate'
                             : isMachineWork ? 'Tap to open Machine Work entry and set rate'
                             : 'Tap to view/edit',
                         style: TextStyle(fontSize: 11, color: Colors.orange.shade700,

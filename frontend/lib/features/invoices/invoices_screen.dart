@@ -107,13 +107,20 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     _extraProcessed = true;
     final extra = GoRouterState.of(context).extra as Map?;
     if (extra == null) return;
-    final gstId = extra['editGstId'] as int?;
-    final jwId  = extra['editJwId']  as int?;
-    if (gstId == null && jwId == null) return;
-    _scheduleOpenInvoice(gstId: gstId, jwId: jwId);
+    final editGstId = extra['editGstId'] as int?;
+    final editJwId  = extra['editJwId']  as int?;
+    final viewGstId = extra['viewGstId'] as int?;
+    final viewJwId  = extra['viewJwId']  as int?;
+    if (editGstId == null && editJwId == null && viewGstId == null && viewJwId == null) return;
+    final openDetail = viewGstId != null || viewJwId != null;
+    _scheduleOpenInvoice(
+      gstId: editGstId ?? viewGstId,
+      jwId:  editJwId  ?? viewJwId,
+      detail: openDetail,
+    );
   }
 
-  Future<void> _scheduleOpenInvoice({int? gstId, int? jwId}) async {
+  Future<void> _scheduleOpenInvoice({int? gstId, int? jwId, bool detail = false}) async {
     for (int i = 0; i < 8; i++) {
       await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
@@ -126,7 +133,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
           inv = items.where((it) => it['_src'] == 'jw' && (it['id'] as int?) == jwId).firstOrNull;
         }
         if (inv != null) {
-          _showEdit(context, ref, inv);
+          if (detail) {
+            _showDetail(context, ref, inv);
+          } else {
+            _showEdit(context, ref, inv);
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Invoice not found')),
@@ -645,8 +656,6 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
     final statusColor   = _payStatusColor(status);
     final gstStatus     = inv['gstStatus'] as String? ?? 'SET';
     final isPending     = gstStatus == 'PENDING';
-    final prevSgst      = inv['gstPrevSgstRate'] as num?;
-    final recalcBy      = inv['gstRecalculatedBy'] as String?;
 
     final payments = ref.watch(_invoicePaymentsProvider(invoiceId));
 
@@ -735,92 +744,23 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
               ],
             ),
           ),
-          // GST Pending banner + Recalculate
           if (isPending) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.shade300),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: Colors.orange.shade700, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('GST: Pending',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: Colors.orange.shade900)),
-                        Text('GST rate was not configured when this invoice was raised. '
-                            'Set the rate in the master, then tap Recalculate.',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.orange.shade800)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonal(
-                    style: FilledButton.styleFrom(
-                        backgroundColor: Colors.orange.shade100,
-                        foregroundColor: Colors.orange.shade900),
-                    onPressed: () async {
-                      final api = ref.read(apiClientProvider);
-                      try {
-                        final res = await api.post('/api/invoices/$invoiceId/recalculate-gst');
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-                        widget.onRefresh();
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('GST recalculated — '
-                              'SGST ${res.data['sgstRate']}% / '
-                              'CGST ${res.data['cgstRate']}% applied.'),
-                          backgroundColor: Colors.green,
-                        ));
-                      } catch (err) {
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('Error: $err'),
-                            backgroundColor: Colors.red));
-                      }
-                    },
-                    child: const Text('Recalculate GST'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          // Audit log after recalculation
-          if (!isPending && prevSgst != null && recalcBy != null) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.green.shade50,
+                color: Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade200),
+                border: Border.all(color: Colors.amber.shade200),
               ),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle_outline,
-                      color: Colors.green.shade700, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'GST recalculated by $recalcBy — '
-                      'prev ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
-                      style: TextStyle(fontSize: 11, color: Colors.green.shade800),
-                    ),
-                  ),
-                ],
-              ),
+              child: Row(children: [
+                Icon(Icons.schedule_outlined, color: Colors.orange.shade700, size: 15),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  'GST Pending — open Edit to enter a rate and resolve',
+                  style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+                )),
+              ]),
             ),
           ],
           const SizedBox(height: 12),
@@ -844,7 +784,8 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
                           0: FlexColumnWidth(3),
                           1: FlexColumnWidth(1.2),
                           2: FlexColumnWidth(1.5),
-                          3: FlexColumnWidth(1.8),
+                          3: FlexColumnWidth(1.2),
+                          4: FlexColumnWidth(1.8),
                         },
                         border: TableBorder.all(color: Colors.grey.shade200),
                         children: [
@@ -854,20 +795,23 @@ class _InvoiceDetailDialogState extends ConsumerState<_InvoiceDetailDialog>
                               _TH('Description'),
                               _TH('Qty'),
                               _TH('Rate'),
+                              _TH('GST %'),
                               _TH('Amount'),
                             ],
                           ),
-                          ...items.map((item) => TableRow(children: [
-                                _TD(item['description'] as String? ?? '—'),
-                                _TD(item['quantityBrass'] != null
-                                    ? (item['quantityBrass'] as num)
-                                        .toStringAsFixed(2)
-                                    : '—'),
-                                _TD(item['rate'] != null
-                                    ? fmtCurr(item['rate'])
-                                    : '—'),
-                                _TD(fmtCurr(item['amount'] as num? ?? 0)),
-                              ])),
+                          ...items.map((item) {
+                            final itemGst = item['gstRate'];
+                            return TableRow(children: [
+                              _TD(item['description'] as String? ?? '—'),
+                              _TD(item['quantityBrass'] != null
+                                  ? (item['quantityBrass'] as num).toStringAsFixed(2)
+                                  : '—'),
+                              _TD(item['rate'] != null ? fmtCurr(item['rate']) : '—'),
+                              _TD(itemGst != null ? '${itemGst}%' : '—',
+                                  color: itemGst == null ? Colors.orange.shade700 : null),
+                              _TD(fmtCurr(item['amount'] as num? ?? 0)),
+                            ]);
+                          }),
                         ],
                       ),
                       const Divider(height: 20),
@@ -939,7 +883,6 @@ class _JwDetailDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final inv        = invoice;
-    final invoiceId  = inv['id'] as int;
     final items      = List<Map<String, dynamic>>.from(inv['items'] as List? ?? []);
     final cgstRate   = inv['cgstRate'] as num? ?? 0;
     final sgstRate   = inv['sgstRate'] as num? ?? 0;
@@ -949,8 +892,6 @@ class _JwDetailDialog extends ConsumerWidget {
     final grandTotal = inv['grandTotal'] as num? ?? 0;
     final gstStatus  = inv['gstStatus'] as String? ?? 'SET';
     final isPending  = gstStatus == 'PENDING';
-    final prevSgst   = inv['gstPrevSgstRate'] as num?;
-    final recalcBy   = inv['gstRecalculatedBy'] as String?;
 
     return AppDialog(
       title: inv['invoiceNo'] as String? ?? 'Invoice',
@@ -991,65 +932,19 @@ class _JwDetailDialog extends ConsumerWidget {
         ),
 
         if (isPending) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber.shade300),
-            ),
-            child: Row(children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 18),
-              const SizedBox(width: 8),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('GST: Pending',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
-                        color: Colors.orange.shade900)),
-                Text('Set the rate in Service Master, then tap Recalculate.',
-                    style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
-              ])),
-              const SizedBox(width: 8),
-              FilledButton.tonal(
-                style: FilledButton.styleFrom(
-                    backgroundColor: Colors.orange.shade100,
-                    foregroundColor: Colors.orange.shade900),
-                onPressed: () async {
-                  final api = ref.read(apiClientProvider);
-                  try {
-                    final res = await api.post('/api/job-work-invoices/$invoiceId/recalculate-gst');
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
-                    onRefresh();
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('GST recalculated — SGST ${res.data['sgstRate']}% / CGST ${res.data['cgstRate']}% applied.'),
-                      backgroundColor: Colors.green,
-                    ));
-                  } catch (err) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Error: $err'), backgroundColor: Colors.red));
-                  }
-                },
-                child: const Text('Recalculate GST'),
-              ),
-            ]),
-          ),
-        ],
-
-        if (!isPending && prevSgst != null && recalcBy != null) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.green.shade50, borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.green.shade200),
+              color: Colors.amber.shade50, borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.amber.shade200),
             ),
             child: Row(children: [
-              Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 16),
+              Icon(Icons.schedule_outlined, color: Colors.orange.shade700, size: 15),
               const SizedBox(width: 6),
               Expanded(child: Text(
-                'GST recalculated by $recalcBy — prev ${prevSgst}% SGST → ${sgstRate}% SGST (locked)',
-                style: TextStyle(fontSize: 11, color: Colors.green.shade800),
+                'GST Pending — open Edit to enter a rate and resolve',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
               )),
             ]),
           ),
@@ -1062,20 +957,26 @@ class _JwDetailDialog extends ConsumerWidget {
             0: FlexColumnWidth(3),
             1: FlexColumnWidth(1.2),
             2: FlexColumnWidth(1.5),
-            3: FlexColumnWidth(1.8),
+            3: FlexColumnWidth(1.2),
+            4: FlexColumnWidth(1.8),
           },
           border: TableBorder.all(color: Colors.grey.shade200),
           children: [
             TableRow(
               decoration: BoxDecoration(color: Colors.grey[100]),
-              children: const [_TH('Description'), _TH('Qty'), _TH('Rate'), _TH('Amount')],
+              children: const [_TH('Description'), _TH('Qty'), _TH('Rate'), _TH('GST %'), _TH('Amount')],
             ),
-            ...items.map((item) => TableRow(children: [
-              _TD(item['description'] as String? ?? '—'),
-              _TD(item['quantity'] != null ? (item['quantity'] as num).toStringAsFixed(2) : '—'),
-              _TD(item['rate'] != null ? fmtCurr(item['rate']) : '—'),
-              _TD(fmtCurr(item['amount'] as num? ?? 0)),
-            ])),
+            ...items.map((item) {
+              final itemGst = item['gstRate'];
+              return TableRow(children: [
+                _TD(item['description'] as String? ?? '—'),
+                _TD(item['quantity'] != null ? (item['quantity'] as num).toStringAsFixed(2) : '—'),
+                _TD(item['rate'] != null ? fmtCurr(item['rate']) : '—'),
+                _TD(itemGst != null ? '${itemGst}%' : '—',
+                    color: itemGst == null ? Colors.orange.shade700 : null),
+                _TD(fmtCurr(item['amount'] as num? ?? 0)),
+              ]);
+            }),
           ],
         ),
         const Divider(height: 20),
@@ -1330,12 +1231,16 @@ class _UnifiedItemRow {
   String? serviceName;
   bool    serviceGstConfigured = true;
 
+  // Master GST rate from linked Material/Service (for mismatch indicator; null if not configured)
+  double? masterGstRate;
+
   // Common
-  final descCtrl = TextEditingController();
-  final codeCtrl = TextEditingController(); // HSN for material, SAC for service
-  final qtyCtrl  = TextEditingController();
-  final rateCtrl = TextEditingController();
-  final amtCtrl  = TextEditingController();
+  final descCtrl    = TextEditingController();
+  final codeCtrl    = TextEditingController(); // HSN for material, SAC for service
+  final qtyCtrl     = TextEditingController();
+  final rateCtrl    = TextEditingController();
+  final amtCtrl     = TextEditingController();
+  final gstRateCtrl = TextEditingController();
 
   _UnifiedItemRow({Map<String, dynamic>? data}) {
     if (data != null) {
@@ -1349,16 +1254,23 @@ class _UnifiedItemRow {
       amtCtrl.text  = (data['amount'] as num? ?? 0).toString();
       materialId    = data['materialId'] as int?;
       serviceId     = data['serviceId']  as int?;
+      // Per-item GST rate saved on the invoice
+      final gstRate = data['gstRate'];
+      if (gstRate != null) gstRateCtrl.text = gstRate.toString();
+      // Master rate for mismatch indicator (from enrich response)
+      final mgrVal = data['masterGstRate'];
+      if (mgrVal != null) masterGstRate = (mgrVal as num).toDouble();
     }
   }
 
+  // PENDING when item is picked but no GST rate has been entered
   bool get gstPending =>
-      isService ? (serviceId != null && !serviceGstConfigured)
-                : (materialId != null && !materialGstConfigured);
+      gstRateCtrl.text.trim().isEmpty &&
+      (materialId != null || serviceId != null);
 
   void dispose() {
     descCtrl.dispose(); codeCtrl.dispose(); qtyCtrl.dispose();
-    rateCtrl.dispose(); amtCtrl.dispose();
+    rateCtrl.dispose(); amtCtrl.dispose(); gstRateCtrl.dispose();
   }
 
   Map<String, dynamic> toJson() => {
@@ -1369,6 +1281,7 @@ class _UnifiedItemRow {
         'quantityBrass': double.tryParse(qtyCtrl.text),
         'rate':          double.tryParse(rateCtrl.text),
         'amount':        double.tryParse(amtCtrl.text) ?? 0.0,
+        'gstRate':       double.tryParse(gstRateCtrl.text), // null when blank = PENDING
       };
 }
 
@@ -1463,7 +1376,14 @@ class _UnifiedInvoiceFormState extends ConsumerState<_UnifiedInvoiceForm> {
   }
 
   double get _subtotal =>
-      _items.fold(0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
+      _items.fold(0.0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
+
+  double get _computedGst =>
+      _items.fold(0.0, (sum, r) {
+        final amt  = double.tryParse(r.amtCtrl.text) ?? 0;
+        final rate = double.tryParse(r.gstRateCtrl.text);
+        return sum + (rate != null ? amt * rate / 100 : 0);
+      });
 
   Future<void> _pickDate(bool isInvoice) async {
     final init   = isInvoice ? _invoiceDate : (_supplyDate ?? _invoiceDate);
@@ -1641,9 +1561,15 @@ class _UnifiedInvoiceFormState extends ConsumerState<_UnifiedInvoiceForm> {
             if (sub > 0) ...[
               const Divider(height: 20),
               _PreviewRow('Subtotal (excl. GST)', sub, bold: true),
-              const SizedBox(height: 4),
-              Text('GST rate applied from service master on save',
-                  style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+              if (_computedGst > 0) ...[
+                _PreviewRow('Total GST', _computedGst),
+                _PreviewRow('Grand Total', sub + _computedGst, bold: true),
+              ] else if (_items.any((r) => r.gstPending))
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text('GST: Pending — enter rate in item(s) above',
+                      style: TextStyle(fontSize: 10, color: Colors.orange.shade700)),
+                ),
             ],
 
             const SectionLabel('Notes'),
@@ -1677,6 +1603,22 @@ class _UnifiedItemRowWidget extends ConsumerStatefulWidget {
 }
 
 class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
+  void _onQtyRateChanged() => setState(() {});
+
+  @override
+  void initState() {
+    super.initState();
+    widget.row.qtyCtrl.addListener(_onQtyRateChanged);
+    widget.row.rateCtrl.addListener(_onQtyRateChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.row.qtyCtrl.removeListener(_onQtyRateChanged);
+    widget.row.rateCtrl.removeListener(_onQtyRateChanged);
+    super.dispose();
+  }
+
   Future<void> _pickMaterial(List<Map<String, dynamic>> materials) async {
     final picked = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -1694,6 +1636,16 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
       if (hsn != null && hsn.isNotEmpty) widget.row.codeCtrl.text = hsn;
       if (widget.row.descCtrl.text.trim().isEmpty) {
         widget.row.descCtrl.text = 'Trip — ${picked['name']}';
+      }
+      // Auto-fill GST rate from master if configured; leave blank (Pending) if not
+      final configured = picked['gstRateConfigured'] as bool? ?? false;
+      final gstRate    = picked['gstRate'] as num? ?? 0;
+      if (configured) {
+        widget.row.gstRateCtrl.text = gstRate.toString();
+        widget.row.masterGstRate    = gstRate.toDouble();
+      } else {
+        widget.row.gstRateCtrl.text = '';
+        widget.row.masterGstRate    = null;
       }
     });
     widget.onChanged();
@@ -1721,6 +1673,16 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
       if (defaultRate != null && widget.row.rateCtrl.text.trim().isEmpty) {
         widget.row.rateCtrl.text = defaultRate.toString();
       }
+      // Auto-fill GST rate from master if configured; leave blank (Pending) if not
+      final configured = picked['gstRateConfigured'] as bool? ?? false;
+      final gstRate    = picked['gstRate'] as num? ?? 0;
+      if (configured) {
+        widget.row.gstRateCtrl.text = gstRate.toString();
+        widget.row.masterGstRate    = gstRate.toDouble();
+      } else {
+        widget.row.gstRateCtrl.text = '';
+        widget.row.masterGstRate    = null;
+      }
     });
     widget.onChanged();
   }
@@ -1733,6 +1695,12 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
     final gstPending     = row.gstPending;
     final hasPicked      = row.materialId != null || row.serviceId != null;
     final pickedLabel    = row.isService ? row.serviceName : row.materialName;
+    final gstEntered     = double.tryParse(row.gstRateCtrl.text);
+    final gstMaster      = row.masterGstRate;
+    final showMismatch   = gstEntered != null && gstMaster != null &&
+                           (gstEntered - gstMaster).abs() >= 0.001;
+    final amtLocked      = double.tryParse(row.qtyCtrl.text) != null &&
+                           double.tryParse(row.rateCtrl.text) != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1836,19 +1804,6 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
                   child: const Icon(Icons.close, size: 18, color: Colors.red)),
           ]),
 
-          // GST-pending warning
-          if (gstPending) ...[
-            const SizedBox(height: 6),
-            Row(children: [
-              Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
-              const SizedBox(width: 4),
-              Flexible(child: Text(
-                'GST rate not set for ${pickedLabel ?? 'this item'} — invoice will be PENDING',
-                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
-              )),
-            ]),
-          ],
-
           const SizedBox(height: 8),
           TextFormField(
             controller: row.descCtrl,
@@ -1885,13 +1840,61 @@ class _UnifiedItemRowWidgetState extends ConsumerState<_UnifiedItemRowWidget> {
             const SizedBox(width: 8),
             Expanded(child: TextFormField(
               controller: row.amtCtrl,
-              decoration: const InputDecoration(
-                  labelText: 'Amount *', isDense: true, prefixText: '₹'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              readOnly: amtLocked,
+              decoration: InputDecoration(
+                labelText: amtLocked ? 'Amount (auto)' : 'Amount *',
+                isDense: true,
+                prefixText: '₹',
+                filled: amtLocked,
+                fillColor: amtLocked ? Colors.green.shade50 : null,
+              ),
+              style: amtLocked
+                  ? TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w500)
+                  : null,
+              keyboardType: amtLocked ? null : const TextInputType.numberWithOptions(decimal: true),
               validator: (v) =>
                   (v == null || double.tryParse(v) == null) ? 'Required' : null,
             )),
           ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: TextFormField(
+                controller: row.gstRateCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'GST Rate',
+                  hintText: 'blank = Pending',
+                  isDense: true,
+                  suffixText: '%',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) {
+                  setState(() {});
+                  widget.onChanged();
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(child: SizedBox.shrink()),
+          ]),
+          if (gstPending) ...[
+            const SizedBox(height: 3),
+            Row(children: [
+              Icon(Icons.schedule_outlined, size: 11, color: Colors.orange.shade700),
+              const SizedBox(width: 3),
+              Text('Leave blank to keep Pending, or enter a rate to resolve',
+                  style: TextStyle(fontSize: 10, color: Colors.orange.shade700)),
+            ]),
+          ],
+          if (showMismatch) ...[
+            const SizedBox(height: 3),
+            Row(children: [
+              Icon(Icons.info_outline, size: 11, color: Colors.blue.shade500),
+              const SizedBox(width: 3),
+              Text('Master rate: $gstMaster%',
+                  style: TextStyle(fontSize: 10, color: Colors.blue.shade600)),
+            ]),
+          ],
         ],
       ),
     );
@@ -1957,22 +1960,19 @@ class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
                 final m           = filtered[i];
                 final gstRate     = m['gstRate'] as num? ?? 0;
                 final configured  = m['gstRateConfigured'] as bool? ?? false;
-                final isPending   = gstRate == 0 && !configured;
+                final noRate      = !configured;
                 return ListTile(
                   dense: true,
                   title: Text(m['name'] as String? ?? '—'),
                   subtitle: Text(
-                    isPending
-                        ? 'GST: not configured — invoice will be PENDING'
+                    noRate
+                        ? 'No master rate — GST field will be blank'
                         : gstRate > 0
-                            ? 'GST ${gstRate}%  ·  HSN ${m['hsnCode'] ?? '—'}'
+                            ? 'GST ${gstRate}% (auto-filled)  ·  HSN ${m['hsnCode'] ?? '—'}'
                             : 'GST 0% (zero-rated)  ·  HSN ${m['hsnCode'] ?? '—'}',
                     style: TextStyle(fontSize: 11,
-                        color: isPending ? Colors.orange.shade700 : Colors.grey.shade600),
+                        color: noRate ? Colors.grey.shade500 : Colors.grey.shade600),
                   ),
-                  trailing: isPending
-                      ? Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade600)
-                      : null,
                   onTap: () => Navigator.pop(context, m),
                 );
               },
@@ -2043,7 +2043,7 @@ class _ServicePickerDialogState extends State<_ServicePickerDialog> {
                 final s          = filtered[i];
                 final configured = s['gstRateConfigured'] as bool? ?? false;
                 final gstRate    = s['gstRate'] as num? ?? 0;
-                final isPending  = !configured;
+                final noRate     = !configured;
                 final unit       = s['defaultUnit'] as String? ?? 'TON';
                 final rate       = s['defaultRate'];
                 return ListTile(
@@ -2052,16 +2052,12 @@ class _ServicePickerDialogState extends State<_ServicePickerDialog> {
                   subtitle: Text(
                     [
                       if (rate != null) '₹$rate/$unit',
-                      isPending
-                          ? 'GST: not configured — invoice will be PENDING'
-                          : gstRate > 0 ? 'GST $gstRate%' : 'GST 0%',
+                      noRate
+                          ? 'No master rate — GST field will be blank'
+                          : gstRate > 0 ? 'GST $gstRate% (auto-filled)' : 'GST 0%',
                     ].join('  ·  '),
-                    style: TextStyle(fontSize: 11,
-                        color: isPending ? Colors.orange.shade700 : Colors.grey.shade600),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
-                  trailing: isPending
-                      ? Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange.shade600)
-                      : null,
                   onTap: () => Navigator.pop(context, s),
                 );
               },
@@ -2078,14 +2074,16 @@ class _ServicePickerDialogState extends State<_ServicePickerDialog> {
 // ══════════════════════════════════════════════════════════════════════════════
 
 class _ServiceRow {
-  final descCtrl = TextEditingController();
-  final sacCtrl  = TextEditingController();
-  final qtyCtrl  = TextEditingController();
-  final rateCtrl = TextEditingController();
-  final amtCtrl  = TextEditingController();
+  final descCtrl    = TextEditingController();
+  final sacCtrl     = TextEditingController();
+  final qtyCtrl     = TextEditingController();
+  final rateCtrl    = TextEditingController();
+  final amtCtrl     = TextEditingController();
+  final gstRateCtrl = TextEditingController();
   int?    serviceId;
   String? serviceName;
   bool    serviceGstConfigured = true;
+  double? masterGstRate;
   String  autoCalcSource       = 'NONE';
   double?                     autoCalcQty;
   String?                     autoCalcUnit;
@@ -2109,12 +2107,18 @@ class _ServiceRow {
       if (rate != null) rateCtrl.text = rate.toString();
       amtCtrl.text = (data['amount'] as num? ?? 0).toString();
       serviceId    = data['serviceId'] as int?;
+      final gstRate = data['gstRate'];
+      if (gstRate != null) gstRateCtrl.text = gstRate.toString();
+      final mgrVal = data['masterGstRate'];
+      if (mgrVal != null) masterGstRate = (mgrVal as num).toDouble();
     }
   }
 
+  bool get gstPending => serviceId != null && gstRateCtrl.text.trim().isEmpty;
+
   void dispose() {
     descCtrl.dispose(); sacCtrl.dispose(); qtyCtrl.dispose();
-    rateCtrl.dispose(); amtCtrl.dispose();
+    rateCtrl.dispose(); amtCtrl.dispose(); gstRateCtrl.dispose();
   }
 
   Map<String, dynamic> toJson() => {
@@ -2124,6 +2128,7 @@ class _ServiceRow {
     'quantity':    double.tryParse(qtyCtrl.text),
     'rate':        double.tryParse(rateCtrl.text),
     'amount':      double.tryParse(amtCtrl.text) ?? 0.0,
+    'gstRate':     double.tryParse(gstRateCtrl.text),
   };
 }
 
@@ -2289,7 +2294,14 @@ class _JwFormState extends ConsumerState<_JwForm> {
   }
 
   double get _subtotal =>
-      _items.fold(0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
+      _items.fold(0.0, (s, r) => s + (double.tryParse(r.amtCtrl.text) ?? 0));
+
+  double get _computedGst =>
+      _items.fold(0.0, (sum, r) {
+        final amt  = double.tryParse(r.amtCtrl.text) ?? 0;
+        final rate = double.tryParse(r.gstRateCtrl.text);
+        return sum + (rate != null ? amt * rate / 100 : 0);
+      });
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -2529,10 +2541,16 @@ class _JwFormState extends ConsumerState<_JwForm> {
           ),
           if (sub > 0) ...[
             const Divider(height: 20),
-            _PreviewRow('Subtotal', sub),
-            _PreviewRow('GST', 0, note: 'computed on save based on Service GST rate'),
-            const Divider(height: 8),
-            _PreviewRow('Grand Total (approx.)', sub, bold: true),
+            _PreviewRow('Subtotal (excl. GST)', sub, bold: true),
+            if (_computedGst > 0) ...[
+              _PreviewRow('Total GST', _computedGst),
+              _PreviewRow('Grand Total', sub + _computedGst, bold: true),
+            ] else if (_items.any((r) => r.gstPending))
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text('GST: Pending — enter rate in item(s) above',
+                    style: TextStyle(fontSize: 10, color: Colors.orange.shade700)),
+              ),
           ],
           const SectionLabel('Notes'),
           TextFormField(
@@ -2571,6 +2589,22 @@ class _JwServiceRowWidget extends StatefulWidget {
 class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
   static final _numFmt = NumberFormat('#,##,##0.###', 'en_IN');
 
+  void _onQtyRateChanged() => setState(() {});
+
+  @override
+  void initState() {
+    super.initState();
+    widget.row.qtyCtrl.addListener(_onQtyRateChanged);
+    widget.row.rateCtrl.addListener(_onQtyRateChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.row.qtyCtrl.removeListener(_onQtyRateChanged);
+    widget.row.rateCtrl.removeListener(_onQtyRateChanged);
+    super.dispose();
+  }
+
   Future<void> _pickService(List<Map<String, dynamic>> services) async {
     final picked = await showDialog<Map<String, dynamic>>(
       context: context, builder: (_) => _ServicePickerDialog(services: services),
@@ -2593,6 +2627,16 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
       final defaultRate = picked['defaultRate'];
       if (defaultRate != null && widget.row.rateCtrl.text.trim().isEmpty) {
         widget.row.rateCtrl.text = defaultRate.toString();
+      }
+      // Auto-fill GST rate from master if configured; leave blank (Pending) if not
+      final configured = picked['gstRateConfigured'] as bool? ?? false;
+      final gstRate    = picked['gstRate'] as num? ?? 0;
+      if (configured) {
+        widget.row.gstRateCtrl.text = gstRate.toString();
+        widget.row.masterGstRate    = gstRate.toDouble();
+      } else {
+        widget.row.gstRateCtrl.text = '';
+        widget.row.masterGstRate    = null;
       }
     });
     widget.onChanged();
@@ -2626,8 +2670,14 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
     final svcs        = widget.services;
     final row         = widget.row;
     final hasService  = row.serviceId != null;
-    final gstPending  = hasService && !row.serviceGstConfigured;
+    final gstPending  = row.gstPending; // based on gstRateCtrl.text.isEmpty
     final hasAutoCalc = row.autoCalcQty != null && row.autoCalcSource != 'NONE';
+    final gstEntered  = double.tryParse(row.gstRateCtrl.text);
+    final gstMaster   = row.masterGstRate;
+    final showMismatch = gstEntered != null && gstMaster != null &&
+                         (gstEntered - gstMaster).abs() >= 0.001;
+    final amtLocked   = double.tryParse(row.qtyCtrl.text) != null &&
+                        double.tryParse(row.rateCtrl.text) != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -2666,15 +2716,6 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
           if (widget.canRemove)
             GestureDetector(onTap: widget.onRemove, child: const Icon(Icons.close, size: 18, color: Colors.red)),
         ]),
-        if (gstPending) ...[
-          const SizedBox(height: 6),
-          Row(children: [
-            Icon(Icons.warning_amber_rounded, size: 14, color: Colors.orange.shade700),
-            const SizedBox(width: 4),
-            Text('GST rate not set for ${row.serviceName} — invoice will be PENDING',
-                style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
-          ]),
-        ],
         const SizedBox(height: 8),
         TextFormField(
           controller: row.descCtrl,
@@ -2783,11 +2824,57 @@ class _JwServiceRowWidgetState extends State<_JwServiceRowWidget> {
           const SizedBox(width: 8),
           Expanded(child: TextFormField(
             controller: row.amtCtrl,
-            decoration: const InputDecoration(labelText: 'Amount *', isDense: true, prefixText: '₹'),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            readOnly: amtLocked,
+            decoration: InputDecoration(
+              labelText: amtLocked ? 'Amount (auto)' : 'Amount *',
+              isDense: true,
+              prefixText: '₹',
+              filled: amtLocked,
+              fillColor: amtLocked ? Colors.green.shade50 : null,
+            ),
+            style: amtLocked
+                ? TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.w500)
+                : null,
+            keyboardType: amtLocked ? null : const TextInputType.numberWithOptions(decimal: true),
             validator: (v) => (v == null || double.tryParse(v) == null) ? 'Required' : null,
           )),
         ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(
+            child: TextFormField(
+              controller: row.gstRateCtrl,
+              decoration: const InputDecoration(
+                labelText: 'GST Rate',
+                hintText: 'blank = Pending',
+                isDense: true,
+                suffixText: '%',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Expanded(child: SizedBox.shrink()),
+        ]),
+        if (gstPending) ...[
+          const SizedBox(height: 3),
+          Row(children: [
+            Icon(Icons.schedule_outlined, size: 11, color: Colors.orange.shade700),
+            const SizedBox(width: 3),
+            Text('Leave blank to keep Pending, or enter a rate to resolve',
+                style: TextStyle(fontSize: 10, color: Colors.orange.shade700)),
+          ]),
+        ],
+        if (showMismatch) ...[
+          const SizedBox(height: 3),
+          Row(children: [
+            Icon(Icons.info_outline, size: 11, color: Colors.blue.shade500),
+            const SizedBox(width: 3),
+            Text('Master rate: $gstMaster%',
+                style: TextStyle(fontSize: 10, color: Colors.blue.shade600)),
+          ]),
+        ],
       ]),
     );
   }
@@ -2938,11 +3025,14 @@ class _TH extends StatelessWidget {
 
 class _TD extends StatelessWidget {
   final String text;
-  const _TD(this.text);
+  final Color? color;
+  const _TD(this.text, {this.color});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Text(text, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+        child: Text(text,
+            style: TextStyle(fontSize: 12, color: color),
+            overflow: TextOverflow.ellipsis),
       );
 }
 
@@ -2973,19 +3063,14 @@ class _PreviewRow extends StatelessWidget {
   final String label;
   final double value;
   final bool bold;
-  final String? note;
-  const _PreviewRow(this.label, this.value, {this.bold = false, this.note});
+  const _PreviewRow(this.label, this.value, {this.bold = false});
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: TextStyle(
-                fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-                fontSize: bold ? 14 : 13)),
-            if (note != null)
-              Text(note!, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-          ]),
+          Text(label, style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: bold ? 14 : 13)),
           Text(fmtCurr(value), style: TextStyle(
               fontWeight: bold ? FontWeight.bold : FontWeight.normal,
               fontSize: bold ? 14 : 13,

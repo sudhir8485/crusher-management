@@ -21,9 +21,13 @@ public class GstInvoiceItemRequest {
     @NotNull
     private BigDecimal amount;
 
-    /** Optional — links this line item to a Material Master record for Recalculate GST. */
+    /** Optional — links this line item to a Material Master record. */
     private Long materialId;
 
-    /** Optional — links this line item to a Service Master record (service/job-work lines). */
+    /** Optional — links this line item to a Service Master record. */
     private Long serviceId;
+
+    /** Combined GST rate for this line item (e.g. 18 → SGST 9% + CGST 9%).
+     *  null = PENDING (invoice line unresolved); 0 = zero-rated (resolved, no tax). */
+    private BigDecimal gstRate;
 }

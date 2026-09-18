@@ -42,4 +42,9 @@ public class GstInvoiceItem {
      *  Mutually exclusive with materialId per item, but both can appear on the same invoice. */
     @Column(name = "service_id")
     private Long serviceId;
+
+    /** Per-item GST rate (combined %, e.g. 18.00). null = PENDING (rate not yet entered).
+     *  0 = explicitly zero-rated. Resolved by user editing the invoice line directly. */
+    @Column(name = "gst_rate", precision = 5, scale = 2)
+    private BigDecimal gstRate;
 }

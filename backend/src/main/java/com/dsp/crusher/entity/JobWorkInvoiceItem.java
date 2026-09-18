@@ -37,4 +37,8 @@ public class JobWorkInvoiceItem {
 
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal amount;
+
+    /** Per-item GST rate (combined %, e.g. 18.00). null = PENDING. 0 = zero-rated. */
+    @Column(name = "gst_rate", precision = 5, scale = 2)
+    private BigDecimal gstRate;
 }
