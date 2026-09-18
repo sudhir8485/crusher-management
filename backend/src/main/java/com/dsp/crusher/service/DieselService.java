@@ -187,24 +187,41 @@ public class DieselService {
     // ── External-vehicle diesel payable helpers ───────────────────────────────
 
     private void createDieselPaymentIfNeeded(DieselUsage u, DieselUsageRequest req) {
-        if (req.getVehicleId() == null || req.getRatePerLiter() == null) return;
-        Vehicle vehicle = vehicleRepo.findById(req.getVehicleId()).orElse(null);
-        if (vehicle == null || !"VENDOR".equals(vehicle.getOwner()) || vehicle.getVendorId() == null) return;
+        if (req.getRatePerLiter() == null) return;
 
-        BigDecimal dieselValue = u.getQuantityLiters().multiply(req.getRatePerLiter());
+        // Vendor vehicle: create payable deduction for vehicle owner
+        if (req.getVehicleId() != null) {
+            Vehicle vehicle = vehicleRepo.findById(req.getVehicleId()).orElse(null);
+            if (vehicle != null && "VENDOR".equals(vehicle.getOwner()) && vehicle.getVendorId() != null) {
+                String label = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
+                createDieselCreditPayment(u, vehicle.getVendorId(), req.getRatePerLiter(), label);
+                return;
+            }
+        }
 
+        // Vendor machine: create payable deduction for machine owner (machine.vendorId only, no vehicle fallback)
+        if (req.getMachineId() != null) {
+            Machine machine = machineRepo.findById(req.getMachineId()).orElse(null);
+            if (machine != null && "VENDOR".equals(machine.getOwner()) && machine.getVendorId() != null) {
+                String label = machine.getName() != null ? machine.getName() : "machine";
+                createDieselCreditPayment(u, machine.getVendorId(), req.getRatePerLiter(), label);
+            }
+        }
+    }
+
+    private void createDieselCreditPayment(DieselUsage u, Long vendorId, BigDecimal rate, String label) {
+        BigDecimal dieselValue = u.getQuantityLiters().multiply(rate);
         VendorPayment p = new VendorPayment();
         p.setTenantId(u.getTenantId());
-        p.setVendorId(vehicle.getVendorId());
+        p.setVendorId(vendorId);
         p.setPaymentDate(u.getUsageDate());
         p.setAmount(dieselValue);
         p.setPaymentMode("DIESEL_CREDIT");
-        // PAID direction: DSP gives diesel to party's vehicle → reduces party's advance/credit
+        // PAID direction: DSP gives diesel to vendor's vehicle/machine → reduces what DSP owes that vendor
         p.setDirection("PAID");
-        String plate = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
-        p.setNotes("Diesel given: " + u.getQuantityLiters().toPlainString() + " L to " + plate + " (diesel usage #" + u.getId() + ")");
+        p.setNotes("Diesel given: " + u.getQuantityLiters().toPlainString() + " L to " + label
+                + " (diesel usage #" + u.getId() + ")");
         p = paymentRepo.save(p);
-
         u.setDieselPaymentId(p.getId());
     }
 

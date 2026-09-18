@@ -1237,6 +1237,7 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
   bool _saving = false;
 
   Map<String, dynamic>? _selectedVehicle;
+  Map<String, dynamic>? _selectedMachine;
 
   double? get _dieselValue {
     final q = double.tryParse(_qty.text);
@@ -1317,14 +1318,27 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
     final machines   = ref.watch(_machinesProvider);
     final vehicles   = ref.watch(_vehiclesProvider);
     final dieselVal  = _dieselValue;
-    final isExternal = _consumerType == 'vehicle' && _selectedVehicle != null
-        && _selectedVehicle!['owner'] == 'VENDOR';
-    final ownerName  = _selectedVehicle?['vendorName'] as String?;
 
+    final isExternalVehicle = _consumerType == 'vehicle' && _selectedVehicle != null
+        && _selectedVehicle!['owner'] == 'VENDOR';
+    final isExternalMachine = _consumerType == 'machine' && _selectedMachine != null
+        && (_selectedMachine!['owner'] as String?) == 'VENDOR';
+    final isExternal = isExternalVehicle || isExternalMachine;
+    final ownerName  = isExternalVehicle
+        ? (_selectedVehicle?['vendorName'] as String?)
+        : (_selectedMachine?['vendorName'] as String?);
+
+    // Restore selected objects when editing an existing entry
     if (_consumerType == 'vehicle' && _vehicleId != null && _selectedVehicle == null) {
       vehicles.whenData((list) {
         final match = list.where((v) => v['id'] == _vehicleId).firstOrNull;
         if (match != null && mounted) setState(() => _selectedVehicle = match);
+      });
+    }
+    if (_consumerType == 'machine' && _machineId != null && _selectedMachine == null) {
+      machines.whenData((list) {
+        final match = list.where((m) => m['id'] == _machineId).firstOrNull;
+        if (match != null && mounted) setState(() => _selectedMachine = match);
       });
     }
 
@@ -1360,6 +1374,7 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                     _machineId       = null;
                     _vehicleId       = null;
                     _selectedVehicle = null;
+                    _selectedMachine = null;
                   }),
                 ),
                 const SizedBox(height: 16),
@@ -1372,7 +1387,12 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                       itemLabel: (m) => '${m['name']}  (${m['machineType'] ?? ''})',
                       fieldLabel: 'Machine *',
                       value: _machineId,
-                      onChanged: (v) => setState(() => _machineId = v),
+                      onChanged: (v) {
+                        setState(() {
+                          _machineId       = v;
+                          _selectedMachine = v == null ? null : list.where((m) => m['id'] == v).firstOrNull;
+                        });
+                      },
                       validator: (v) => v == null ? 'Select machine' : null,
                     ),
                   )
@@ -1407,8 +1427,9 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                       Icon(Icons.account_balance_wallet_outlined, size: 16, color: Colors.deepOrange.shade700),
                       const SizedBox(width: 8),
                       Expanded(child: Text(
-                        'External vehicle${ownerName != null ? ' — owned by $ownerName' : ''}. '
-                        'Rate is required — it will be used to compute the payable deduction to this party.',
+                        '${isExternalMachine ? 'External machine' : 'External vehicle'}'
+                        '${ownerName != null ? ' — owned by $ownerName' : ''}. '
+                        'Rate is required — diesel value (qty × rate) will be deducted from this party\'s outstanding.',
                         style: TextStyle(fontSize: 12, color: Colors.deepOrange.shade800),
                       )),
                     ]),
@@ -1428,7 +1449,7 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                     labelText: isExternal ? 'Rate / Litre *' : 'Rate / Litre (optional)',
                     prefixText: '₹',
                     helperText: isExternal
-                        ? 'Required — deducts ₹(qty × rate) from company\'s payable to ${ownerName ?? 'owner'}'
+                        ? 'Deducts ₹(qty × rate) from outstanding payable to ${ownerName ?? 'owner'}'
                         : null,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),

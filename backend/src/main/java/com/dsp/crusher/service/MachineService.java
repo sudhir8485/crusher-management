@@ -7,11 +7,13 @@ import com.dsp.crusher.dto.MachineWorkTypeDto;
 import com.dsp.crusher.entity.Machine;
 import com.dsp.crusher.entity.MachineWorkType;
 import com.dsp.crusher.entity.Vehicle;
+import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.MachineRepository;
 import com.dsp.crusher.repository.MachineWorkLogRepository;
 import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.VehicleRepository;
+import com.dsp.crusher.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +29,7 @@ public class MachineService {
     private final MachineWorkTypeRepository workTypeRepo;
     private final VehicleRepository         vehicleRepo;
     private final MachineWorkLogRepository  workLogRepo;
+    private final VendorRepository          vendorRepo;
 
     public List<MachineResponse> listActive() {
         return buildResponses(repo.findByStatusAndIsActiveTrue("ACTIVE"));
@@ -190,12 +193,23 @@ public class MachineService {
                 vehicleRepo.findAllById(vehicleIds).stream()
                         .collect(Collectors.toMap(Vehicle::getId, v -> v));
 
+        List<Long> vendorIds = machines.stream()
+                .filter(m -> "VENDOR".equals(m.getOwner()) && m.getVendorId() != null)
+                .map(Machine::getVendorId).distinct().collect(Collectors.toList());
+        Map<Long, Vendor> vendorsById = vendorIds.isEmpty() ? Map.of() :
+                vendorRepo.findAllById(vendorIds).stream()
+                        .collect(Collectors.toMap(Vendor::getId, v -> v));
+
         return machines.stream().map(m -> {
             MachineResponse r = new MachineResponse();
             r.setId(m.getId());
             r.setTenantId(m.getTenantId());
             r.setOwner(m.getOwner());
             r.setVendorId(m.getVendorId());
+            if ("VENDOR".equals(m.getOwner()) && m.getVendorId() != null) {
+                Vendor v = vendorsById.get(m.getVendorId());
+                if (v != null) r.setVendorName(v.getName());
+            }
             r.setName(m.getName());
             r.setMachineType(m.getMachineType());
             r.setStatus(m.getStatus());

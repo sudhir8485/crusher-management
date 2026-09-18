@@ -10,6 +10,7 @@ public class MachineResponse {
     private Long tenantId;
     private String owner;
     private Long vendorId;
+    private String vendorName;
     private String name;
     private String machineType;
     private String status;
