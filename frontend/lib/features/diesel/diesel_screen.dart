@@ -1428,7 +1428,7 @@ class _UsageFormState extends ConsumerState<_UsageForm> {
                     labelText: isExternal ? 'Rate / Litre *' : 'Rate / Litre (optional)',
                     prefixText: '₹',
                     helperText: isExternal
-                        ? 'Required — deducts ₹(qty × rate) from DSP\'s payable to ${ownerName ?? 'owner'}'
+                        ? 'Required — deducts ₹(qty × rate) from company\'s payable to ${ownerName ?? 'owner'}'
                         : null,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),

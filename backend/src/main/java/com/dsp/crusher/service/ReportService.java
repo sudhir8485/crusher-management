@@ -473,9 +473,9 @@ public class ReportService {
         return parts.isEmpty() ? "—" : String.join(" + ", parts);
     }
 
-    private String buildChallan(String dsp, String vdr) {
+    private String buildChallan(String own, String vdr) {
         List<String> parts = new ArrayList<>();
-        if (dsp != null && !dsp.isBlank()) parts.add("DSP: " + dsp);
+        if (own != null && !own.isBlank()) parts.add("Own: " + own);
         if (vdr != null && !vdr.isBlank()) parts.add("Vdr: " + vdr);
         return parts.isEmpty() ? "—" : String.join(" / ", parts);
     }

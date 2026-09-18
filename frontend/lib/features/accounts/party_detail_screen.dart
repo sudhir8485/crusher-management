@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -163,10 +164,22 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     setState(() => _printing = true);
     try {
       final bytes = _buildExcel(data);
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: '${widget.vendorName.replaceAll(' ', '_')}_Ledger.xlsx',
+      final filename = '${widget.vendorName.replaceAll(' ', '_')}_Ledger.xlsx';
+      final blob = html.Blob(
+        [bytes],
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..style.display = 'none'
+        ..download = filename;
+      html.document.body!.children.add(anchor);
+      anchor.click();
+      Future.delayed(const Duration(milliseconds: 200), () {
+        anchor.remove();
+        html.Url.revokeObjectUrl(url);
+      });
     } finally {
       if (mounted) setState(() => _printing = false);
     }

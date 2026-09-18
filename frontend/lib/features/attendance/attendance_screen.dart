@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -615,10 +616,23 @@ class _MonthlyTab extends ConsumerWidget {
 
     final bytes = wb.save();
     if (bytes == null) return;
-    await Printing.sharePdf(
-      bytes: Uint8List.fromList(bytes),
-      filename: 'Attendance_$monthLabel.xlsx',
+    const filename = 'Attendance_';
+    final fname = '${filename}$monthLabel.xlsx';
+    final blob = html.Blob(
+      [Uint8List.fromList(bytes)],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.document.createElement('a') as html.AnchorElement
+      ..href = url
+      ..style.display = 'none'
+      ..download = fname;
+    html.document.body!.children.add(anchor);
+    anchor.click();
+    Future.delayed(const Duration(milliseconds: 200), () {
+      anchor.remove();
+      html.Url.revokeObjectUrl(url);
+    });
   }
 }
 

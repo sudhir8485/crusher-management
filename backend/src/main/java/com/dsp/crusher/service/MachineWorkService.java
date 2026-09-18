@@ -46,6 +46,7 @@ public class MachineWorkService {
     private final GstInvoiceRepository      invoiceRepo;
     private final VehicleRepository         vehicleRepo;
     private final VendorPaymentRepository   paymentRepo;
+    private final InvoiceNumberingService   invoiceNumbering;
 
     public List<MachineWorkLogResponse> list(LocalDate from, LocalDate to, Long siteId) {
         Long sid = effectiveSiteId(siteId);
@@ -410,10 +411,7 @@ public class MachineWorkService {
     }
 
     private String nextInvoiceNo(LocalDate date) {
-        int year = date.getMonthValue() >= 4 ? date.getYear() : date.getYear() - 1;
-        String fy = year + "-" + String.format("%02d", (year + 1) % 100);
-        long count = invoiceRepo.countByTenantIdAndInvoiceNoStartingWith(TenantContext.get(), "DSP/" + fy + "/");
-        return "DSP/" + fy + "/" + (count + 1);
+        return invoiceNumbering.nextInvoiceNo(date);
     }
 
     private List<MachineWorkLogResponse> enrich(List<MachineWorkLog> rows) {
