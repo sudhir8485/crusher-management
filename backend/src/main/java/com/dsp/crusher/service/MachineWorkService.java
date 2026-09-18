@@ -60,6 +60,16 @@ public class MachineWorkService {
         return enrich(rows);
     }
 
+    private void validateSiteStaffSameDayAccess(MachineWorkLog log) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        if (isSiteStaff && !LocalDate.now().equals(log.getLogDate())) {
+            throw new IllegalStateException(
+                "This entry is from a previous day and can no longer be edited by site staff. "
+                + "Please contact the office to make this change.");
+        }
+    }
+
     private Long effectiveSiteId(Long requested) {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
                 .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
@@ -95,14 +105,17 @@ public class MachineWorkService {
     public MachineWorkLogResponse update(Long id, MachineWorkLogRequest req) {
         MachineWorkLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
+        validateSiteStaffSameDayAccess(log);
 
         Long oldGstInvoiceId = log.getGstInvoiceId();
         boolean becomingInternal = "INTERNAL".equals(req.getWorkPurpose());
 
         // Guard: cannot change rate once GST invoice is locked (GST confirmed)
+        // Cancelled (INACTIVE) invoices no longer block editing.
         if (oldGstInvoiceId != null && !becomingInternal && req.getRate() != null) {
             GstInvoice existing = invoiceRepo.findById(oldGstInvoiceId).orElse(null);
             if (existing != null && "SET".equals(existing.getGstStatus())
+                    && "ACTIVE".equals(existing.getStatus())
                     && (log.getRate() == null || req.getRate().compareTo(log.getRate()) != 0)) {
                 throw new IllegalStateException(
                     "GST invoice " + existing.getInvoiceNo() + " is already confirmed. " +
@@ -143,7 +156,8 @@ public class MachineWorkService {
         }
         if (log.getGstInvoiceId() != null) {
             GstInvoice existing = invoiceRepo.findById(log.getGstInvoiceId()).orElse(null);
-            if (existing != null && "SET".equals(existing.getGstStatus())) {
+            if (existing != null && "SET".equals(existing.getGstStatus())
+                    && "ACTIVE".equals(existing.getStatus())) {
                 throw new IllegalStateException(
                     "GST invoice " + existing.getInvoiceNo() + " is already confirmed. " +
                     "Rate cannot be changed after GST is locked.");
@@ -178,6 +192,7 @@ public class MachineWorkService {
     public void deactivate(Long id) {
         MachineWorkLog log = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("MachineWorkLog not found: " + id));
+        validateSiteStaffSameDayAccess(log);
         log.setStatus("INACTIVE");
         if (log.getGstInvoiceId() != null) {
             invoiceRepo.findById(log.getGstInvoiceId()).ifPresent(inv -> {

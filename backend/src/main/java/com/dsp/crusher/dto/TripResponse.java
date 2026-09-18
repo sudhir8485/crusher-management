@@ -79,6 +79,7 @@ public class TripResponse {
     // ── Auto-invoice (mirrors Machine Work) ──────────────────────────────────
     private Long    gstInvoiceId;
     private String  gstInvoiceStatus;  // SET | PENDING | null
+    private boolean gstInvoiceActive;  // true when linked invoice status == ACTIVE
     private boolean autoInvoiced;
 
     // ── Transport credit to vehicle owner ────────────────────────────────────

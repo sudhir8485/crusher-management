@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -114,12 +115,16 @@ class DieselScreen extends ConsumerStatefulWidget {
 
 class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+  bool _isSiteStaff = false;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
     _tabs.addListener(() => setState(() {}));
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _isSiteStaff = r == 'SITE_STAFF');
+    });
   }
 
   @override
@@ -193,8 +198,8 @@ class _DieselScreenState extends ConsumerState<DieselScreen> with SingleTickerPr
                 : TabBarView(
                     controller: _tabs,
                     children: [
-                      _ReceiptsTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
-                      _UsagesTab(rangeKey: key, mode: mode, date: date, custom: custom, onChanged: _refresh),
+                      _ReceiptsTab(rangeKey: key, mode: mode, date: date, custom: custom, isSiteStaff: _isSiteStaff, onChanged: _refresh),
+                      _UsagesTab(rangeKey: key, mode: mode, date: date, custom: custom, isSiteStaff: _isSiteStaff, onChanged: _refresh),
                     ],
             ),
           ),
@@ -415,12 +420,14 @@ class _ReceiptsTab extends ConsumerWidget {
   final DateTime date;
   final List<DateTime> custom;
   final VoidCallback onChanged;
+  final bool isSiteStaff;
   const _ReceiptsTab({
     required this.rangeKey,
     required this.mode,
     required this.date,
     required this.custom,
     required this.onChanged,
+    this.isSiteStaff = false,
   });
 
   @override
@@ -450,6 +457,7 @@ class _ReceiptsTab extends ConsumerWidget {
                 itemBuilder: (_, i) => _ReceiptCard(
                   r: list[i],
                   showDate: mode != 'day',
+                  isSiteStaff: isSiteStaff,
                   onTap:    () => _showReceiptDetail(context, list[i]),
                   onEdit:   () => _showReceiptForm(context, ref, list[i], date, onChanged),
                   onDelete: () => _confirmDelete(context, ref,
@@ -474,12 +482,14 @@ class _UsagesTab extends ConsumerWidget {
   final DateTime date;
   final List<DateTime> custom;
   final VoidCallback onChanged;
+  final bool isSiteStaff;
   const _UsagesTab({
     required this.rangeKey,
     required this.mode,
     required this.date,
     required this.custom,
     required this.onChanged,
+    this.isSiteStaff = false,
   });
 
   @override
@@ -509,6 +519,7 @@ class _UsagesTab extends ConsumerWidget {
                 itemBuilder: (_, i) => _UsageCard(
                   u: list[i],
                   showDate: mode != 'day',
+                  isSiteStaff: isSiteStaff,
                   onTap:    () => _showUsageDetail(context, list[i]),
                   onEdit:   () => _showUsageForm(context, ref, list[i], date, onChanged),
                   onDelete: () => _confirmDelete(context, ref,
@@ -641,10 +652,11 @@ class _PeriodTotal extends StatelessWidget {
 class _ReceiptCard extends StatelessWidget {
   final Map<String, dynamic> r;
   final bool showDate;
+  final bool isSiteStaff;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onTap;
-  const _ReceiptCard({required this.r, this.showDate = false, required this.onEdit, required this.onDelete, required this.onTap});
+  const _ReceiptCard({required this.r, this.showDate = false, this.isSiteStaff = false, required this.onEdit, required this.onDelete, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -733,15 +745,38 @@ class _ReceiptCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Column(children: [
-                IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-                IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
-              ]),
+              _buildActions(context, dateStr),
             ],
           ),
         ),
       ),
     );
+  }
+
+  bool _isTodayEntry(String? dateStr) {
+    if (dateStr == null) return true;
+    try {
+      final d = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      return d.year == now.year && d.month == now.month && d.day == now.day;
+    } catch (_) { return true; }
+  }
+
+  Widget _buildActions(BuildContext context, String? dateStr) {
+    if (isSiteStaff && !_isTodayEntry(dateStr)) {
+      return IconButton(
+        icon: const Icon(Icons.lock_outline, size: 20),
+        color: Colors.grey[400],
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This entry is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.'),
+          duration: Duration(seconds: 4),
+        )),
+      );
+    }
+    return Column(children: [
+      IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+      IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
+    ]);
   }
 }
 
@@ -769,10 +804,11 @@ class _SourceBadge extends StatelessWidget {
 class _UsageCard extends StatelessWidget {
   final Map<String, dynamic> u;
   final bool showDate;
+  final bool isSiteStaff;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onTap;
-  const _UsageCard({required this.u, this.showDate = false, required this.onEdit, required this.onDelete, required this.onTap});
+  const _UsageCard({required this.u, this.showDate = false, this.isSiteStaff = false, required this.onEdit, required this.onDelete, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -854,15 +890,38 @@ class _UsageCard extends StatelessWidget {
                 ],
               ),
             ),
-            Column(children: [
-              IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-              IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
-            ]),
+            _buildActions(context, dateStr),
           ],
         ),
       ),
       ),
     );
+  }
+
+  bool _isTodayEntry(String? dateStr) {
+    if (dateStr == null) return true;
+    try {
+      final d = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      return d.year == now.year && d.month == now.month && d.day == now.day;
+    } catch (_) { return true; }
+  }
+
+  Widget _buildActions(BuildContext context, String? dateStr) {
+    if (isSiteStaff && !_isTodayEntry(dateStr)) {
+      return IconButton(
+        icon: const Icon(Icons.lock_outline, size: 20),
+        color: Colors.grey[400],
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This entry is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.'),
+          duration: Duration(seconds: 4),
+        )),
+      );
+    }
+    return Column(children: [
+      IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+      IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
+    ]);
   }
 }
 

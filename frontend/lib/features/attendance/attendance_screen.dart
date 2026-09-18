@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
@@ -109,6 +110,15 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
   // Which date key _overrides was last reset for.
   String _currentDateKey = '';
   bool _saving = false;
+  bool _isSiteStaff = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _isSiteStaff = r == 'SITE_STAFF');
+    });
+  }
 
   // Effective status for an employee: user override → saved backend status → PRESENT default
   String _effectiveStatus(Map<String, dynamic> emp) {
@@ -157,10 +167,16 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
     }
   }
 
+  bool _isToday(DateTime d) {
+    final now = DateTime.now();
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(_attendanceDateProvider);
     final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
+    final isLocked = _isSiteStaff && !_isToday(selectedDate);
 
     // Reset local overrides when navigating to a new date.
     if (dateKey != _currentDateKey) {
@@ -216,7 +232,7 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
                         return _EmployeeAttendanceTile(
                           emp: emp,
                           currentStatus: _effectiveStatus(emp),
-                          onStatusChanged: (s) {
+                          onStatusChanged: isLocked ? null : (s) {
                             setState(() {
                               final id =
                                   (emp['employeeId'] as num).toInt();
@@ -227,11 +243,14 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
                       },
                     ),
                   ),
-                  _SaveBar(
-                    pendingCount: employees.where(_needsSave).length,
-                    saving: _saving,
-                    onSave: () => _saveAll(dateKey, employees),
-                  ),
+                  if (isLocked)
+                    _LockedBar()
+                  else
+                    _SaveBar(
+                      pendingCount: employees.where(_needsSave).length,
+                      saving: _saving,
+                      onSave: () => _saveAll(dateKey, employees),
+                    ),
                 ],
               );
             },
@@ -306,6 +325,32 @@ class _SummaryChip extends StatelessWidget {
       );
 }
 
+// ── locked bar (shown instead of save bar for Site Staff on past dates) ────────
+
+class _LockedBar extends StatelessWidget {
+  const _LockedBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: Colors.grey.shade100,
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This attendance sheet is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── save bar ──────────────────────────────────────────────────────────────────
 
 class _SaveBar extends StatelessWidget {
@@ -350,12 +395,12 @@ class _SaveBar extends StatelessWidget {
 class _EmployeeAttendanceTile extends StatelessWidget {
   final Map<String, dynamic> emp;
   final String currentStatus;
-  final ValueChanged<String> onStatusChanged;
+  final ValueChanged<String>? onStatusChanged;
 
   const _EmployeeAttendanceTile({
     required this.emp,
     required this.currentStatus,
-    required this.onStatusChanged,
+    this.onStatusChanged,
   });
 
   @override
@@ -429,7 +474,7 @@ class _EmployeeAttendanceTile extends StatelessWidget {
                       final isSelected = currentStatus == s;
                       final color = _statusColors[s]!;
                       return GestureDetector(
-                        onTap: () => onStatusChanged(s),
+                        onTap: onStatusChanged == null ? null : () => onStatusChanged!(s),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(

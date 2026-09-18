@@ -77,6 +77,7 @@ public class DieselService {
     public DieselReceiptResponse updateReceipt(Long id, DieselReceiptRequest req) {
         DieselReceipt r = receiptRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel receipt not found: " + id));
+        validateSiteStaffSameDayAccess(r.getReceiptDate());
         // Deactivate prior advance payment before re-applying
         deactivateAdvancePayment(r);
         applyReceipt(r, req);
@@ -90,6 +91,7 @@ public class DieselService {
     public void deactivateReceipt(Long id) {
         DieselReceipt r = receiptRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel receipt not found: " + id));
+        validateSiteStaffSameDayAccess(r.getReceiptDate());
         deactivateAdvancePayment(r);
         r.setStatus("INACTIVE");
         receiptRepo.save(r);
@@ -135,6 +137,7 @@ public class DieselService {
     public DieselUsageResponse updateUsage(Long id, DieselUsageRequest req) {
         DieselUsage u = usageRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel usage not found: " + id));
+        validateSiteStaffSameDayAccess(u.getUsageDate());
         deactivateDieselPayment(u);
         applyUsage(u, req);
         u.setUpdatedByName(getCurrentUserName());
@@ -147,6 +150,7 @@ public class DieselService {
     public void deactivateUsage(Long id) {
         DieselUsage u = usageRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Diesel usage not found: " + id));
+        validateSiteStaffSameDayAccess(u.getUsageDate());
         deactivateDieselPayment(u);
         u.setStatus("INACTIVE");
         usageRepo.save(u);
@@ -235,6 +239,16 @@ public class DieselService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private void validateSiteStaffSameDayAccess(LocalDate entryDate) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        if (isSiteStaff && !LocalDate.now().equals(entryDate)) {
+            throw new IllegalStateException(
+                "This entry is from a previous day and can no longer be edited by site staff. "
+                + "Please contact the office to make this change.");
+        }
+    }
 
     private Long effectiveSiteId(Long requested) {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()

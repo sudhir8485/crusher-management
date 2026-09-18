@@ -1,6 +1,7 @@
 package com.dsp.crusher.service;
 
 import com.dsp.crusher.config.TenantContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.dsp.crusher.dto.AttendanceDayResponse;
 import com.dsp.crusher.dto.AttendanceMarkRequest;
 import com.dsp.crusher.dto.AttendanceMonthlyResponse;
@@ -78,6 +79,7 @@ public class AttendanceService {
     // Upsert: create or update attendance for one employee on a date (tenant-wide, no site required).
     @Transactional
     public AttendanceDayResponse mark(AttendanceMarkRequest req) {
+        validateSiteStaffSameDayAccess(req.getDate());
         Optional<AttendanceRecord> existing =
                 attendanceRepo.findByAttendanceDateAndEmployeeId(req.getDate(), req.getEmployeeId());
 
@@ -144,5 +146,15 @@ public class AttendanceService {
         r.setDaysInMonth(daysInMonth);
         r.setEmployees(empList);
         return r;
+    }
+
+    private void validateSiteStaffSameDayAccess(LocalDate date) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        if (isSiteStaff && !LocalDate.now().equals(date)) {
+            throw new IllegalStateException(
+                "This attendance sheet is from a previous day and can no longer be edited by site staff. "
+                + "Please contact the office to make this change.");
+        }
     }
 }

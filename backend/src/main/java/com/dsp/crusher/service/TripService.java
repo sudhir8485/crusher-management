@@ -128,22 +128,26 @@ public class TripService {
 
         Long oldInvoiceId = t.getGstInvoiceId();
 
-        // Guard: cannot change billing once GST invoice is locked (mirrors MachineWorkService)
+        // Guard: cannot edit trip while its GST invoice is active (PENDING or SET).
+        // Cancel the invoice first, then re-edit. Cancelled (INACTIVE) invoices do not block.
         if (oldInvoiceId != null) {
             GstInvoice existing = invoiceRepo.findById(oldInvoiceId).orElse(null);
-            if (existing != null && "SET".equals(existing.getGstStatus())) {
+            if (existing != null && "ACTIVE".equals(existing.getStatus())) {
                 throw new IllegalStateException(
-                    "GST invoice " + existing.getInvoiceNo() +
-                    " is already confirmed. Edit the invoice directly if a correction is needed.");
+                    "Invoice " + existing.getInvoiceNo() +
+                    " is active. Cancel the invoice before editing this trip.");
             }
         }
 
         t.setUpdatedByName(getCurrentUserName());
         applyRequest(t, req);
 
+        // If old invoice was cancelled (INACTIVE), reset so a fresh invoice is created.
         if (oldInvoiceId != null) {
-            syncPendingTripInvoice(t, oldInvoiceId);
-        } else if (!t.isAutoInvoiced()) {
+            t.setAutoInvoiced(false);
+            t.setGstInvoiceId(null);
+        }
+        if (!t.isAutoInvoiced()) {
             autoCreateGstInvoice(t);
         }
 
@@ -162,13 +166,18 @@ public class TripService {
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
         validateSiteStaffSameDayAccess(t);
-        t.setStatus("INACTIVE");
+
+        // Guard: cannot delete trip while its GST invoice is active.
         if (t.getGstInvoiceId() != null) {
-            invoiceRepo.findById(t.getGstInvoiceId()).ifPresent(inv -> {
-                inv.setStatus("INACTIVE");
-                invoiceRepo.save(inv);
-            });
+            GstInvoice inv = invoiceRepo.findById(t.getGstInvoiceId()).orElse(null);
+            if (inv != null && "ACTIVE".equals(inv.getStatus())) {
+                throw new IllegalStateException(
+                    "Invoice " + inv.getInvoiceNo() +
+                    " is active. Cancel the invoice before deleting this trip.");
+            }
         }
+
+        t.setStatus("INACTIVE");
         deactivateTransportPayment(t);
         tripRepo.save(t);
     }
@@ -451,29 +460,6 @@ public class TripService {
         // Non-GST: autoInvoiced=true, gstInvoiceId=null → direct ledger debit, no invoice doc
     }
 
-    private void syncPendingTripInvoice(Trip t, Long invoiceId) {
-        if (t.getTotalBill() == null) return;
-        invoiceRepo.findById(invoiceId).ifPresent(inv -> {
-            if (!"PENDING".equals(inv.getGstStatus())) return;
-            String matName = t.getMaterialId() != null
-                    ? materialRepo.findById(t.getMaterialId()).map(Material::getName).orElse("Material")
-                    : "Material";
-            if (!inv.getItems().isEmpty()) {
-                GstInvoiceItem item = inv.getItems().get(0);
-                item.setDescription(buildTripItemDescription(t, matName));
-                item.setQuantityBrass(t.getBillableQuantity());
-                item.setRate(t.getSaleRate());
-                item.setAmount(t.getTotalBill());
-                item.setMaterialId(t.getMaterialId());
-            }
-            inv.setSubtotal(t.getTotalBill());
-            inv.setSgstAmount(BigDecimal.ZERO);
-            inv.setCgstAmount(BigDecimal.ZERO);
-            inv.setGrandTotal(t.getTotalBill());
-            invoiceRepo.save(inv);
-        });
-    }
-
     private GstInvoice buildTripInvoice(Trip t) {
         Material mat = t.getMaterialId() != null
                 ? materialRepo.findById(t.getMaterialId()).orElse(null) : null;
@@ -581,6 +567,10 @@ public class TripService {
         Map<Long, String> invoiceStatusMap = invoiceIds.isEmpty() ? Map.of() :
                 invoiceRepo.findAllById(invoiceIds).stream()
                         .collect(Collectors.toMap(GstInvoice::getId, GstInvoice::getGstStatus));
+        Map<Long, Boolean> invoiceActiveMap = invoiceIds.isEmpty() ? Map.of() :
+                invoiceRepo.findAllById(invoiceIds).stream()
+                        .collect(Collectors.toMap(GstInvoice::getId,
+                                inv -> "ACTIVE".equals(inv.getStatus())));
 
         return trips.stream().map(t -> {
             TripResponse r = new TripResponse();
@@ -671,8 +661,10 @@ public class TripService {
             // Auto-invoice linkage
             r.setAutoInvoiced(t.isAutoInvoiced());
             r.setGstInvoiceId(t.getGstInvoiceId());
-            if (t.getGstInvoiceId() != null)
+            if (t.getGstInvoiceId() != null) {
                 r.setGstInvoiceStatus(invoiceStatusMap.get(t.getGstInvoiceId()));
+                r.setGstInvoiceActive(Boolean.TRUE.equals(invoiceActiveMap.get(t.getGstInvoiceId())));
+            }
             r.setTransportPaymentId(t.getTransportPaymentId());
 
             return r;
@@ -687,8 +679,8 @@ public class TripService {
                 .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
         if (isSiteStaff && !LocalDate.now().equals(t.getTripDate())) {
             throw new IllegalStateException(
-                "Entry locked. Only the same-day entry can be edited or deleted by Site Staff. "
-                + "Contact your Account Group Owner to make changes to past entries.");
+                "This entry is from a previous day and can no longer be edited by site staff. "
+                + "Please contact the office to make this change.");
         }
     }
 

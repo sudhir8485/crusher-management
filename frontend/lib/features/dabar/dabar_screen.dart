@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
+import '../../core/storage/auth_storage.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ────────────────────────────────────────────────────────────────
@@ -73,11 +74,15 @@ class DabarScreen extends ConsumerStatefulWidget {
 
 class _DabarScreenState extends ConsumerState<DabarScreen> {
   bool _extraProcessed = false;
+  bool _isSiteStaff = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _isSiteStaff = r == 'SITE_STAFF');
+    });
   }
 
   void _processExtra() {
@@ -190,6 +195,7 @@ class _DabarScreenState extends ConsumerState<DabarScreen> {
                         mode: mode,
                         date: selectedDate,
                         custom: custom,
+                        isSiteStaff: _isSiteStaff,
                         onEdit:   (e) => _showForm(context, ref, e, selectedDate, rangeKey),
                         onDelete: (e) => _confirmDelete(context, ref, e, rangeKey),
                       );
@@ -466,6 +472,7 @@ class _DabarList extends StatefulWidget {
   final List<DateTime> custom;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
+  final bool isSiteStaff;
   const _DabarList({
     required this.list,
     required this.mode,
@@ -473,6 +480,7 @@ class _DabarList extends StatefulWidget {
     required this.custom,
     required this.onEdit,
     required this.onDelete,
+    this.isSiteStaff = false,
   });
 
   @override
@@ -745,6 +753,7 @@ class _DabarListState extends State<_DabarList> {
                   itemBuilder: (_, i) => _DabarCard(
                     entry: filtered[i],
                     showDate: widget.mode != 'day',
+                    isSiteStaff: widget.isSiteStaff,
                     onTap: () => _showDrilldown(context, filtered[i]),
                     onEdit: () => widget.onEdit(filtered[i]),
                     onDelete: () => widget.onDelete(filtered[i]),
@@ -820,10 +829,11 @@ class _Stat extends StatelessWidget {
 class _DabarCard extends StatelessWidget {
   final Map<String, dynamic> entry;
   final bool showDate;
+  final bool isSiteStaff;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const _DabarCard({required this.entry, this.showDate = false, required this.onTap, required this.onEdit, required this.onDelete});
+  const _DabarCard({required this.entry, this.showDate = false, this.isSiteStaff = false, required this.onTap, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -897,16 +907,40 @@ class _DabarCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Column(
-                children: [
-                  IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
-                  IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
-                ],
-              ),
+              _buildActions(context),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  bool _isTodayEntry() {
+    final dateStr = entry['entryDate'] as String?;
+    if (dateStr == null) return true;
+    try {
+      final d = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      return d.year == now.year && d.month == now.month && d.day == now.day;
+    } catch (_) { return true; }
+  }
+
+  Widget _buildActions(BuildContext context) {
+    if (isSiteStaff && !_isTodayEntry()) {
+      return IconButton(
+        icon: const Icon(Icons.lock_outline, size: 20),
+        color: Colors.grey[400],
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This entry is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.'),
+          duration: Duration(seconds: 4),
+        )),
+      );
+    }
+    return Column(
+      children: [
+        IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+        IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red), onPressed: onDelete),
+      ],
     );
   }
 }

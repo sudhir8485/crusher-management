@@ -75,6 +75,7 @@ public class DabarService {
     public DabarEntryResponse update(Long id, DabarEntryRequest req) {
         DabarEntry e = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Dabar entry not found: " + id));
+        validateSiteStaffSameDayAccess(e);
         apply(e, req);
         e.setUpdatedByName(getCurrentUserName());
         e = repo.save(e);
@@ -98,6 +99,7 @@ public class DabarService {
     public void deactivate(Long id) {
         DabarEntry e = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Dabar entry not found: " + id));
+        validateSiteStaffSameDayAccess(e);
         e.setStatus("INACTIVE");
         repo.save(e);
         // Deactivate any linked transport payable
@@ -155,6 +157,16 @@ public class DabarService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void validateSiteStaffSameDayAccess(DabarEntry e) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        if (isSiteStaff && !LocalDate.now().equals(e.getEntryDate())) {
+            throw new IllegalStateException(
+                "This entry is from a previous day and can no longer be edited by site staff. "
+                + "Please contact the office to make this change.");
+        }
+    }
 
     private Long effectiveSiteId(Long requested) {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()

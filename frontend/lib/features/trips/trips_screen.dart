@@ -1,3 +1,5 @@
+import 'dart:html' as html;
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -191,6 +193,14 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
                         onEdit:    (t) => _showForm(context, ref, t, selectedDate, rangeKey),
                         onDelete:  (t) => _confirmDelete(context, ref, t, rangeKey),
                         onPayment: (t) => _showPaymentForm(context, ref, t, rangeKey),
+                        onCancelAndEdit: (t) async {
+                          final invoiceId = t['gstInvoiceId'] as int?;
+                          if (invoiceId == null) return;
+                          await ref.read(apiClientProvider).delete('/api/invoices/$invoiceId');
+                          ref.invalidate(tripsProvider(rangeKey));
+                          if (!context.mounted) return;
+                          _showForm(context, ref, t, selectedDate, rangeKey);
+                        },
                       );
               },
             ),
@@ -472,6 +482,7 @@ class _TripsList extends StatefulWidget {
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
   final void Function(Map<String, dynamic>) onPayment;
+  final Future<void> Function(Map<String, dynamic>)? onCancelAndEdit;
   const _TripsList({
     required this.list,
     this.showDate = false,
@@ -479,6 +490,7 @@ class _TripsList extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onPayment,
+    this.onCancelAndEdit,
   });
 
   @override
@@ -661,6 +673,9 @@ class _TripsListState extends State<_TripsList> {
                     onEdit:    () => widget.onEdit(filtered[i]),
                     onDelete:  () => widget.onDelete(filtered[i]),
                     onPayment: () => widget.onPayment(filtered[i]),
+                    onCancelInvoiceAndEdit: widget.onCancelAndEdit == null
+                        ? null
+                        : () => widget.onCancelAndEdit!(filtered[i]),
                   ),
                 ),
         ),
@@ -678,6 +693,7 @@ class _TripCard extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onPayment;
+  final Future<void> Function()? onCancelInvoiceAndEdit;
   const _TripCard({
     required this.trip,
     this.showDate = false,
@@ -685,6 +701,7 @@ class _TripCard extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     this.onPayment,
+    this.onCancelInvoiceAndEdit,
   });
 
   @override
@@ -707,22 +724,31 @@ class _TripCardState extends State<_TripCard> {
   }
 
   Widget _buildActionButton(BuildContext context, Map<String, dynamic> trip, double? outstanding) {
-    final isLocked = widget.isSiteStaff && !_isTodayEntry(trip);
+    final hasActiveInvoice = trip['gstInvoiceId'] != null &&
+        (trip['gstInvoiceActive'] as bool? ?? false);
+    final isLocked = hasActiveInvoice || (widget.isSiteStaff && !_isTodayEntry(trip));
     final isGstParty = trip['gstRegistered'] as bool? ?? false;
 
     if (isLocked) {
-      return Tooltip(
-        message: 'Entry locked. Contact Account Group Owner to make changes.',
-        child: IconButton(
-          icon: const Icon(Icons.lock_outline, size: 20),
-          color: Colors.grey[400],
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Entry locked — only today\'s entries can be edited by Site Staff. Contact Account Group Owner for past entries.'),
+      return IconButton(
+        icon: const Icon(Icons.lock_outline, size: 20),
+        color: Colors.grey[400],
+        onPressed: () {
+          if (hasActiveInvoice) {
+            showDialog(
+              context: context,
+              builder: (ctx) => _InvoiceLockDialog(
+                invoiceNo: trip['gstInvoiceId']?.toString() ?? '',
+                onCancelAndEdit: widget.onCancelInvoiceAndEdit,
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('This entry is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.'),
               duration: Duration(seconds: 4),
-            ),
-          ),
-        ),
+            ));
+          }
+        },
       );
     }
 
@@ -730,34 +756,25 @@ class _TripCardState extends State<_TripCard> {
       onSelected: (v) async {
         await Future.delayed(Duration.zero);
         if (!context.mounted) return;
-        if (v == 'edit')    widget.onEdit();
-        if (v == 'delete')  widget.onDelete();
-        if (v == 'challan') {
+        if (v == 'edit')   widget.onEdit();
+        if (v == 'delete') widget.onDelete();
+        if (v == 'challan_download') {
           if (isGstParty) {
-            _printTaxInvoice(context, trip);
+            _printTaxInvoice(context, trip, download: true);
           } else {
-            _printChallan(context, trip);
+            _printChallan(context, trip, download: true);
           }
         }
-        if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
       },
       itemBuilder: (_) => [
         PopupMenuItem(
-            value: 'challan',
+            value: 'challan_download',
             child: Row(children: [
-              const Icon(Icons.print_outlined, size: 18),
+              const Icon(Icons.download_outlined, size: 18),
               const SizedBox(width: 8),
-              Text(isGstParty ? 'Print Tax Invoice' : 'Print Challan'),
+              Text(isGstParty ? 'Download Tax Invoice' : 'Download Challan'),
             ])),
         const PopupMenuItem(value: 'edit', child: Text('Edit')),
-        if (widget.onPayment != null && (outstanding == null || outstanding > 0.5))
-          const PopupMenuItem(
-              value: 'payment',
-              child: Row(children: [
-                Icon(Icons.payments_outlined, size: 18, color: Colors.green),
-                SizedBox(width: 8),
-                Text('Record Payment', style: TextStyle(color: Colors.green)),
-              ])),
         const PopupMenuItem(
             value: 'delete',
             child: Text('Delete', style: TextStyle(color: Colors.red))),
@@ -765,7 +782,7 @@ class _TripCardState extends State<_TripCard> {
     );
   }
 
-  static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
+  static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip, {bool download = false}) async {
     // Load Noto Sans for proper ₹ Rupee symbol rendering
     final font       = await PdfGoogleFonts.notoSansRegular();
     final fontBold   = await PdfGoogleFonts.notoSansBold();
@@ -956,7 +973,13 @@ class _TripCardState extends State<_TripCard> {
         ],
       ),
     ));
-    await Printing.layoutPdf(onLayout: (_) => doc.save());
+    if (download) {
+      final safeDate = (tripDate as String).replaceAll('/', '-');
+      final name = (challanNo as String).isNotEmpty ? challanNo : safeDate;
+      _openPdfInNewTab(await doc.save(), 'challan_$name.pdf');
+    } else {
+      await Printing.layoutPdf(onLayout: (_) => doc.save());
+    }
   }
 
   // GST Tax Invoice — SGST+CGST only (same-state transactions).
@@ -968,7 +991,7 @@ class _TripCardState extends State<_TripCard> {
   // DEFAULT: Tax Invoice is generated per individual trip (not batched).
   // Batched invoicing (multiple trips grouped into one invoice) is a likely
   // follow-up requirement once confirmed with DSP — not yet implemented.
-  static Future<void> _printTaxInvoice(BuildContext context, Map<String, dynamic> trip) async {
+  static Future<void> _printTaxInvoice(BuildContext context, Map<String, dynamic> trip, {bool download = false}) async {
     final font     = await PdfGoogleFonts.notoSansRegular();
     final fontBold = await PdfGoogleFonts.notoSansBold();
     final businessName = await AuthStorage.getTenantName() ?? '';
@@ -1110,7 +1133,21 @@ class _TripCardState extends State<_TripCard> {
         ),
       ]),
     ));
-    await Printing.layoutPdf(onLayout: (_) => doc.save());
+    if (download) {
+      final safeDate = (tripDate as String).replaceAll('/', '-');
+      final name = (challanNo as String).isNotEmpty ? challanNo : safeDate;
+      _openPdfInNewTab(await doc.save(), 'tax_invoice_$name.pdf');
+    } else {
+      await Printing.layoutPdf(onLayout: (_) => doc.save());
+    }
+  }
+
+  static void _openPdfInNewTab(Uint8List bytes, String filename) {
+    final blob = html.Blob([bytes], 'application/pdf');
+    final url  = html.Url.createObjectUrlFromBlob(blob);
+    html.window.open(url, '_blank');
+    // Delay revoke so the new tab has time to load the blob before it's freed.
+    Future.delayed(const Duration(seconds: 30), () => html.Url.revokeObjectUrl(url));
   }
 
   static pw.Widget _invRow(String label, String value, {
@@ -1812,6 +1849,60 @@ class _MaterialPickerDialogState extends State<_MaterialPickerDialog> {
   }
 }
 
+
+// ── Invoice Lock Dialog ───────────────────────────────────────────────────────
+
+class _InvoiceLockDialog extends StatefulWidget {
+  final String invoiceNo;
+  final Future<void> Function()? onCancelAndEdit;
+  const _InvoiceLockDialog({required this.invoiceNo, this.onCancelAndEdit});
+
+  @override
+  State<_InvoiceLockDialog> createState() => _InvoiceLockDialogState();
+}
+
+class _InvoiceLockDialogState extends State<_InvoiceLockDialog> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Invoice Active'),
+      content: const Text(
+        'This trip has an active invoice. Cancel the invoice to unlock editing.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: _loading ? null : () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+        if (widget.onCancelAndEdit != null)
+          FilledButton(
+            onPressed: _loading
+                ? null
+                : () async {
+                    setState(() => _loading = true);
+                    try {
+                      await widget.onCancelAndEdit!();
+                      if (mounted) Navigator.pop(context);
+                    } catch (e) {
+                      if (!mounted) return;
+                      setState(() => _loading = false);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Failed: $e'),
+                        backgroundColor: Colors.red,
+                      ));
+                    }
+                  },
+            child: _loading
+                ? const SizedBox(width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Cancel Invoice & Edit'),
+          ),
+      ],
+    );
+  }
+}
 
 // ── Trip Form ─────────────────────────────────────────────────────────────────
 

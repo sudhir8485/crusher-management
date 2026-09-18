@@ -1,3 +1,5 @@
+import 'dart:html' as html;
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,11 +104,15 @@ class MachineWorkScreen extends ConsumerStatefulWidget {
 
 class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
   bool _extraProcessed = false;
+  bool _isSiteStaff = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _isSiteStaff = r == 'SITE_STAFF');
+    });
   }
 
   void _processExtra() {
@@ -203,6 +209,7 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
                   itemBuilder: (_, i) => _LogCard(
                     log: data[i],
                     showDate: mode != 'day',
+                    isSiteStaff: _isSiteStaff,
                     onEdit:   () => _showForm(context, ref, data[i], date, siteId),
                     onDelete: () => _confirmDelete(context, ref, data[i], key),
                   ),
@@ -541,8 +548,15 @@ class _SummaryBar extends StatelessWidget {
 
 // ── machine work challan PDF ──────────────────────────────────────────────────
 
+void _openPdfInNewTab(Uint8List bytes, String filename) {
+  final blob = html.Blob([bytes], 'application/pdf');
+  final url  = html.Url.createObjectUrlFromBlob(blob);
+  html.window.open(url, '_blank');
+  Future.delayed(const Duration(seconds: 30), () => html.Url.revokeObjectUrl(url));
+}
+
 Future<void> _printMachineWorkChallan(
-    BuildContext context, Map<String, dynamic> log) async {
+    BuildContext context, Map<String, dynamic> log, {bool download = false}) async {
   final font = await PdfGoogleFonts.notoSansRegular();
   final fontBold = await PdfGoogleFonts.notoSansBold();
   final businessName = await AuthStorage.getTenantName() ?? '';
@@ -772,7 +786,12 @@ Future<void> _printMachineWorkChallan(
       ],
     ),
   ));
-  await Printing.layoutPdf(onLayout: (_) => doc.save());
+  if (download) {
+    final safeDate = logDate.replaceAll('/', '-');
+    _openPdfInNewTab(await doc.save(), 'machine_work_$safeDate.pdf');
+  } else {
+    await Printing.layoutPdf(onLayout: (_) => doc.save());
+  }
 }
 
 // ── log card ─────────────────────────────────────────────────────────────────
@@ -780,11 +799,13 @@ Future<void> _printMachineWorkChallan(
 class _LogCard extends StatefulWidget {
   final Map<String, dynamic> log;
   final bool showDate;
+  final bool isSiteStaff;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   const _LogCard({
     required this.log,
     this.showDate = false,
+    this.isSiteStaff = false,
     required this.onEdit,
     required this.onDelete,
   });
@@ -868,28 +889,7 @@ class _LogCardState extends State<_LogCard> {
                       DateFormat('d MMM').format(DateTime.parse(logDateStr)),
                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
-                  PopupMenuButton<String>(
-                    onSelected: (v) async {
-                      await Future.delayed(Duration.zero);
-                      if (!context.mounted) return;
-                      if (v == 'print') _printMachineWorkChallan(context, log);
-                      if (v == 'edit') widget.onEdit();
-                      if (v == 'delete') widget.onDelete();
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                          value: 'print',
-                          child: Row(children: [
-                            Icon(Icons.print_outlined, size: 18),
-                            SizedBox(width: 8),
-                            Text('Print Challan'),
-                          ])),
-                      const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete', style: TextStyle(color: Colors.red))),
-                    ],
-                  ),
+                  _buildActionButton(context, log, logDateStr),
                 ]),
                 // Row 2: machine name + type (full width)
                 Row(children: [
@@ -1036,6 +1036,50 @@ class _LogCardState extends State<_LogCard> {
           ],
         ),
       ),
+    );
+  }
+
+  bool _isTodayEntry(String? dateStr) {
+    if (dateStr == null) return true;
+    try {
+      final d = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      return d.year == now.year && d.month == now.month && d.day == now.day;
+    } catch (_) { return true; }
+  }
+
+  Widget _buildActionButton(BuildContext context, Map<String, dynamic> log, String? logDateStr) {
+    if (widget.isSiteStaff && !_isTodayEntry(logDateStr)) {
+      return IconButton(
+        icon: const Icon(Icons.lock_outline, size: 20),
+        color: Colors.grey[400],
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This entry is from a previous day and can no longer be edited by site staff. Please contact the office to make this change.'),
+          duration: Duration(seconds: 4),
+        )),
+      );
+    }
+    return PopupMenuButton<String>(
+      onSelected: (v) async {
+        await Future.delayed(Duration.zero);
+        if (!context.mounted) return;
+        if (v == 'download') _printMachineWorkChallan(context, log, download: true);
+        if (v == 'edit')     widget.onEdit();
+        if (v == 'delete')   widget.onDelete();
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+            value: 'download',
+            child: Row(children: [
+              Icon(Icons.download_outlined, size: 18),
+              SizedBox(width: 8),
+              Text('Download Challan'),
+            ])),
+        const PopupMenuItem(value: 'edit', child: Text('Edit')),
+        const PopupMenuItem(
+            value: 'delete',
+            child: Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
     );
   }
 }
