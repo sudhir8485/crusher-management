@@ -19,6 +19,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findByTenantId(Long tenantId);
 
+    // Global email uniqueness check — users has NO FORCE RLS so crusher_admin sees all tenants.
+    // Used at creation/update time to catch cross-tenant duplicates before the DB constraint does.
+    boolean existsByEmail(String email);
+
     // Admin service queries — crusher_admin bypasses RLS on users so these are cross-tenant safe
     Optional<User> findFirstByTenantIdAndRole(Long tenantId, String role);
 

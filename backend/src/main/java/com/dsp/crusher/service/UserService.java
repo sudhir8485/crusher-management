@@ -37,10 +37,15 @@ public class UserService {
         if ("SITE_STAFF".equals(req.getRole()) && req.getSiteId() == null) {
             throw new IllegalArgumentException("Assigned site is required for Site Staff users");
         }
+        String email = req.getEmail().toLowerCase().trim();
+        if (userRepo.existsByEmail(email)) {
+            throw new IllegalArgumentException(
+                    "This email is already registered to another account. Please use a different email.");
+        }
         User u = new User();
         u.setTenantId(TenantContext.get());
         u.setFullName(req.getFullName());
-        u.setEmail(req.getEmail().toLowerCase().trim());
+        u.setEmail(email);
         u.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         u.setRole(req.getRole());
         u.setSiteId(req.getSiteId());
@@ -53,8 +58,13 @@ public class UserService {
         if ("SITE_STAFF".equals(req.getRole()) && req.getSiteId() == null) {
             throw new IllegalArgumentException("Assigned site is required for Site Staff users");
         }
+        String newEmail = req.getEmail().toLowerCase().trim();
+        if (!newEmail.equals(u.getEmail()) && userRepo.existsByEmail(newEmail)) {
+            throw new IllegalArgumentException(
+                    "This email is already registered to another account. Please use a different email.");
+        }
         u.setFullName(req.getFullName());
-        u.setEmail(req.getEmail().toLowerCase().trim());
+        u.setEmail(newEmail);
         u.setRole(req.getRole());
         u.setSiteId(req.getSiteId());
         if (req.getPassword() != null && !req.getPassword().isBlank()) {

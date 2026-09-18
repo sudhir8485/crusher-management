@@ -54,6 +54,12 @@ public class AdminService {
 
     @Transactional
     public TenantListResponse createTenant(CreateTenantRequest req) {
+        String email = req.getOwnerEmail().toLowerCase().trim();
+        if (userRepo.existsByEmail(email)) {
+            throw new IllegalArgumentException(
+                    "This email is already registered to another account. Please use a different email.");
+        }
+
         Tenant t = new Tenant();
         t.setName(req.getBusinessName().trim());
         t = tenantRepo.save(t);
@@ -63,7 +69,7 @@ public class AdminService {
         User owner = new User();
         owner.setTenantId(t.getId());
         owner.setFullName(req.getOwnerFullName().trim());
-        owner.setEmail(req.getOwnerEmail().toLowerCase().trim());
+        owner.setEmail(email);
         owner.setPasswordHash(passwordEncoder.encode(req.getOwnerPassword()));
         owner.setRole("OWNER_ADMIN");
         owner = userRepo.save(owner);
