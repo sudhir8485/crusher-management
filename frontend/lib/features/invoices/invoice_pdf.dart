@@ -91,6 +91,7 @@ Future<pw.Document> buildInvoicePdf(
   final bankAccNo     = (profile['bankAccountNo'] as String?)?.trim() ?? '';
   final bankIfsc      = (profile['bankIfsc']     as String?)?.trim() ?? '';
   final logoB64       = profile['logoBase64']   as String?;
+  final invoiceTerms  = (profile['invoiceTerms'] as String?)?.trim();
 
   pw.ImageProvider? logoImage;
   if (logoB64 != null && logoB64.isNotEmpty) {
@@ -426,17 +427,24 @@ Future<pw.Document> buildInvoicePdf(
   );
 
   // ── 6. TERMS ───────────────────────────────────────────────────────────────
+  // Terms are tenant-configurable via Business Profile → Invoice Terms.
+  // If none configured, fall back to generic placeholder.
+  final termsLines = (invoiceTerms != null && invoiceTerms.isNotEmpty)
+      ? invoiceTerms.split('\n').where((l) => l.trim().isNotEmpty).toList()
+      : <String>[];
   final termsRow = pw.Container(
     width: double.infinity,
     padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
     decoration: _allBorder,
-    child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      lbl('1. Interest@24 PA will be debited to your A/c, If bill is not paid within 4 days from the date of bill.', sz: 7.5),
-      pw.SizedBox(height: 2),
-      lbl('2. All matters to be under Jurisdiction of SHRIGONDA COURT only.', sz: 7.5),
-      pw.SizedBox(height: 2),
-      lbl('3. If there is any correction in the bills, it should be informed us by mail within 3 days from receipt of bill.', sz: 7.5),
-    ]),
+    child: termsLines.isEmpty
+        ? lbl('No terms & conditions configured. Add them in Business Profile → Invoice Terms.', sz: 7.5)
+        : pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: termsLines.asMap().entries.map((e) => pw.Padding(
+              padding: pw.EdgeInsets.only(bottom: e.key < termsLines.length - 1 ? 2 : 0),
+              child: lbl(e.value, sz: 7.5),
+            )).toList(),
+          ),
   );
 
   // ── 7. HSN TAX BREAKDOWN TABLE ────────────────────────────────────────────

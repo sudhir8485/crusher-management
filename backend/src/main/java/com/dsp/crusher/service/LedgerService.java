@@ -357,7 +357,9 @@ public class LedgerService {
             String particulars = switch (pmt.getPaymentMode()) {
                 case "DIESEL_ADVANCE"    -> "Diesel Advance";
                 case "DIESEL_CREDIT"     -> "Diesel Credit";
-                case "TRANSPORT_CREDIT"  -> "Transport (Vehicle Hire)";
+                case "TRANSPORT_CREDIT"  -> (pmt.getNotes() != null && !pmt.getNotes().isBlank())
+                        ? pmt.getNotes()
+                        : "Transport (Vehicle Hire)";
                 default -> {
                     String prefix = isPaid ? "Paid to Party — " : "By ";
                     String base = prefix + pmt.getPaymentMode();

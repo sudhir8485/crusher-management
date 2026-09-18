@@ -124,6 +124,7 @@ public class TripService {
         validate(req);
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
+        validateSiteStaffSameDayAccess(t);
 
         Long oldInvoiceId = t.getGstInvoiceId();
 
@@ -160,6 +161,7 @@ public class TripService {
     public void deactivate(Long id) {
         Trip t = tripRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip not found: " + id));
+        validateSiteStaffSameDayAccess(t);
         t.setStatus("INACTIVE");
         if (t.getGstInvoiceId() != null) {
             invoiceRepo.findById(t.getGstInvoiceId()).ifPresent(inv -> {
@@ -670,6 +672,17 @@ public class TripService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void validateSiteStaffSameDayAccess(Trip t) {
+        boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_SITE_STAFF"));
+        if (isSiteStaff && !LocalDate.now().equals(t.getTripDate())) {
+            throw new IllegalStateException(
+                "Entry locked. Only the same-day entry can be edited or deleted by Site Staff. "
+                + "Contact your Account Group Owner to make changes to past entries.");
+        }
+    }
 
     private Long effectiveSiteId(Long requested) {
         boolean isSiteStaff = SecurityContextHolder.getContext().getAuthentication()

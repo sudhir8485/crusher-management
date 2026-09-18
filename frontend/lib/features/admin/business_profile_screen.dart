@@ -65,6 +65,8 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
   late final TextEditingController _bankNameCtrl;
   late final TextEditingController _bankAccountNoCtrl;
   late final TextEditingController _bankIfscCtrl;
+  late final TextEditingController _invoicePrefixCtrl;
+  late final TextEditingController _invoiceTermsCtrl;
   String? _logoBase64;
   bool _saving = false;
 
@@ -80,6 +82,8 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
     _bankNameCtrl     = TextEditingController(text: p['bankName']       as String? ?? '');
     _bankAccountNoCtrl= TextEditingController(text: p['bankAccountNo']  as String? ?? '');
     _bankIfscCtrl     = TextEditingController(text: p['bankIfsc']       as String? ?? '');
+    _invoicePrefixCtrl= TextEditingController(text: p['invoicePrefix']  as String? ?? '');
+    _invoiceTermsCtrl = TextEditingController(text: p['invoiceTerms']   as String? ?? '');
     _logoBase64       = p['logoBase64'] as String?;
   }
 
@@ -88,6 +92,7 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
     _nameCtrl.dispose(); _addressCtrl.dispose();
     _phoneCtrl.dispose(); _emailCtrl.dispose(); _gstinCtrl.dispose();
     _bankNameCtrl.dispose(); _bankAccountNoCtrl.dispose(); _bankIfscCtrl.dispose();
+    _invoicePrefixCtrl.dispose(); _invoiceTermsCtrl.dispose();
     super.dispose();
   }
 
@@ -114,6 +119,8 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
         'bankName':      _bankNameCtrl.text.trim(),
         'bankAccountNo': _bankAccountNoCtrl.text.trim(),
         'bankIfsc':      _bankIfscCtrl.text.trim().toUpperCase(),
+        'invoicePrefix': _invoicePrefixCtrl.text.trim().toUpperCase(),
+        'invoiceTerms':  _invoiceTermsCtrl.text.trim(),
         'logoBase64':    _logoBase64,
       });
       widget.onSaved();
@@ -276,6 +283,44 @@ class _ProfileFormState extends ConsumerState<_ProfileForm> {
                     hintText: 'e.g. SBIN0001234',
                   ),
                   textCapitalization: TextCapitalization.characters,
+                ),
+
+                const SizedBox(height: 24),
+
+                // Invoice Settings
+                _Section('Invoice Settings'),
+                const SizedBox(height: 4),
+                Text('Prefix appears in invoice numbers, e.g. ABC/2026-27/1',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _invoicePrefixCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Invoice Prefix',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g. DSP, ABC, XYZ',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                  validator: (v) {
+                    if (v != null && v.trim().isNotEmpty && v.trim().length > 20) {
+                      return 'Max 20 characters';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _invoiceTermsCtrl,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Terms & Conditions',
+                    border: OutlineInputBorder(),
+                    hintText: 'Enter each term on a new line.\n'
+                        'e.g.\n'
+                        '1. Interest@24 PA if bill not paid within 4 days.\n'
+                        '2. Jurisdiction: YOUR COURT only.',
+                    alignLabelWithHint: true,
+                  ),
                 ),
 
                 const SizedBox(height: 32),

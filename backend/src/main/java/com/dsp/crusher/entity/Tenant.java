@@ -47,6 +47,12 @@ public class Tenant {
     @Column(length = 20)
     private String bankIfsc;
 
+    @Column(length = 20)
+    private String invoicePrefix = "INV";
+
+    @Column(columnDefinition = "TEXT")
+    private String invoiceTerms;
+
     @Column
     private LocalDateTime updatedAt;
 }

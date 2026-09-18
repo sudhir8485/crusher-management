@@ -43,6 +43,11 @@ public class TenantProfileService {
         t.setBankName(req.getBankName());
         t.setBankAccountNo(req.getBankAccountNo());
         t.setBankIfsc(req.getBankIfsc());
+        if (req.getInvoicePrefix() != null) {
+            String prefix = req.getInvoicePrefix().trim().toUpperCase();
+            if (!prefix.isBlank()) t.setInvoicePrefix(prefix);
+        }
+        t.setInvoiceTerms(req.getInvoiceTerms());
         t.setUpdatedAt(LocalDateTime.now());
         return toResponse(tenantRepo.save(t));
     }
@@ -51,6 +56,8 @@ public class TenantProfileService {
         return new TenantProfileResponse(
                 t.getId(), t.getName(), t.getAddress(),
                 t.getPhone(), t.getEmail(), t.getGstin(), t.getLogoBase64(),
-                t.getBankName(), t.getBankAccountNo(), t.getBankIfsc());
+                t.getBankName(), t.getBankAccountNo(), t.getBankIfsc(),
+                t.getInvoicePrefix() != null ? t.getInvoicePrefix() : "INV",
+                t.getInvoiceTerms());
     }
 }

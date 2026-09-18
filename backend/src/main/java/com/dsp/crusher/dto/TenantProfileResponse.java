@@ -16,4 +16,6 @@ public class TenantProfileResponse {
     private String bankName;
     private String bankAccountNo;
     private String bankIfsc;
+    private String invoicePrefix;
+    private String invoiceTerms;
 }

@@ -79,11 +79,15 @@ class TripsScreen extends ConsumerStatefulWidget {
 
 class _TripsScreenState extends ConsumerState<TripsScreen> {
   bool _extraProcessed = false;
+  bool _isSiteStaff = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _processExtra());
+    AuthStorage.getRole().then((r) {
+      if (mounted) setState(() => _isSiteStaff = r == 'SITE_STAFF');
+    });
   }
 
   void _processExtra() {
@@ -183,6 +187,7 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
                     : _TripsList(
                         list: list,
                         showDate: mode != 'day',
+                        isSiteStaff: _isSiteStaff,
                         onEdit:    (t) => _showForm(context, ref, t, selectedDate, rangeKey),
                         onDelete:  (t) => _confirmDelete(context, ref, t, rangeKey),
                         onPayment: (t) => _showPaymentForm(context, ref, t, rangeKey),
@@ -275,7 +280,16 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
               Navigator.pop(dialogCtx);
               try {
                 await ref.read(apiClientProvider).delete('/api/trips/${trip['id']}');
-              } catch (_) { return; }
+              } catch (e) {
+                if (!context.mounted) return;
+                String msg = 'Could not delete entry';
+                if (e is DioException && e.response?.data is Map) {
+                  msg = (e.response!.data as Map)['error'] as String? ?? msg;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(msg), backgroundColor: Colors.red));
+                return;
+              }
               if (!context.mounted) return;
               ref.invalidate(tripsProvider(rangeKey));
             },
@@ -454,12 +468,14 @@ class _DateRangeBar extends StatelessWidget {
 class _TripsList extends StatefulWidget {
   final List<Map<String, dynamic>> list;
   final bool showDate;
+  final bool isSiteStaff;
   final void Function(Map<String, dynamic>) onEdit;
   final void Function(Map<String, dynamic>) onDelete;
   final void Function(Map<String, dynamic>) onPayment;
   const _TripsList({
     required this.list,
     this.showDate = false,
+    this.isSiteStaff = false,
     required this.onEdit,
     required this.onDelete,
     required this.onPayment,
@@ -641,6 +657,7 @@ class _TripsListState extends State<_TripsList> {
                   itemBuilder: (_, i) => _TripCard(
                     trip: filtered[i],
                     showDate: widget.showDate,
+                    isSiteStaff: widget.isSiteStaff,
                     onEdit:    () => widget.onEdit(filtered[i]),
                     onDelete:  () => widget.onDelete(filtered[i]),
                     onPayment: () => widget.onPayment(filtered[i]),
@@ -657,12 +674,14 @@ class _TripsListState extends State<_TripsList> {
 class _TripCard extends StatefulWidget {
   final Map<String, dynamic> trip;
   final bool showDate;
+  final bool isSiteStaff;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onPayment;
   const _TripCard({
     required this.trip,
     this.showDate = false,
+    this.isSiteStaff = false,
     required this.onEdit,
     required this.onDelete,
     this.onPayment,
@@ -674,6 +693,77 @@ class _TripCard extends StatefulWidget {
 
 class _TripCardState extends State<_TripCard> {
   bool _expanded = false;
+
+  bool _isTodayEntry(Map<String, dynamic> trip) {
+    final dateStr = trip['tripDate'] as String?;
+    if (dateStr == null) return false;
+    try {
+      final tripDate = DateTime.parse(dateStr);
+      final today = DateTime.now();
+      return tripDate.year == today.year &&
+             tripDate.month == today.month &&
+             tripDate.day == today.day;
+    } catch (_) { return false; }
+  }
+
+  Widget _buildActionButton(BuildContext context, Map<String, dynamic> trip, double? outstanding) {
+    final isLocked = widget.isSiteStaff && !_isTodayEntry(trip);
+    final isGstParty = trip['gstRegistered'] as bool? ?? false;
+
+    if (isLocked) {
+      return Tooltip(
+        message: 'Entry locked. Contact Account Group Owner to make changes.',
+        child: IconButton(
+          icon: const Icon(Icons.lock_outline, size: 20),
+          color: Colors.grey[400],
+          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Entry locked — only today\'s entries can be edited by Site Staff. Contact Account Group Owner for past entries.'),
+              duration: Duration(seconds: 4),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      onSelected: (v) async {
+        await Future.delayed(Duration.zero);
+        if (!context.mounted) return;
+        if (v == 'edit')    widget.onEdit();
+        if (v == 'delete')  widget.onDelete();
+        if (v == 'challan') {
+          if (isGstParty) {
+            _printTaxInvoice(context, trip);
+          } else {
+            _printChallan(context, trip);
+          }
+        }
+        if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+            value: 'challan',
+            child: Row(children: [
+              const Icon(Icons.print_outlined, size: 18),
+              const SizedBox(width: 8),
+              Text(isGstParty ? 'Print Tax Invoice' : 'Print Challan'),
+            ])),
+        const PopupMenuItem(value: 'edit', child: Text('Edit')),
+        if (widget.onPayment != null && (outstanding == null || outstanding > 0.5))
+          const PopupMenuItem(
+              value: 'payment',
+              child: Row(children: [
+                Icon(Icons.payments_outlined, size: 18, color: Colors.green),
+                SizedBox(width: 8),
+                Text('Record Payment', style: TextStyle(color: Colors.green)),
+              ])),
+        const PopupMenuItem(
+            value: 'delete',
+            child: Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
+    );
+  }
 
   static Future<void> _printChallan(BuildContext context, Map<String, dynamic> trip) async {
     // Load Noto Sans for proper ₹ Rupee symbol rendering
@@ -1277,50 +1367,7 @@ class _TripCardState extends State<_TripCard> {
                     ),
                   ),
                 ),
-                PopupMenuButton<String>(
-                  onSelected: (v) async {
-                    // Delay so popup exit animation completes before
-                    // showing another overlay — prevents lifecycle crashes.
-                    await Future.delayed(Duration.zero);
-                    if (!context.mounted) return;
-                    if (v == 'edit')    widget.onEdit();
-                    if (v == 'delete')  widget.onDelete();
-                    if (v == 'challan') {
-                      final isGstParty = trip['gstRegistered'] as bool? ?? false;
-                      if (isGstParty) {
-                        _printTaxInvoice(context, trip);
-                      } else {
-                        _printChallan(context, trip);
-                      }
-                    }
-                    if (v == 'payment' && widget.onPayment != null) widget.onPayment!();
-                  },
-                  itemBuilder: (_) {
-                    final isGstParty = trip['gstRegistered'] as bool? ?? false;
-                    return [
-                    PopupMenuItem(
-                        value: 'challan',
-                        child: Row(children: [
-                          const Icon(Icons.print_outlined, size: 18),
-                          const SizedBox(width: 8),
-                          Text(isGstParty ? 'Print Tax Invoice' : 'Print Challan'),
-                        ])),
-                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    if (widget.onPayment != null && (outstanding == null || outstanding > 0.5))
-                      const PopupMenuItem(
-                          value: 'payment',
-                          child: Row(children: [
-                            Icon(Icons.payments_outlined, size: 18, color: Colors.green),
-                            SizedBox(width: 8),
-                            Text('Record Payment',
-                                style: TextStyle(color: Colors.green)),
-                          ])),
-                    const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Delete', style: TextStyle(color: Colors.red))),
-                  ];
-                  },
-                ),
+                _buildActionButton(context, trip, outstanding),
               ],
             ),
             // Tap card body to reveal full calculation chain
@@ -2185,12 +2232,15 @@ class _TripFormState extends ConsumerState<_TripForm> {
       borderRadius: BorderRadius.circular(6),
     ),
     child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                color: emphasis ? Colors.green.shade800 : Colors.grey[700])),
+        Expanded(
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: emphasis ? Colors.green.shade800 : Colors.grey[700])),
+        ),
+        const SizedBox(width: 8),
         Text(value,
             style: TextStyle(
                 fontSize: 13,
@@ -2416,9 +2466,10 @@ class _TripFormState extends ConsumerState<_TripForm> {
   Widget _bRow(String label, String value) => Padding(
     padding: const EdgeInsets.only(bottom: 5),
     child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+        Expanded(child: Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13))),
+        const SizedBox(width: 8),
         Text(value, style: const TextStyle(fontSize: 13)),
       ],
     ),

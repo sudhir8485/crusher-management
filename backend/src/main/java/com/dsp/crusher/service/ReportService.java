@@ -24,6 +24,7 @@ public class ReportService {
     private final VehicleRepository vehicleRepo;
     private final MachineWorkLogRepository machineWorkRepo;
     private final MachineRepository machineRepo;
+    private final MachineWorkTypeRepository workTypeRepo;
     private final DieselReceiptRepository receiptRepo;
     private final DieselUsageRepository usageRepo;
     private final TripRepository tripRepo;
@@ -57,9 +58,12 @@ public class ReportService {
         Map<Long, Vendor> vendorMap = vendorRepo.findAll().stream()
                 .collect(Collectors.toMap(Vendor::getId, v -> v));
 
+        // Pre-load all work types to resolve labels dynamically
+        Map<Long, MachineWorkType> workTypeMap = workTypeRepo.findAll().stream()
+                .collect(Collectors.toMap(MachineWorkType::getId, wt -> wt));
+
         BigDecimal totalHours = BigDecimal.ZERO;
-        BigDecimal bucketHours = BigDecimal.ZERO;
-        BigDecimal breakerHours = BigDecimal.ZERO;
+        Map<String, BigDecimal> workTypeHours = new LinkedHashMap<>();
         BigDecimal totalBilled = BigDecimal.ZERO;
         List<Row> rows = new ArrayList<>();
 
@@ -68,11 +72,16 @@ public class ReportService {
             String machineName = m != null ? m.getName() : "—";
             BigDecimal hrs = l.getTotalHours() != null ? l.getTotalHours() : BigDecimal.ZERO;
             totalHours = totalHours.add(hrs);
-            if ("BUCKET".equals(l.getMode())) {
-                bucketHours = bucketHours.add(hrs);
+
+            // Resolve work type label: prefer workTypeId → label, else fall back to mode field
+            String wtLabel;
+            if (l.getWorkTypeId() != null && workTypeMap.containsKey(l.getWorkTypeId())) {
+                wtLabel = workTypeMap.get(l.getWorkTypeId()).getLabel();
             } else {
-                breakerHours = breakerHours.add(hrs);
+                wtLabel = l.getMode() != null ? l.getMode() : "Other";
             }
+            workTypeHours.merge(wtLabel, hrs, BigDecimal::add);
+
             if (l.getTotalAmount() != null) {
                 totalBilled = totalBilled.add(l.getTotalAmount());
             }
@@ -85,7 +94,7 @@ public class ReportService {
             Row row = new Row();
             row.setDate(l.getLogDate());
             row.setCol1(machineName);
-            row.setCol2(l.getMode() != null ? l.getMode() : "BUCKET");
+            row.setCol2(wtLabel);
             row.setCol3(l.getWorkDescription() != null ? l.getWorkDescription() : "—");
             row.setCol4(l.getOpeningReading() != null ? l.getOpeningReading().toPlainString() : "—");
             row.setCol5(l.getClosingReading() != null ? l.getClosingReading().toPlainString() : "—");
@@ -94,11 +103,20 @@ public class ReportService {
             rows.add(row);
         }
 
+        // Convert workTypeHours map to Double for JSON serialisation
+        Map<String, Double> workTypeHoursDouble = new LinkedHashMap<>();
+        workTypeHours.forEach((k, v) -> workTypeHoursDouble.put(k, v.doubleValue()));
+
+        // Legacy bucketHours / breakerHours kept for backward compatibility
+        BigDecimal bucketHours  = workTypeHours.getOrDefault("Bucket",  workTypeHours.getOrDefault("BUCKET",  BigDecimal.ZERO));
+        BigDecimal breakerHours = workTypeHours.getOrDefault("Breaker", workTypeHours.getOrDefault("BREAKER", BigDecimal.ZERO));
+
         Summary summary = new Summary();
         summary.setTotalRows(rows.size());
         summary.setTotalHours(totalHours);
         summary.setBucketHours(bucketHours);
         summary.setBreakerHours(breakerHours);
+        summary.setWorkTypeHours(workTypeHoursDouble);
         if (totalBilled.compareTo(BigDecimal.ZERO) > 0) {
             summary.setTotalBilledAmount(totalBilled);
         }

@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -906,10 +907,14 @@ class _ReportTable extends StatelessWidget {
           totCells[6] = 'Closing: ${_numFm.format(sum['closingStock'] ?? 0)} L';
       case 'MACHINE_WORK':
         if (numCols > 1) totCells[1] = '${sum['totalRows'] ?? 0} entries';
-        if (numCols > 6)
-          totCells[6] = '${_numFm.format(sum['totalHours'] ?? 0)} hrs  '
-              '(Bucket ${_numFm.format(sum['bucketHours'] ?? 0)}'
-              ' · Breaker ${_numFm.format(sum['breakerHours'] ?? 0)})';
+        if (numCols > 6) {
+          final wtHours = sum['workTypeHours'] as Map? ?? {};
+          final wtParts = wtHours.entries
+              .map((e) => '${e.key} ${_numFm.format((e.value as num?) ?? 0)}h')
+              .join(' · ');
+          final wtSuffix = wtParts.isNotEmpty ? '  ($wtParts)' : '';
+          totCells[6] = '${_numFm.format(sum['totalHours'] ?? 0)} hrs$wtSuffix';
+        }
       case 'ATTENDANCE':
         if (numCols > 1) totCells[1] = '${sum['totalRows'] ?? 0} records';
         if (numCols > 2)
@@ -934,10 +939,24 @@ class _ReportTable extends StatelessWidget {
 
     final bytes = wb.save();
     if (bytes == null) return;
-    await Printing.sharePdf(
-      bytes: Uint8List.fromList(bytes),
-      filename: '${reportTitle.replaceAll(' ', '_')}.xlsx',
+
+    // Use dart:html direct download to avoid the double-download caused by Printing.sharePdf
+    final filename = '${reportTitle.replaceAll(' ', '_')}.xlsx';
+    final blob = html.Blob(
+      [Uint8List.fromList(bytes)],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.document.createElement('a') as html.AnchorElement
+      ..href = url
+      ..style.display = 'none'
+      ..download = filename;
+    html.document.body!.children.add(anchor);
+    anchor.click();
+    Future.delayed(const Duration(milliseconds: 200), () {
+      anchor.remove();
+      html.Url.revokeObjectUrl(url);
+    });
   }
 
   String _summaryText(String rtype, Map<String, dynamic> sum) {
@@ -945,7 +964,14 @@ class _ReportTable extends StatelessWidget {
       'TRIPS'        => 'Trips: ${sum['tripCount'] ?? 0} | Total Brass: ${_numFm.format(sum['totalBrass'] ?? 0)} Brass | Entries: ${sum['totalRows'] ?? 0}',
       'DABAR'        => 'Entries: ${sum['totalRows'] ?? 0} | Trips: ${sum['tripCount'] ?? 0} | Total Brass: ${_numFm.format(sum['totalBrass'] ?? 0)} Brass',
       'DIESEL'       => 'Opening: ${_numFm.format(sum['openingStock'] ?? 0)} L | Received: ${_numFm.format(sum['totalReceived'] ?? 0)} L | Used: ${_numFm.format(sum['totalUsed'] ?? 0)} L | Closing: ${_numFm.format(sum['closingStock'] ?? 0)} L',
-      'MACHINE_WORK' => 'Total: ${_numFm.format(sum['totalHours'] ?? 0)} hrs | Bucket: ${_numFm.format(sum['bucketHours'] ?? 0)} hrs | Breaker: ${_numFm.format(sum['breakerHours'] ?? 0)} hrs | Entries: ${sum['totalRows'] ?? 0}',
+      'MACHINE_WORK' => () {
+          final wtHours = sum['workTypeHours'] as Map? ?? {};
+          final wtParts = wtHours.entries
+              .map((e) => '${e.key}: ${_numFm.format((e.value as num?) ?? 0)} hrs')
+              .join(' | ');
+          final suffix = wtParts.isNotEmpty ? ' | $wtParts' : '';
+          return 'Total: ${_numFm.format(sum['totalHours'] ?? 0)} hrs | Entries: ${sum['totalRows'] ?? 0}$suffix';
+        }(),
       'ATTENDANCE'   => 'Present: ${sum['presentCount'] ?? 0} | Absent: ${sum['absentCount'] ?? 0} | Half Day: ${sum['halfDayCount'] ?? 0} | Leave: ${sum['leaveCount'] ?? 0} | Records: ${sum['totalRows'] ?? 0}',
       'MATERIALS'    => 'Entries: ${sum['totalRows'] ?? 0} | Brass: ${_numFm.format(sum['totalBrass'] ?? 0)} | TON: ${_numFm.format(sum['totalTon'] ?? 0)} | Amount: ${fmtCurr((sum['totalAmount'] as num?)?.toDouble() ?? 0)}',
       _              => '',

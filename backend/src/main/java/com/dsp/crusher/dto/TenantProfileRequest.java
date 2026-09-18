@@ -14,4 +14,6 @@ public class TenantProfileRequest {
     private String bankName;
     private String bankAccountNo;
     private String bankIfsc;
+    private String invoicePrefix;
+    private String invoiceTerms;
 }

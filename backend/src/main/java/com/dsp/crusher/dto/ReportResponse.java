@@ -4,6 +4,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Generic wrapper for all operational reports.
@@ -36,6 +37,7 @@ public class ReportResponse {
         private BigDecimal totalHours;
         private BigDecimal bucketHours;
         private BigDecimal breakerHours;
+        private Map<String, Double> workTypeHours;
 
         // Diesel
         private BigDecimal openingStock;

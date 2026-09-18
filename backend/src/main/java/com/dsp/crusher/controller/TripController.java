@@ -61,14 +61,14 @@ public class TripController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Update a trip")
-    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
     public TripResponse update(@PathVariable Long id, @Valid @RequestBody TripRequest req) {
         return service.update(id, req);
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Delete (deactivate) a trip")
-    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyRole('OWNER_ADMIN', 'OFFICE_ACCOUNTANT', 'SITE_STAFF')")
     public ResponseEntity<Void> deactivate(@PathVariable Long id) {
         service.deactivate(id);
         return ResponseEntity.noContent().build();

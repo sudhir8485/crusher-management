@@ -199,6 +199,8 @@ public class DieselService {
         p.setPaymentDate(u.getUsageDate());
         p.setAmount(dieselValue);
         p.setPaymentMode("DIESEL_CREDIT");
+        // PAID direction: DSP gives diesel to party's vehicle → reduces party's advance/credit
+        p.setDirection("PAID");
         String plate = vehicle.getPlateNumber() != null ? vehicle.getPlateNumber() : "vehicle";
         p.setNotes("Diesel given: " + u.getQuantityLiters().toPlainString() + " L to " + plate + " (diesel usage #" + u.getId() + ")");
         p = paymentRepo.save(p);

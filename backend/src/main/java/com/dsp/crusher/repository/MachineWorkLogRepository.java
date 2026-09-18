@@ -79,4 +79,7 @@ public interface MachineWorkLogRepository extends JpaRepository<MachineWorkLog, 
     // Needs Attention: customer-billable entries with no rate set yet
     @Query("SELECT COUNT(m) FROM MachineWorkLog m WHERE m.workPurpose = 'CUSTOMER_BILLABLE' AND m.rateStatus = 'PENDING' AND m.status = 'ACTIVE' AND (:siteId IS NULL OR m.siteId = :siteId)")
     long countRatePendingBySite(@Param("siteId") Long siteId);
+
+    // Recalculate GST: find log linked to an auto-created GST invoice
+    java.util.Optional<MachineWorkLog> findFirstByGstInvoiceId(Long gstInvoiceId);
 }

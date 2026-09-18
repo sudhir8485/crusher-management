@@ -4,11 +4,15 @@ import com.dsp.crusher.config.TenantContext;
 import com.dsp.crusher.dto.*;
 import com.dsp.crusher.entity.GstInvoice;
 import com.dsp.crusher.entity.GstInvoiceItem;
+import com.dsp.crusher.entity.MachineWorkLog;
+import com.dsp.crusher.entity.MachineWorkType;
 import com.dsp.crusher.entity.Material;
 import com.dsp.crusher.entity.ServiceRecord;
 import com.dsp.crusher.entity.Vendor;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.GstInvoiceRepository;
+import com.dsp.crusher.repository.MachineWorkLogRepository;
+import com.dsp.crusher.repository.MachineWorkTypeRepository;
 import com.dsp.crusher.repository.MaterialRepository;
 import com.dsp.crusher.repository.ServiceRepository;
 import com.dsp.crusher.repository.UserRepository;
@@ -37,10 +41,12 @@ public class GstInvoiceService {
     private final GstInvoiceRepository invoiceRepo;
     private final VendorRepository     vendorRepo;
     private final VendorPaymentRepository paymentRepo;
-    private final MaterialRepository   materialRepo;
-    private final ServiceRepository    serviceRepo;
-    private final UserRepository       userRepo;
-    private final InvoiceNumberingService numbering;
+    private final MaterialRepository        materialRepo;
+    private final ServiceRepository         serviceRepo;
+    private final UserRepository            userRepo;
+    private final InvoiceNumberingService   numbering;
+    private final MachineWorkLogRepository  machineWorkRepo;
+    private final MachineWorkTypeRepository workTypeRepo;
 
     public PageResponse<GstInvoiceResponse> list(Long vendorId, LocalDate from, LocalDate to, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -104,7 +110,7 @@ public class GstInvoiceService {
                     + ". Recalculate is only available for PENDING invoices.");
         }
 
-        // Pull rate from first configured material item, then fall back to service item
+        // Pull rate: (1) material item, (2) configured service item, (3) machine work type
         BigDecimal newGstRate = inv.getItems().stream()
                 .filter(i -> i.getMaterialId() != null)
                 .map(i -> materialRepo.findById(i.getMaterialId()).orElse(null))
@@ -117,7 +123,13 @@ public class GstInvoiceService {
                         .filter(s -> s != null && s.isGstRateConfigured())
                         .map(ServiceRecord::getGstRate)
                         .findFirst()
-                        .orElse(BigDecimal.ZERO));
+                        .orElseGet(() -> machineWorkRepo.findFirstByGstInvoiceId(inv.getId())
+                                .map(mwl -> mwl.getWorkTypeId() != null
+                                        ? workTypeRepo.findById(mwl.getWorkTypeId())
+                                                .map(MachineWorkType::getDefaultGstRate)
+                                                .orElse(BigDecimal.ZERO)
+                                        : BigDecimal.ZERO)
+                                .orElse(BigDecimal.ZERO)));
 
         BigDecimal newHalf = newGstRate.divide(new BigDecimal("2"), 2, RoundingMode.HALF_UP);
 

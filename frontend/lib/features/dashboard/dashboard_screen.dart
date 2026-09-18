@@ -397,12 +397,16 @@ class _DashboardBody extends StatelessWidget {
         <({IconData icon, Color color, String text, String route})>[];
     if (receivables.isNotEmpty) {
       final n = receivables.length;
+      // Single party → link directly to their account; multiple → accounts list
+      final route = n == 1
+          ? '/accounts/party/${receivables[0]['vendorId']}?name=${Uri.encodeComponent(receivables[0]['vendorName'] as String? ?? '')}'
+          : '/accounts';
       attention.add((
         icon: Icons.receipt_long,
         color: Colors.red,
         text:
             '$n ${n == 1 ? 'party has' : 'parties have'} unpaid invoices',
-        route: '/accounts',
+        route: route,
       ));
     }
     if (gstPending > 0) {
