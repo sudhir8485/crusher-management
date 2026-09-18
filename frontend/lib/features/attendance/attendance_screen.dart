@@ -614,10 +614,9 @@ class _MonthlyTab extends ConsumerWidget {
           .value = xl.IntCellValue(emp['leaveCount'] as int? ?? 0);
     }
 
-    final bytes = wb.save();
+    final bytes = wb.encode();
     if (bytes == null) return;
-    const filename = 'Attendance_';
-    final fname = '${filename}$monthLabel.xlsx';
+    final fname = 'Attendance_$monthLabel.xlsx';
     final blob = html.Blob(
       [Uint8List.fromList(bytes)],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

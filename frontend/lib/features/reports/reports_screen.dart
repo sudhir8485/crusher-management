@@ -937,10 +937,12 @@ class _ReportTable extends StatelessWidget {
       ce.cellStyle = totStyle;
     }
 
-    final bytes = wb.save();
+    // encode() serialises to bytes without triggering any browser download.
+    // save() also triggers a download (naming it 'FlutterExcel.xlsx') which caused the double-download bug.
+    final bytes = wb.encode();
     if (bytes == null) return;
 
-    // Use dart:html direct download to avoid the double-download caused by Printing.sharePdf
+    // Single download via dart:html with the correct report filename
     final filename = '${reportTitle.replaceAll(' ', '_')}.xlsx';
     final blob = html.Blob(
       [Uint8List.fromList(bytes)],

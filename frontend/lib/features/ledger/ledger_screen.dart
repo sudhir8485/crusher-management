@@ -1047,7 +1047,7 @@ class _LedgerView extends StatelessWidget {
     sheet.setColumnWidth(4, 18);
     sheet.setColumnWidth(5, 18);
 
-    final bytes = wb.save();
+    final bytes = wb.encode();
     if (bytes == null) return;
 
     final filename = 'Ledger_${vendorName.replaceAll(' ', '_')}_'
