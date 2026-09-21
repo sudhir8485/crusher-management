@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── providers ─────────────────────────────────────────────────────────────────
@@ -620,15 +621,15 @@ class _HeroBalance extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
+                decoration: const BoxDecoration(
+                  color: AppColors.successBg,
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
                 ),
-                child: Text(
+                child: const Text(
                   'All invoices paid',
                   style: TextStyle(
                       fontSize: 12,
-                      color: Colors.green[700],
+                      color: AppColors.creditColor,
                       fontWeight: FontWeight.w600),
                 ),
               ),
@@ -733,8 +734,8 @@ class _TrendChart extends StatelessWidget {
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      getDrawingHorizontalLine: (_) => FlLine(
-                        color: Colors.grey.shade200,
+                      getDrawingHorizontalLine: (_) => const FlLine(
+                        color: AppColors.borderSubtle,
                         strokeWidth: 1,
                       ),
                     ),
@@ -786,11 +787,9 @@ class _TrendChart extends StatelessWidget {
                     ),
                     borderData: FlBorderData(
                       show: true,
-                      border: Border(
-                        bottom: BorderSide(
-                            color: Colors.grey.shade300),
-                        left: BorderSide(
-                            color: Colors.grey.shade300),
+                      border: const Border(
+                        bottom: BorderSide(color: AppColors.borderDefault),
+                        left: BorderSide(color: AppColors.borderDefault),
                       ),
                     ),
                     minX: 1,
@@ -799,8 +798,7 @@ class _TrendChart extends StatelessWidget {
                     maxY: effectiveMaxY,
                     lineTouchData: LineTouchData(
                       touchTooltipData: LineTouchTooltipData(
-                        getTooltipColor: (_) =>
-                            Colors.grey.shade800,
+                        getTooltipColor: (_) => AppColors.textPrimary,
                         getTooltipItems: (spots) =>
                             spots.map((s) {
                           final label = s.barIndex == 0
@@ -819,24 +817,23 @@ class _TrendChart extends StatelessWidget {
                       LineChartBarData(
                         spots: invoiceSpots,
                         isCurved: true,
-                        color: Colors.blue,
+                        color: AppColors.infoText,
                         barWidth: 2.5,
                         dotData: const FlDotData(show: false),
                         belowBarData: BarAreaData(
                           show: true,
-                          color: Colors.blue.withValues(alpha: 0.07),
+                          color: AppColors.infoBg.withValues(alpha: 0.5),
                         ),
                       ),
                       LineChartBarData(
                         spots: paymentSpots,
                         isCurved: true,
-                        color: Colors.green,
+                        color: AppColors.successText,
                         barWidth: 2.5,
                         dotData: const FlDotData(show: false),
                         belowBarData: BarAreaData(
                           show: true,
-                          color:
-                              Colors.green.withValues(alpha: 0.07),
+                          color: AppColors.successBg.withValues(alpha: 0.5),
                         ),
                       ),
                     ],
@@ -1279,7 +1276,7 @@ class _BarRow extends StatelessWidget {
                   width: constraints.maxWidth,
                   height: 7,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
+                    color: AppColors.borderSubtle,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -1310,18 +1307,22 @@ class _NeedsAttention extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Colors.amber.shade50,
+      color: AppColors.warningBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        side: const BorderSide(color: AppColors.warningBorder),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Needs Attention',
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700]),
+                  color: AppColors.warningText),
             ),
             const SizedBox(height: 6),
             ...items.map((item) => InkWell(

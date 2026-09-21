@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../theme/app_spacing.dart';
 
 // ── Currency / number formatters ──────────────────────────────────────────────
 
@@ -10,6 +13,124 @@ final numFmt  = NumberFormat('#,##,##0.##',  'en_IN');
 String fmtCurr(num? v) => '₹${currFmt.format(v ?? 0)}';
 String fmtNum(num? v, {String suffix = ''}) =>
     '${numFmt.format(v ?? 0)}${suffix.isNotEmpty ? ' $suffix' : ''}';
+
+// ── Skeleton loader ───────────────────────────────────────────────────────────
+
+class AppSkeletonLoader extends StatefulWidget {
+  final double width;
+  final double height;
+  final BorderRadius? radius;
+  const AppSkeletonLoader({
+    super.key,
+    required this.width,
+    required this.height,
+    this.radius,
+  });
+
+  @override
+  State<AppSkeletonLoader> createState() => _AppSkeletonLoaderState();
+}
+
+class _AppSkeletonLoaderState extends State<AppSkeletonLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.35, end: 0.9).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Opacity(
+        opacity: _anim.value,
+        child: Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceMuted,
+            borderRadius: widget.radius ?? AppSpacing.chipRadius,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Single card-shaped skeleton: circle + two line bars
+class AppCardSkeleton extends StatelessWidget {
+  const AppCardSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: AppSpacing.cardPadding,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSkeletonLoader(
+                width: 44, height: 44, radius: AppSpacing.chipRadius),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  const AppSkeletonLoader(
+                      width: double.infinity, height: 13),
+                  const SizedBox(height: 8),
+                  Row(children: const [
+                    AppSkeletonLoader(width: 80, height: 11),
+                    SizedBox(width: 12),
+                    AppSkeletonLoader(width: 60, height: 11),
+                  ]),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Convenience: a padded list of skeleton cards
+class AppListSkeleton extends StatelessWidget {
+  final int count;
+  final EdgeInsets padding;
+  const AppListSkeleton({
+    super.key,
+    this.count = 5,
+    this.padding = const EdgeInsets.fromLTRB(12, 8, 12, 80),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: padding,
+      itemCount: count,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, __) => const AppCardSkeleton(),
+    );
+  }
+}
 
 // ── Date navigation bar ───────────────────────────────────────────────────────
 
@@ -22,7 +143,7 @@ class AppDateBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isToday = DateUtils.isSameDay(selectedDate, DateTime.now());
     return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      color: AppColors.surfaceMuted,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
@@ -52,7 +173,9 @@ class AppDateBar extends StatelessWidget {
                       textAlign: TextAlign.center,
                     ),
                     if (isToday)
-                      const Text('Today', style: TextStyle(fontSize: 11, color: Colors.blue)),
+                      Text('Today',
+                          style: AppTextStyles.labelXS.copyWith(
+                              color: const Color(0xFF1565C0))),
                   ],
                 ),
               ),
@@ -107,7 +230,7 @@ class AppDialog extends StatelessWidget {
           children: [
             // Title bar
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+              padding: const EdgeInsets.fromLTRB(AppSpacing.base, AppSpacing.base, AppSpacing.sm, 0),
               child: Row(
                 children: [
                   Expanded(
@@ -125,19 +248,19 @@ class AppDialog extends StatelessWidget {
             // Scrollable body
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                padding: const EdgeInsets.fromLTRB(AppSpacing.base, 4, AppSpacing.base, AppSpacing.sm),
                 child: body,
               ),
             ),
             const Divider(height: 1),
             // Pinned footer
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: actions
                     .map((w) => Padding(
-                          padding: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.only(left: AppSpacing.sm),
                           child: w,
                         ))
                     .toList(),
@@ -158,14 +281,10 @@ class SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 16, bottom: 6),
+        padding: const EdgeInsets.only(top: AppSpacing.base, bottom: 6),
         child: Text(
-          text,
-          style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[600],
-              letterSpacing: 0.5),
+          text.toUpperCase(),
+          style: AppTextStyles.sectionCap.copyWith(color: AppColors.textMuted),
         ),
       );
 }
@@ -183,15 +302,23 @@ class AppEmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: Colors.grey[300]),
-            const SizedBox(height: 12),
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, size: 40, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 14),
             Text(message,
-                style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
                 textAlign: TextAlign.center),
             if (hint != null) ...[
               const SizedBox(height: 6),
               Text(hint!,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                  style: AppTextStyles.bodyBase.copyWith(color: AppColors.textMuted),
                   textAlign: TextAlign.center),
             ],
           ],
@@ -211,7 +338,7 @@ class SummaryChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
-    this.color = Colors.blue,
+    this.color = const Color(0xFF1565C0),
   });
 
   @override
@@ -227,7 +354,7 @@ class SummaryChip extends StatelessWidget {
                   style: TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 14, color: color)),
               Text(label,
-                  style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                  style: AppTextStyles.labelXS.copyWith(color: AppColors.textSecondary)),
             ],
           ),
         ],
@@ -246,7 +373,7 @@ class StatusBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: AppSpacing.badgeRadius,
           border: Border.all(color: color.withValues(alpha: 0.4)),
         ),
         child: Text(label,
@@ -384,8 +511,7 @@ class _SearchPickerDialogState extends State<_SearchPickerDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(widget.title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16)),
+                    style: AppTextStyles.titleLG),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _ctrl,
@@ -420,7 +546,7 @@ class _SearchPickerDialogState extends State<_SearchPickerDialog> {
                     padding: EdgeInsets.all(24),
                     child: Center(
                       child: Text('No results',
-                          style: TextStyle(color: Colors.grey)),
+                          style: TextStyle(color: AppColors.textMuted)),
                     ),
                   )
                 : ListView.separated(
@@ -451,7 +577,7 @@ class _SearchPickerDialogState extends State<_SearchPickerDialog> {
             ListTile(
               dense: true,
               title: Text(widget.clearLabel,
-                  style: const TextStyle(color: Colors.grey)),
+                  style: const TextStyle(color: AppColors.textMuted)),
               onTap: () => Navigator.pop(context, (true, null)),
             ),
           ],
@@ -491,7 +617,7 @@ class DateField extends StatelessWidget {
                 ? DateFormat('dd/MM/yyyy').format(date!)
                 : 'Select date',
             style: TextStyle(
-                color: date != null ? null : Colors.grey[500]),
+                color: date != null ? null : AppColors.textMuted),
           ),
         ),
       );

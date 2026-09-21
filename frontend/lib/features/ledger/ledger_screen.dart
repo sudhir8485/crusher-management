@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:crusher_management/core/utils/download_helper.dart';
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -8,6 +8,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 
@@ -267,7 +268,7 @@ class _DateChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: AppColors.borderDefault),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -294,7 +295,7 @@ class _LedgerContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(_ledgerProvider(params));
     return data.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const AppListSkeleton(),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (d) => _LedgerView(data: d, vendorName: vendorName, from: from, to: to),
     );
@@ -369,22 +370,22 @@ class _LedgerView extends StatelessWidget {
 
         // ── Balance summary row ─────────────────────────────────────────
         Container(
-          color: Colors.grey.shade50,
+          color: AppColors.surfaceMuted,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Row(
             children: [
-              _BalTile('Opening Balance', _openingBal, Colors.grey.shade700),
+              _BalTile('Opening Balance', _openingBal, AppColors.textSecondary),
               _vDiv(),
-              _BalTile('Total Invoiced', _totalDebit, Colors.red.shade700),
+              _BalTile('Total Invoiced', _totalDebit, AppColors.debitColor),
               _vDiv(),
-              _BalTile('Total Paid', _totalCredit, Colors.green.shade700),
+              _BalTile('Total Paid', _totalCredit, AppColors.creditColor),
               _vDiv(),
               _BalTile(
                   _closingBal < -0.005 ? 'Advance' : 'Outstanding',
                   _closingBal.abs(),
-                  _closingBal < -0.005 ? Colors.blue.shade700
-                      : _closingBal > 0.005 ? Colors.orange.shade800
-                      : Colors.green.shade700,
+                  _closingBal < -0.005 ? AppColors.advanceColor
+                      : _closingBal > 0.005 ? AppColors.balanceColor
+                      : AppColors.creditColor,
                   bold: true),
             ],
           ),
@@ -418,7 +419,7 @@ class _LedgerView extends StatelessWidget {
     );
   }
 
-  Widget _vDiv() => Container(width: 1, height: 34, color: Colors.grey.shade200, margin: const EdgeInsets.symmetric(horizontal: 12));
+  Widget _vDiv() => Container(width: 1, height: 34, color: AppColors.borderSubtle, margin: const EdgeInsets.symmetric(horizontal: 12));
 
   Widget _buildTable(BuildContext context, List<Map<String, dynamic>> entries) {
     final cs = Theme.of(context).colorScheme;
@@ -433,7 +434,7 @@ class _LedgerView extends StatelessWidget {
     };
 
     final headerDecor = BoxDecoration(color: cs.primary.withValues(alpha: 0.10));
-    final altDecor    = BoxDecoration(color: Colors.grey.shade50);
+    final altDecor    = BoxDecoration(color: AppColors.surface);
     final subDecor    = BoxDecoration(color: const Color(0xFFF8F8F8));
 
     List<TableRow> rows = [];
@@ -454,7 +455,7 @@ class _LedgerView extends StatelessWidget {
     // Opening balance row
     if (_openingBal != 0) {
       rows.add(TableRow(
-        decoration: BoxDecoration(color: Colors.amber.shade50),
+        decoration: const BoxDecoration(color: AppColors.warningBg),
         children: [
           const _TD('—', italic: true),
           const _TD('Balance brought forward', italic: true),
@@ -464,9 +465,9 @@ class _LedgerView extends StatelessWidget {
           _TD(
               _openingBal < -0.005 ? 'Adv ${_fmtAmt(_openingBal.abs())}' : _fmtAmt(_openingBal),
               right: true, italic: true,
-              color: _openingBal < -0.005 ? Colors.blue.shade700
-                  : _openingBal >= 0 ? Colors.orange.shade800
-                  : Colors.green.shade700),
+              color: _openingBal < -0.005 ? AppColors.advanceColor
+                  : _openingBal >= 0 ? AppColors.balanceColor
+                  : AppColors.creditColor),
         ],
       ));
     }
@@ -481,7 +482,7 @@ class _LedgerView extends StatelessWidget {
       final date     = DateTime.parse(e['date'] as String);
       final details  = e['details'] as List? ?? [];
       final rowDecor = isPending
-          ? BoxDecoration(color: Colors.amber.shade50)
+          ? const BoxDecoration(color: AppColors.warningBg)
           : alt ? altDecor : const BoxDecoration(color: Colors.white);
       alt = !alt;
 
@@ -505,29 +506,29 @@ class _LedgerView extends StatelessWidget {
                     margin: const EdgeInsets.only(left: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.amber.shade100,
+                      color: AppColors.warningBg,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.amber.shade400),
+                      border: Border.all(color: AppColors.warningBorder),
                     ),
-                    child: Text('GST: Pending',
-                        style: TextStyle(fontSize: 10, color: Colors.orange.shade900,
+                    child: const Text('GST: Pending',
+                        style: TextStyle(fontSize: 10, color: AppColors.warningText,
                             fontWeight: FontWeight.w600)),
                   ),
               ],
             ),
           ),
           _TD(e['voucherType'] as String? ?? '—',
-              color: isInvoice ? Colors.red.shade700 : Colors.green.shade700),
+              color: isInvoice ? AppColors.debitColor : AppColors.creditColor),
           _TD(debit != null ? _fmtAmt(debit) : '—',
-              right: true, color: Colors.red.shade700),
+              right: true, color: AppColors.debitColor),
           _TD(credit != null ? _fmtAmt(credit) : '—',
-              right: true, color: Colors.green.shade700),
+              right: true, color: AppColors.creditColor),
           _TD(
               balance < -0.005 ? 'Adv ${_fmtAmt(balance.abs())}' : _fmtAmt(balance),
               right: true, bold: true,
-              color: balance < -0.005 ? Colors.blue.shade700
-                  : balance > 0.005 ? Colors.orange.shade800
-                  : Colors.green.shade700),
+              color: balance < -0.005 ? AppColors.advanceColor
+                  : balance > 0.005 ? AppColors.balanceColor
+                  : AppColors.creditColor),
         ],
       ));
 
@@ -542,7 +543,7 @@ class _LedgerView extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: 24, top: 2, bottom: 2, right: 8),
               child: Text('  $label',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600,
+                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary,
                       fontStyle: FontStyle.italic)),
             ),
             const _TD(''),
@@ -550,7 +551,7 @@ class _LedgerView extends StatelessWidget {
               padding: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
               child: Text(amountRaw != null ? _fmtAmt(amountRaw.toDouble()) : '',
                   textAlign: TextAlign.right,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
             ),
             const _TD(''),
             const _TD(''),
@@ -569,29 +570,25 @@ class _LedgerView extends StatelessWidget {
         const _TD('', bold: true),
         const _TD('TOTALS', bold: true),
         const _TD('', bold: true),
-        _TD(_fmtAmt(totalsDebit),  right: true, bold: true, color: Colors.red.shade700),
-        _TD(_fmtAmt(totalsCredit), right: true, bold: true, color: Colors.green.shade700),
+        _TD(_fmtAmt(totalsDebit),  right: true, bold: true, color: AppColors.debitColor),
+        _TD(_fmtAmt(totalsCredit), right: true, bold: true, color: AppColors.creditColor),
         _TD(
             _closingBal < -0.005 ? 'Adv ${_fmtAmt(_closingBal.abs())}' : _fmtAmt(_closingBal),
             right: true, bold: true,
-            color: _closingBal < -0.005 ? Colors.blue.shade700
-                : _closingBal > 0.005 ? Colors.orange.shade800
-                : Colors.green.shade700),
+            color: _closingBal < -0.005 ? AppColors.advanceColor
+                : _closingBal > 0.005 ? AppColors.balanceColor
+                : AppColors.creditColor),
       ],
     ));
 
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Table(
-          columnWidths: colWidths,
-          border: TableBorder(
-            horizontalInside: BorderSide(color: Colors.grey.shade200),
-          ),
-          children: rows,
+      clipBehavior: Clip.antiAlias,
+      child: Table(
+        columnWidths: colWidths,
+        border: const TableBorder(
+          horizontalInside: BorderSide(color: AppColors.borderSubtle),
         ),
+        children: rows,
       ),
     );
   }
@@ -1052,21 +1049,11 @@ class _LedgerView extends StatelessWidget {
 
     final filename = 'Ledger_${vendorName.replaceAll(' ', '_')}_'
         '${DateFormat('yyyyMMdd').format(from)}.xlsx';
-    final blob = html.Blob(
-      [Uint8List.fromList(bytes)],
+    await downloadBytes(
+      filename,
+      Uint8List.fromList(bytes),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.document.createElement('a') as html.AnchorElement
-      ..href = url
-      ..style.display = 'none'
-      ..download = filename;
-    html.document.body!.children.add(anchor);
-    anchor.click();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      anchor.remove();
-      html.Url.revokeObjectUrl(url);
-    });
   }
 }
 
@@ -1090,7 +1077,7 @@ class _BalTile extends StatelessWidget {
                     fontSize: bold ? 15 : 13,
                     color: color)),
             Text(label,
-                style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
           ],
         ),
       );

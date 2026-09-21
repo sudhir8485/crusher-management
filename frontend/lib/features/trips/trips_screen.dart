@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:crusher_management/core/utils/download_helper.dart';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 
@@ -170,7 +171,7 @@ class _TripsScreenState extends ConsumerState<TripsScreen> {
           ),
           Expanded(
             child: trips.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const AppListSkeleton(),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (list) {
                 final emptyMsg = switch (mode) {
@@ -579,35 +580,35 @@ class _TripsListState extends State<_TripsList> {
       children: [
         // ── Summary bar ──────────────────────────────────────────────────────
         Container(
-          color: Colors.green.shade50,
+          color: AppColors.surfaceMuted,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(children: [
-            const Icon(Icons.swap_horiz, size: 16, color: Colors.green),
+            const Icon(Icons.swap_horiz, size: 16, color: AppColors.successText),
             const SizedBox(width: 6),
             Text('${filtered.length} trip${filtered.length == 1 ? '' : 's'}',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             // Separate per-unit totals
             if (tonTotal > 0) ...[
               const SizedBox(width: 12),
-              const Icon(Icons.inventory_2_outlined, size: 15, color: Colors.green),
+              const Icon(Icons.inventory_2_outlined, size: 15, color: AppColors.successText),
               const SizedBox(width: 4),
               Text('${numFmt.format(tonTotal)} TON',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
-                      color: Colors.green)),
+                      color: AppColors.successText)),
             ],
             if (brassTotal > 0) ...[
               const SizedBox(width: 10),
-              const Icon(Icons.inventory_2_outlined, size: 15, color: Colors.green),
+              const Icon(Icons.inventory_2_outlined, size: 15, color: AppColors.successText),
               const SizedBox(width: 4),
               Text('${numFmt.format(brassTotal)} BRASS',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12,
-                      color: Colors.green)),
+                      color: AppColors.successText)),
             ],
             const Spacer(),
             if (totalBill > 0)
               Text(fmtCurr(totalBill),
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
-                      color: Colors.green.shade800)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
+                      color: AppColors.successText)),
           ]),
         ),
         // ── Search bar ───────────────────────────────────────────────────────
@@ -976,7 +977,7 @@ class _TripCardState extends State<_TripCard> {
     if (download) {
       final safeDate = (tripDate as String).replaceAll('/', '-');
       final name = (challanNo as String).isNotEmpty ? challanNo : safeDate;
-      _openPdfInNewTab(await doc.save(), 'challan_$name.pdf');
+      await _openPdfInNewTab(await doc.save(), 'challan_$name.pdf');
     } else {
       await Printing.layoutPdf(onLayout: (_) => doc.save());
     }
@@ -1136,19 +1137,14 @@ class _TripCardState extends State<_TripCard> {
     if (download) {
       final safeDate = (tripDate as String).replaceAll('/', '-');
       final name = (challanNo as String).isNotEmpty ? challanNo : safeDate;
-      _openPdfInNewTab(await doc.save(), 'tax_invoice_$name.pdf');
+      await _openPdfInNewTab(await doc.save(), 'tax_invoice_$name.pdf');
     } else {
       await Printing.layoutPdf(onLayout: (_) => doc.save());
     }
   }
 
-  static void _openPdfInNewTab(Uint8List bytes, String filename) {
-    final blob = html.Blob([bytes], 'application/pdf');
-    final url  = html.Url.createObjectUrlFromBlob(blob);
-    html.window.open(url, '_blank');
-    // Delay revoke so the new tab has time to load the blob before it's freed.
-    Future.delayed(const Duration(seconds: 30), () => html.Url.revokeObjectUrl(url));
-  }
+  static Future<void> _openPdfInNewTab(Uint8List bytes, String filename) =>
+      openPdfInNewTab(bytes);
 
   static pw.Widget _invRow(String label, String value, {
     bool bold = false, required pw.Font font, required pw.Font fontBold}) =>
@@ -1183,36 +1179,36 @@ class _TripCardState extends State<_TripCard> {
           padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
           decoration: BoxDecoration(
             color: totalRow
-                ? Colors.green.shade50
-                : (strong ? Colors.grey.shade100 : null),
+                ? AppColors.successBg
+                : (strong ? AppColors.surfaceMuted : null),
             borderRadius: BorderRadius.circular(4),
           ),
           child: Row(children: [
             Expanded(child: Text(label,
                 style: TextStyle(
                     fontSize: 12,
-                    color: totalRow ? Colors.green.shade800 : Colors.grey[600],
+                    color: totalRow ? AppColors.successText : AppColors.textSecondary,
                     fontWeight: totalRow ? FontWeight.bold : FontWeight.normal))),
             Text(value,
                 style: TextStyle(
                     fontSize: 12,
-                    color: totalRow ? Colors.green.shade800 : null,
+                    color: totalRow ? AppColors.successText : null,
                     fontWeight: (strong || totalRow) ? FontWeight.w600 : FontWeight.normal)),
           ]),
         );
 
     Widget sHead(String s) => Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 2),
-      child: Text(s, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
-          color: Colors.grey[500], letterSpacing: 0.5)),
+      child: Text(s, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+          color: AppColors.textMuted, letterSpacing: 0.5)),
     );
 
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        border: Border.all(color: Colors.grey.shade200),
+        color: AppColors.surfaceMuted,
+        border: Border.all(color: AppColors.borderSubtle),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -1233,16 +1229,16 @@ class _TripCardState extends State<_TripCard> {
                 margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
                 padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: AppColors.infoBg,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.blue.shade200),
+                  border: Border.all(color: AppColors.infoBorder),
                 ),
                 child: Row(children: [
-                  Icon(Icons.info_outline, size: 13, color: Colors.blue.shade600),
+                  const Icon(Icons.info_outline, size: 13, color: AppColors.infoText),
                   const SizedBox(width: 6),
-                  Expanded(child: Text(
+                  const Expanded(child: Text(
                     'Material charge not applied — billing site owner at their own Client Site',
-                    style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+                    style: TextStyle(fontSize: 11, color: AppColors.infoText),
                   )),
                 ]),
               )
@@ -1298,18 +1294,18 @@ class _TripCardState extends State<_TripCard> {
     if (outstanding != null && totalBill != null && totalBill > 0) {
       if (outstanding.abs() <= 0.5) {
         paymentBadge = Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.check_circle, size: 12, color: Colors.green.shade600),
+          const Icon(Icons.check_circle, size: 12, color: AppColors.creditColor),
           const SizedBox(width: 3),
-          Text('Paid', style: TextStyle(fontSize: 11, color: Colors.green.shade700,
+          const Text('Paid', style: TextStyle(fontSize: 11, color: AppColors.creditColor,
               fontWeight: FontWeight.w500)),
         ]);
       } else if (outstanding < 0) {
         paymentBadge = Text('Advance ${fmtCurr(outstanding.abs())}',
-            style: TextStyle(fontSize: 11, color: Colors.blue.shade700,
+            style: const TextStyle(fontSize: 11, color: AppColors.advanceColor,
                 fontWeight: FontWeight.w500));
       } else {
         paymentBadge = Text('Balance ${fmtCurr(outstanding)}',
-            style: TextStyle(fontSize: 11, color: Colors.orange.shade800,
+            style: const TextStyle(fontSize: 11, color: AppColors.balanceColor,
                 fontWeight: FontWeight.w500));
       }
     }
@@ -1332,16 +1328,16 @@ class _TripCardState extends State<_TripCard> {
                     decoration: BoxDecoration(
                       // OWN badge: amber to visually distinguish from company vehicle
                       color: isOwn
-                          ? Colors.amber.shade100
+                          ? AppColors.warningBg
                           : Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: isOwn
-                        ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                             Icon(Icons.person_outline, size: 16,
-                                color: Colors.amber.shade800),
+                                color: AppColors.warningText),
                             Text('OWN', style: TextStyle(fontSize: 8,
-                                fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
+                                fontWeight: FontWeight.bold, color: AppColors.warningText)),
                           ])
                         : Center(
                             child: Text(badgeLabel,
@@ -1369,12 +1365,12 @@ class _TripCardState extends State<_TripCard> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.green.shade200),
+                                color: AppColors.successBg,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.successBorder),
                               ),
                               child: Text('${numFmt.format(billableQty)} $unit',
-                                  style: TextStyle(fontSize: 12, color: Colors.green.shade800,
+                                  style: const TextStyle(fontSize: 12, color: AppColors.successText,
                                       fontWeight: FontWeight.w600)),
                             ),
                         ]),
@@ -1559,12 +1555,12 @@ class _CustomerPickerDialogState extends ConsumerState<_CustomerPickerDialog> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
+                                  color: AppColors.surfaceMuted,
                                   borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(color: Colors.grey.shade300),
+                                  border: Border.all(color: AppColors.borderSubtle),
                                 ),
-                                child: Text('Occasional',
-                                    style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
+                                child: const Text('Occasional',
+                                    style: TextStyle(fontSize: 9, color: AppColors.textMuted)),
                               ),
                             if (isSelected) ...[
                               const SizedBox(width: 6),
@@ -2302,7 +2298,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: selected ? cs.primary : null,
-          border: Border.all(color: selected ? cs.primary : Colors.grey.shade300),
+          border: Border.all(color: selected ? cs.primary : AppColors.borderDefault),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(label,
@@ -2319,7 +2315,7 @@ class _TripFormState extends ConsumerState<_TripForm> {
     margin: const EdgeInsets.only(top: 6),
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     decoration: BoxDecoration(
-      color: emphasis ? Colors.green.shade50 : Colors.grey.shade100,
+      color: emphasis ? AppColors.successBg : AppColors.surfaceMuted,
       borderRadius: BorderRadius.circular(6),
     ),
     child: Row(
@@ -2329,14 +2325,14 @@ class _TripFormState extends ConsumerState<_TripForm> {
           child: Text(label,
               style: TextStyle(
                   fontSize: 13,
-                  color: emphasis ? Colors.green.shade800 : Colors.grey[700])),
+                  color: emphasis ? AppColors.successText : AppColors.textSecondary)),
         ),
         const SizedBox(width: 8),
         Text(value,
             style: TextStyle(
                 fontSize: 13,
                 fontWeight: emphasis ? FontWeight.bold : FontWeight.w500,
-                color: emphasis ? Colors.green.shade800 : null)),
+                color: emphasis ? AppColors.successText : null)),
       ],
     ),
   );
@@ -2375,17 +2371,17 @@ class _TripFormState extends ConsumerState<_TripForm> {
     decoration: InputDecoration(
       labelText: label,
       filled: true,
-      fillColor: isTotal ? Colors.green.shade50 : Colors.grey.shade100,
+      fillColor: isTotal ? AppColors.successBg : AppColors.surfaceMuted,
       border: const OutlineInputBorder(),
       enabledBorder: isTotal
-          ? OutlineInputBorder(borderSide: BorderSide(color: Colors.green.shade200))
+          ? const OutlineInputBorder(borderSide: BorderSide(color: AppColors.successBorder))
           : const OutlineInputBorder(),
     ),
     child: Text(value,
-        style: TextStyle(
+        style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 14,
-            color: isTotal ? Colors.green.shade800 : Colors.grey.shade800)),
+            color: AppColors.textPrimary)),
   );
 
   Widget _partyPickerField(List<Map<String, dynamic>> vendors) {
@@ -2698,19 +2694,19 @@ class _TripFormState extends ConsumerState<_TripForm> {
                 margin: const EdgeInsets.only(top: 8),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+                  color: AppColors.warningBg,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.orange.shade200),
+                  border: Border.all(color: AppColors.warningBorder),
                 ),
-                child: Row(children: [
+                child: const Row(children: [
                   Icon(Icons.warning_amber_rounded,
-                      size: 16, color: Colors.orange.shade700),
-                  const SizedBox(width: 8),
+                      size: 16, color: AppColors.warningText),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Brass conversion (kg/brass) not configured for this material. '
                       'Enter quantity manually below.',
-                      style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+                      style: TextStyle(fontSize: 12, color: AppColors.warningText),
                     ),
                   ),
                 ]),

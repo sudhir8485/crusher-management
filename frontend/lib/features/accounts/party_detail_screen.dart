@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:crusher_management/core/utils/download_helper.dart';
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../vendor_payments/vendor_payments_screen.dart' show showRecordPaymentDialog;
 
@@ -120,7 +121,7 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const SizedBox(height: 8),
           Container(width: 40, height: 4, decoration: BoxDecoration(
-              color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+              color: AppColors.borderDefault, borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 12),
           const Text('Export Ledger', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 8),
@@ -165,21 +166,11 @@ class _PartyDetailScreenState extends ConsumerState<PartyDetailScreen> {
     try {
       final bytes = _buildExcel(data);
       final filename = '${widget.vendorName.replaceAll(' ', '_')}_Ledger.xlsx';
-      final blob = html.Blob(
-        [bytes],
+      await downloadBytes(
+        filename,
+        bytes,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.document.createElement('a') as html.AnchorElement
-        ..href = url
-        ..style.display = 'none'
-        ..download = filename;
-      html.document.body!.children.add(anchor);
-      anchor.click();
-      Future.delayed(const Duration(milliseconds: 200), () {
-        anchor.remove();
-        html.Url.revokeObjectUrl(url);
-      });
     } finally {
       if (mounted) setState(() => _printing = false);
     }
@@ -882,12 +873,12 @@ class _LedgerBody extends StatelessWidget {
     final balLabel  = isOwed    ? 'Receivable ${fmtCurr(closing)}'
         : isAdvance ? 'Payable ${fmtCurr(closing.abs())}'
         : 'Settled';
-    final balColor  = isOwed    ? Colors.orange.shade800
-        : isAdvance ? Colors.red.shade600
-        : Colors.green.shade700;
-    final balBg     = isOwed    ? Colors.orange.shade50
-        : isAdvance ? Colors.red.shade50
-        : Colors.green.shade50;
+    final balColor  = isOwed    ? AppColors.balanceColor
+        : isAdvance ? AppColors.debitColor
+        : AppColors.creditColor;
+    final balBg     = isOwed    ? AppColors.warningBg
+        : isAdvance ? AppColors.dangerBg
+        : AppColors.successBg;
 
     // Newest first
     final displayEntries = entries.reversed.toList();
@@ -963,12 +954,12 @@ class _EntryList extends StatelessWidget {
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
             width: double.infinity,
-            color: Colors.grey.shade100,
+            color: AppColors.surfaceMuted,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Text(
               _dateFmtLong.format(DateTime.parse(date)),
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade600, letterSpacing: 0.3),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary, letterSpacing: 0.3),
             ),
           ),
           const Divider(height: 1),
@@ -1025,32 +1016,32 @@ class _EntryCardState extends State<_EntryCard> {
     final balText   = balIsOwed ? 'Receivable ${fmtCurr(balance)}'
         : balIsAdv  ? 'Payable ${fmtCurr(balance.abs())}'
         : 'Settled';
-    final balColor  = balIsOwed ? Colors.orange.shade700
-        : balIsAdv  ? Colors.red.shade600
-        : Colors.green.shade700;
+    final balColor  = balIsOwed ? AppColors.balanceColor
+        : balIsAdv  ? AppColors.debitColor
+        : AppColors.creditColor;
 
-    // Cards: white background always; amber only for pending (status communication).
+    // Cards: white background always; warning tint only for pending (status communication).
     // Color communicates financial status via text/badges, not card fill.
-    final cardBg = isPending ? Colors.amber.shade50 : Colors.white;
+    final cardBg = isPending ? AppColors.warningBg : Colors.white;
 
     // Left icon per type — blue-gray for informational, green for receipt, orange for billing
     IconData? typeIcon;
     Color? typeIconColor;
-    if (isMachineWork)           { typeIcon = Icons.construction_outlined;    typeIconColor = Colors.blueGrey.shade500; }
-    else if (isJobWork)          { typeIcon = Icons.build_circle_outlined;    typeIconColor = Colors.blueGrey.shade500; }
-    else if (isTransportPayable) { typeIcon = Icons.local_shipping_outlined;  typeIconColor = Colors.blueGrey.shade500; }
-    else if (isDelivery)         { typeIcon = Icons.swap_horiz_outlined;      typeIconColor = Colors.blueGrey.shade500; }
-    else if (isPayment)          { typeIcon = Icons.arrow_upward_rounded;     typeIconColor = Colors.blue.shade600; }
+    if (isMachineWork)           { typeIcon = Icons.construction_outlined;    typeIconColor = AppColors.textSecondary; }
+    else if (isJobWork)          { typeIcon = Icons.build_circle_outlined;    typeIconColor = AppColors.textSecondary; }
+    else if (isTransportPayable) { typeIcon = Icons.local_shipping_outlined;  typeIconColor = AppColors.textSecondary; }
+    else if (isDelivery)         { typeIcon = Icons.swap_horiz_outlined;      typeIconColor = AppColors.textSecondary; }
+    else if (isPayment)          { typeIcon = Icons.arrow_upward_rounded;     typeIconColor = AppColors.advanceColor; }
 
-    // Right-side type label + color — spec: Orange=Billed, Green=Received, Blue-gray=Informational
+    // Right-side type label + color
     final (typeLabel, typeLabelColor) = isSales
-        ? ('Billed',        Colors.orange.shade700)
-        : isMachineWork    ? ('Machine Work', Colors.blueGrey.shade600)
-        : isJobWork        ? ('Job Work',     Colors.blueGrey.shade600)
-        : isTransportPayable ? ('Transport',  Colors.blueGrey.shade600)
-        : isDelivery       ? ('Trip / Delivery', Colors.blueGrey.shade600)
-        : isPayment        ? ('Paid Out',     Colors.blue.shade700)
-        : ('Received', Colors.green.shade700);
+        ? ('Billed',        AppColors.balanceColor)
+        : isMachineWork    ? ('Machine Work', AppColors.textSecondary)
+        : isJobWork        ? ('Job Work',     AppColors.textSecondary)
+        : isTransportPayable ? ('Transport',  AppColors.textSecondary)
+        : isDelivery       ? ('Trip / Delivery', AppColors.textSecondary)
+        : isPayment        ? ('Paid Out',     AppColors.advanceColor)
+        : ('Received', AppColors.creditColor);
 
     // Amount to display on the right
     final displayAmt = isTransportPayable ? null
@@ -1060,13 +1051,13 @@ class _EntryCardState extends State<_EntryCard> {
                 ? (debit ?? 0.0)
                 : credit;
 
-    final amtColor = isSales          ? Colors.orange.shade800
-        : isMachineWork               ? Colors.blueGrey.shade700
-        : isJobWork                   ? Colors.blueGrey.shade700
-        : isTransportPayable          ? Colors.blueGrey.shade700
-        : isDelivery                  ? Colors.blueGrey.shade700
-        : isPayment                   ? Colors.blue.shade700
-        : Colors.green.shade700;
+    final amtColor = isSales          ? AppColors.balanceColor
+        : isMachineWork               ? AppColors.textSecondary
+        : isJobWork                   ? AppColors.textSecondary
+        : isTransportPayable          ? AppColors.textSecondary
+        : isDelivery                  ? AppColors.textSecondary
+        : isPayment                   ? AppColors.advanceColor
+        : AppColors.creditColor;
 
     // All entries navigate to their home module; tapping returns here with onRefresh called
     final entryDate = entry['date'] as String?;
@@ -1096,7 +1087,7 @@ class _EntryCardState extends State<_EntryCard> {
     return Container(
       decoration: BoxDecoration(
         color: cardBg,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        border: const Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // ── Header row (always visible) ─────────────────────────────────────
@@ -1127,13 +1118,13 @@ class _EntryCardState extends State<_EntryCard> {
                       margin: const EdgeInsets.only(left: 6),
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.amber.shade100,
+                        color: AppColors.warningBg,
                         borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.amber.shade400),
+                        border: Border.all(color: AppColors.warningBorder),
                       ),
-                      child: Text(
-                        (isSales || isJobWork) ? 'GST Pending' : 'Rate Pending',
-                        style: TextStyle(fontSize: 9, color: Colors.orange.shade900,
+                      child: const Text(
+                        'Pending',
+                        style: TextStyle(fontSize: 9, color: AppColors.warningText,
                             fontWeight: FontWeight.w600)),
                     ),
                 ]),
@@ -1153,13 +1144,13 @@ class _EntryCardState extends State<_EntryCard> {
               const SizedBox(width: 4),
               // chevron_right for all entries that navigate to a home module
               if (sourceId != null || (isTransportPayable && dabarEntryId != null))
-                Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade500)
+                const Icon(Icons.chevron_right, size: 18, color: AppColors.textMuted)
               else if (hasDetails || isPending)
                 AnimatedRotation(
                   turns: _expanded ? 0.5 : 0,
                   duration: const Duration(milliseconds: 150),
-                  child: Icon(Icons.expand_more,
-                      size: 18, color: Colors.grey.shade500),
+                  child: const Icon(Icons.expand_more,
+                      size: 18, color: AppColors.textMuted),
                 )
               else
                 const SizedBox(width: 18),
@@ -1183,10 +1174,10 @@ class _EntryCardState extends State<_EntryCard> {
                         padding: const EdgeInsets.only(top: 2),
                         child: Row(children: [
                           Expanded(child: Text(label,
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600))),
+                              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary))),
                           if (amount != null)
                             Text(_numFmt.format(amount),
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ]),
                       );
                     }).toList(),
@@ -1200,7 +1191,7 @@ class _EntryCardState extends State<_EntryCard> {
                             : (isSales || isJobWork) ? 'GST rate pending — tap to open invoice and enter rate'
                             : isMachineWork ? 'Tap to open Machine Work entry and set rate'
                             : 'Tap to view/edit',
-                        style: TextStyle(fontSize: 11, color: Colors.orange.shade700,
+                        style: const TextStyle(fontSize: 11, color: AppColors.warningText,
                             fontStyle: FontStyle.italic),
                       ),
                     )

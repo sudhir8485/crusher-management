@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:crusher_management/core/utils/download_helper.dart';
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/storage/auth_storage.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 
 // ── Date range preset ─────────────────────────────────────────────────────────
@@ -251,7 +252,7 @@ class _ReportData extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(_reportProvider(reportKey));
     return data.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const AppListSkeleton(padding: EdgeInsets.fromLTRB(12, 8, 12, 24)),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (d) => _ReportTable(
         data: d,
@@ -376,69 +377,69 @@ class _ReportTable extends StatelessWidget {
     switch (rtype) {
       case 'TRIPS':
         tile('Trips',        '${sum['tripCount'] ?? 0}',
-            Icons.swap_horiz, Colors.blue);
+            Icons.swap_horiz, AppColors.infoText);
         final brass = (sum['totalBrass'] as num?)?.toDouble() ?? 0;
         tile('Total Brass',  '${_numFm.format(brass)} Brass',
-            Icons.inventory_2_outlined, Colors.green);
+            Icons.inventory_2_outlined, AppColors.successText);
         tile('Entries',      '${sum['totalRows'] ?? 0}',
-            Icons.list_alt_outlined, Colors.grey.shade600);
+            Icons.list_alt_outlined, AppColors.textSecondary);
 
       case 'DABAR':
         tile('Entries',      '${sum['totalRows'] ?? 0}',
-            Icons.list_alt_outlined, Colors.grey.shade600);
+            Icons.list_alt_outlined, AppColors.textSecondary);
         tile('Total Trips',  '${sum['tripCount'] ?? 0}',
-            Icons.swap_horiz, Colors.teal);
+            Icons.swap_horiz, AppColors.successText);
         final brassD = (sum['totalBrass'] as num?)?.toDouble() ?? 0;
         tile('Total Brass',  '${_numFm.format(brassD)} Brass',
-            Icons.inventory_2_outlined, Colors.green);
+            Icons.inventory_2_outlined, AppColors.successText);
 
       case 'DIESEL':
         tile('Opening Stock', '${_numFm.format(sum['openingStock'] ?? 0)} L',
-            Icons.water_drop_outlined, Colors.grey.shade600);
+            Icons.water_drop_outlined, AppColors.textSecondary);
         tile('Received',      '${_numFm.format(sum['totalReceived'] ?? 0)} L',
-            Icons.add_circle_outline, Colors.green);
+            Icons.add_circle_outline, AppColors.successText);
         tile('Used',          '${_numFm.format(sum['totalUsed'] ?? 0)} L',
-            Icons.remove_circle_outline, Colors.red);
+            Icons.remove_circle_outline, AppColors.dangerText);
         tile('Closing Stock', '${_numFm.format(sum['closingStock'] ?? 0)} L',
-            Icons.water_drop, Colors.teal);
+            Icons.water_drop, AppColors.successText);
 
       case 'MACHINE_WORK':
         tile('Total Hours', '${_numFm.format(sum['totalHours'] ?? 0)} hrs',
-            Icons.timer_outlined, Colors.orange);
+            Icons.timer_outlined, AppColors.warningText);
         tile('Bucket',      '${_numFm.format(sum['bucketHours'] ?? 0)} hrs',
-            Icons.construction_outlined, Colors.blue);
+            Icons.construction_outlined, AppColors.infoText);
         tile('Breaker',     '${_numFm.format(sum['breakerHours'] ?? 0)} hrs',
-            Icons.hardware_outlined, Colors.deepOrange);
+            Icons.hardware_outlined, AppColors.warningText);
         tile('Entries',     '${sum['totalRows'] ?? 0}',
-            Icons.list_alt_outlined, Colors.grey.shade600);
+            Icons.list_alt_outlined, AppColors.textSecondary);
 
       case 'ATTENDANCE':
         tile('Present',  '${sum['presentCount'] ?? 0}',
-            Icons.check_circle_outline, Colors.green);
+            Icons.check_circle_outline, AppColors.successText);
         tile('Absent',   '${sum['absentCount'] ?? 0}',
-            Icons.cancel_outlined, Colors.red);
+            Icons.cancel_outlined, AppColors.dangerText);
         tile('Half Day', '${sum['halfDayCount'] ?? 0}',
-            Icons.timelapse_outlined, Colors.orange);
+            Icons.timelapse_outlined, AppColors.warningText);
         tile('Leave',    '${sum['leaveCount'] ?? 0}',
-            Icons.event_busy_outlined, Colors.blue);
+            Icons.event_busy_outlined, AppColors.infoText);
         tile('Records',  '${sum['totalRows'] ?? 0}',
-            Icons.people_outline, Colors.grey.shade600);
+            Icons.people_outline, AppColors.textSecondary);
 
       case 'MATERIALS':
         tile('Entries', '${sum['totalRows'] ?? 0}',
-            Icons.list_alt_outlined, Colors.grey.shade600);
+            Icons.list_alt_outlined, AppColors.textSecondary);
         final brassM = (sum['totalBrass'] as num?)?.toDouble() ?? 0;
         final tonM   = (sum['totalTon']   as num?)?.toDouble() ?? 0;
         final amtM   = (sum['totalAmount'] as num?)?.toDouble() ?? 0;
         if (brassM > 0)
           tile('Total Brass',  '${_numFm.format(brassM)} Brass',
-              Icons.inventory_2_outlined, Colors.green);
+              Icons.inventory_2_outlined, AppColors.successText);
         if (tonM > 0)
           tile('Total TON',    '${_numFm.format(tonM)} TON',
-              Icons.inventory_2_outlined, Colors.teal);
+              Icons.inventory_2_outlined, AppColors.successText);
         if (amtM > 0)
           tile('Total Amount', fmtCurr(amtM),
-              Icons.currency_rupee, Colors.orange);
+              Icons.currency_rupee, AppColors.warningText);
     }
 
     return Wrap(spacing: 20, runSpacing: 10, children: tiles);
@@ -452,8 +453,8 @@ class _ReportTable extends StatelessWidget {
     final totalsRow   = _buildTotalsRow(rtype, sum, usedHeaders);
 
     return Table(
-      border: TableBorder(
-        horizontalInside: BorderSide(color: Colors.grey.shade200),
+      border: const TableBorder(
+        horizontalInside: BorderSide(color: AppColors.borderSubtle),
       ),
       defaultColumnWidth: const FlexColumnWidth(),
       children: [
@@ -479,7 +480,7 @@ class _ReportTable extends StatelessWidget {
 
           return TableRow(
             decoration: i % 2 == 1
-                ? BoxDecoration(color: Colors.grey.shade50) : null,
+                ? const BoxDecoration(color: AppColors.surface) : null,
             children: [_TD(date), ...cols.map((c) => _TD(c))],
           );
         }),
@@ -510,8 +511,8 @@ class _ReportTable extends StatelessWidget {
               color: text.isEmpty
                   ? Colors.transparent
                   : accent
-                      ? Colors.blue.shade800
-                      : Colors.grey.shade800,
+                      ? AppColors.infoText
+                      : AppColors.textPrimary,
             ),
             overflow: TextOverflow.ellipsis,
           ),
@@ -942,23 +943,12 @@ class _ReportTable extends StatelessWidget {
     final bytes = wb.encode();
     if (bytes == null) return;
 
-    // Single download via dart:html with the correct report filename
     final filename = '${reportTitle.replaceAll(' ', '_')}.xlsx';
-    final blob = html.Blob(
-      [Uint8List.fromList(bytes)],
+    await downloadBytes(
+      filename,
+      Uint8List.fromList(bytes),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.document.createElement('a') as html.AnchorElement
-      ..href = url
-      ..style.display = 'none'
-      ..download = filename;
-    html.document.body!.children.add(anchor);
-    anchor.click();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      anchor.remove();
-      html.Url.revokeObjectUrl(url);
-    });
   }
 
   String _summaryText(String rtype, Map<String, dynamic> sum) {
@@ -1058,8 +1048,8 @@ class _DateBar extends StatelessWidget {
           _pill(context, Icons.calendar_today, fmt.format(from), onPickFrom),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text('→',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+            child: const Text('→',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
           ),
           _pill(context, Icons.calendar_today, fmt.format(to), onPickTo),
         ],
@@ -1074,12 +1064,12 @@ class _DateBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
+            border: Border.all(color: AppColors.borderDefault),
             borderRadius: BorderRadius.circular(6),
             color: Colors.white,
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 12, color: Colors.grey.shade600),
+            Icon(icon, size: 12, color: AppColors.textSecondary),
             const SizedBox(width: 4),
             Text(label, style: const TextStyle(fontSize: 11)),
           ]),
@@ -1101,7 +1091,7 @@ class _ActiveChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1264,7 +1254,7 @@ class _FilterArea extends StatelessWidget {
                   child: Container(
                     width: 40, height: 4,
                     decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
+                        color: AppColors.borderDefault,
                         borderRadius: BorderRadius.circular(2)),
                   ),
                 ),

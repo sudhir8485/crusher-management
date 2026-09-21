@@ -1,4 +1,4 @@
-import 'dart:html' as html;
+import 'package:crusher_management/core/utils/download_helper.dart';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers/site_provider.dart';
 import '../../core/storage/auth_storage.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 
 String _apiError(dynamic err) {
@@ -185,14 +186,14 @@ class _MachineWorkScreenState extends ConsumerState<MachineWorkScreen> {
             onCustomChanged: (r) => ref.read(_mwCustomProvider.notifier).state = r,
           ),
           logs.when(
-            loading: () => const SizedBox(),
-            error:   (_, _s) => const SizedBox(),
+            loading: () => const SizedBox(height: 34),
+            error:   (_, _s) => const SizedBox(height: 34),
             data: (data) => _SummaryBar(
                 logs: data, mode: mode, date: date, custom: custom),
           ),
           Expanded(
             child: logs.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const AppListSkeleton(),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (data) {
                 if (data.isEmpty) {
@@ -536,9 +537,9 @@ class _SummaryBar extends StatelessWidget {
           if (billableCount > 0 && totalBillable > 0) ...[
             const SizedBox(width: 12),
             Text('₹${_numFmt.format(totalBillable)} billed',
-                style: TextStyle(
+                style: const TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: Colors.orange.shade700)),
+                    color: AppColors.infoText)),
           ],
         ],
       ),
@@ -548,12 +549,8 @@ class _SummaryBar extends StatelessWidget {
 
 // ── machine work challan PDF ──────────────────────────────────────────────────
 
-void _openPdfInNewTab(Uint8List bytes, String filename) {
-  final blob = html.Blob([bytes], 'application/pdf');
-  final url  = html.Url.createObjectUrlFromBlob(blob);
-  html.window.open(url, '_blank');
-  Future.delayed(const Duration(seconds: 30), () => html.Url.revokeObjectUrl(url));
-}
+Future<void> _openPdfInNewTab(Uint8List bytes, String filename) =>
+    openPdfInNewTab(bytes);
 
 Future<void> _printMachineWorkChallan(
     BuildContext context, Map<String, dynamic> log, {bool download = false}) async {
@@ -788,7 +785,7 @@ Future<void> _printMachineWorkChallan(
   ));
   if (download) {
     final safeDate = logDate.replaceAll('/', '-');
-    _openPdfInNewTab(await doc.save(), 'machine_work_$safeDate.pdf');
+    await _openPdfInNewTab(await doc.save(), 'machine_work_$safeDate.pdf');
   } else {
     await Printing.layoutPdf(onLayout: (_) => doc.save());
   }
@@ -849,7 +846,7 @@ class _LogCardState extends State<_LogCard> {
     final hasRecordInfo = createdBy != null || createdTs != null;
 
     return Card(
-      color: (isPendingRate || isGstPending) ? Colors.amber.shade50 : null,
+      color: (isPendingRate || isGstPending) ? AppColors.warningBg : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: hasRecordInfo ? () => setState(() => _expanded = !_expanded) : null,
@@ -867,12 +864,12 @@ class _LogCardState extends State<_LogCard> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.12),
+                        color: AppColors.infoBg,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(mode,
                           style: const TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue)),
+                              fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.infoText)),
                     ),
                     const SizedBox(width: 6),
                   ],
@@ -914,14 +911,14 @@ class _LogCardState extends State<_LogCard> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.purple.withValues(alpha: 0.1),
+                        color: AppColors.infoBg,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         '₹${_numFmt.format((totalAmount as num).toDouble())}',
-                        style: TextStyle(
+                        style: const TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.purple.shade700,
+                            color: AppColors.infoText,
                             fontSize: 14),
                       ),
                     )
@@ -929,13 +926,13 @@ class _LogCardState extends State<_LogCard> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.12),
+                        color: AppColors.successBg,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         '${(totalHours as num).toStringAsFixed(2)} hrs',
                         style: const TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14),
+                            fontWeight: FontWeight.bold, color: AppColors.successText, fontSize: 14),
                       ),
                     ),
                 ]),
@@ -952,7 +949,7 @@ class _LogCardState extends State<_LogCard> {
                     if (rate != null && rateStatus == 'SET') ...[
                       const SizedBox(width: 8),
                       Text('· ₹${_numFmt.format((rate as num).toDouble())}/hr',
-                          style: TextStyle(fontSize: 12, color: Colors.purple.shade600)),
+                          style: const TextStyle(fontSize: 12, color: AppColors.infoText)),
                     ],
                   ]),
                 ],
@@ -977,33 +974,33 @@ class _LogCardState extends State<_LogCard> {
                 ],
                 if (isPendingRate) ...[
                   const SizedBox(height: 6),
-                  Text('Tap ⋮ → Edit to set the rate for this entry',
+                  const Text('Tap ⋮ → Edit to set the rate for this entry',
                       style: TextStyle(
                           fontSize: 11,
-                          color: Colors.orange.shade700,
+                          color: AppColors.warningText,
                           fontStyle: FontStyle.italic)),
                 ] else if (isGstPending) ...[
                   const SizedBox(height: 6),
-                  Text('GST rate not set — open party account to confirm GST',
+                  const Text('GST rate not set — open party account to confirm GST',
                       style: TextStyle(
                           fontSize: 11,
-                          color: Colors.orange.shade700,
+                          color: AppColors.warningText,
                           fontStyle: FontStyle.italic)),
                 ],
                 if (notes.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(notes,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                 ],
                 // Expand hint
                 if (hasRecordInfo) ...[
                   const SizedBox(height: 8),
                   Row(children: [
                     Icon(_expanded ? Icons.expand_less : Icons.expand_more,
-                        size: 16, color: Colors.grey[400]),
+                        size: 16, color: AppColors.textMuted),
                     const SizedBox(width: 4),
                     Text(_expanded ? 'Hide details' : 'Record info',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
                   ]),
                 ],
               ],
@@ -1185,24 +1182,24 @@ class _BillableBadge extends StatelessWidget {
     final String label;
 
     if (isPendingRate) {
-      bg = Colors.amber.shade100;
-      border = Colors.amber.shade400;
-      text = Colors.orange.shade900;
+      bg = AppColors.warningBg;
+      border = AppColors.warningBorder;
+      text = AppColors.warningText;
       label = 'Rate: Pending';
     } else if (isGstPending) {
-      bg = Colors.amber.shade100;
-      border = Colors.amber.shade400;
-      text = Colors.orange.shade900;
+      bg = AppColors.warningBg;
+      border = AppColors.warningBorder;
+      text = AppColors.warningText;
       label = 'GST: Pending';
     } else if (isGstSet) {
-      bg = Colors.teal.shade50;
-      border = Colors.teal.shade200;
-      text = Colors.teal.shade800;
+      bg = AppColors.successBg;
+      border = AppColors.successBorder;
+      text = AppColors.successText;
       label = 'Tax Invoice';
     } else {
-      bg = Colors.purple.shade50;
-      border = Colors.purple.shade200;
-      text = Colors.purple.shade700;
+      bg = AppColors.infoBg;
+      border = AppColors.infoBorder;
+      text = AppColors.infoText;
       label = 'Billable';
     }
 
@@ -1599,24 +1596,24 @@ class _LogFormState extends ConsumerState<_LogForm> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
+                  color: AppColors.successBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.timer, size: 16, color: Colors.green),
+                  const Icon(Icons.timer, size: 16, color: AppColors.successText),
                   const SizedBox(width: 6),
                   Text(
                       'Hours: ${_previewHours!.toStringAsFixed(2)}',
                       style: const TextStyle(
-                          color: Colors.green,
+                          color: AppColors.successText,
                           fontWeight: FontWeight.bold)),
                   if (_previewTotal != null) ...[
                     const SizedBox(width: 12),
-                    const Text('·  Total: ', style: TextStyle(color: Colors.green)),
+                    const Text('·  Total: ', style: TextStyle(color: AppColors.successText)),
                     Text(
                         '₹${_numFmt.format(_previewTotal!)}',
-                        style: TextStyle(
-                            color: Colors.green.shade700,
+                        style: const TextStyle(
+                            color: AppColors.successText,
                             fontWeight: FontWeight.bold,
                             fontSize: 15)),
                   ],
