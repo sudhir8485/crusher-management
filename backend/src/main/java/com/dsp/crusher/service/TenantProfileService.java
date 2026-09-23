@@ -40,14 +40,14 @@ public class TenantProfileService {
         if (req.getLogoBase64() != null) {
             t.setLogoBase64(req.getLogoBase64().isBlank() ? null : req.getLogoBase64());
         }
-        t.setBankName(req.getBankName());
-        t.setBankAccountNo(req.getBankAccountNo());
-        t.setBankIfsc(req.getBankIfsc());
+        if (req.getBankName()      != null) t.setBankName(req.getBankName().isBlank()      ? null : req.getBankName().trim());
+        if (req.getBankAccountNo() != null) t.setBankAccountNo(req.getBankAccountNo().isBlank() ? null : req.getBankAccountNo().trim());
+        if (req.getBankIfsc()      != null) t.setBankIfsc(req.getBankIfsc().isBlank()      ? null : req.getBankIfsc().trim().toUpperCase());
         if (req.getInvoicePrefix() != null) {
             String prefix = req.getInvoicePrefix().trim().toUpperCase();
             if (!prefix.isBlank()) t.setInvoicePrefix(prefix);
         }
-        t.setInvoiceTerms(req.getInvoiceTerms());
+        if (req.getInvoiceTerms() != null) t.setInvoiceTerms(req.getInvoiceTerms().isBlank() ? null : req.getInvoiceTerms().trim());
         t.setUpdatedAt(LocalDateTime.now());
         return toResponse(tenantRepo.save(t));
     }

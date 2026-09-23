@@ -26,3 +26,12 @@ Thumbs.db
 
 # LibreOffice / office lock files
 .~lock.*
+
+# Training docs, guides, and screenshots (large binaries kept out of git)
+docs/
+
+# Demo video (large binary kept out of git)
+demo.mp4
+
+# WhatsApp asset drops
+WhatsApp*.zip
