@@ -12,5 +12,6 @@ public class UserResponse {
     private String role;
     private Long siteId;
     private String status;
+    private Boolean protectedOwner;
     private LocalDateTime createdAt;
 }

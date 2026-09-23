@@ -35,6 +35,11 @@ public class User {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    // Tenant's founding owner (created by superadmin). Protected owners can
+    // never be deactivated — prevents the all-users-inactive lockout.
+    @Column(name = "protected_owner", nullable = false)
+    private Boolean protectedOwner = false;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }

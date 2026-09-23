@@ -72,6 +72,7 @@ public class AdminService {
         owner.setEmail(email);
         owner.setPasswordHash(passwordEncoder.encode(req.getOwnerPassword()));
         owner.setRole("OWNER_ADMIN");
+        owner.setProtectedOwner(true); // founding owner — can never be deactivated
         owner = userRepo.save(owner);
 
         return toResponse(t, owner);

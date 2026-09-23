@@ -7,6 +7,7 @@ import com.dsp.crusher.entity.User;
 import com.dsp.crusher.exception.ResourceNotFoundException;
 import com.dsp.crusher.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,6 +77,19 @@ public class UserService {
     @Transactional
     public UserResponse deactivate(Long id) {
         User u = findForCurrentTenant(id);
+        // Guards against locking a tenant out of its own account. If every user
+        // (or the last owner) is deactivated, nobody can log in and superadmin
+        // can only reset passwords — not reactivate — so the tenant is stranded.
+        if (Boolean.TRUE.equals(u.getProtectedOwner())) {
+            throw new IllegalStateException("This is the primary owner account and cannot be deactivated.");
+        }
+        if (id.equals(currentUserId())) {
+            throw new IllegalStateException("You cannot deactivate your own account.");
+        }
+        if ("OWNER_ADMIN".equals(u.getRole())
+                && userRepo.findByTenantIdAndRoleAndStatus(u.getTenantId(), "OWNER_ADMIN", "ACTIVE").size() <= 1) {
+            throw new IllegalStateException("Cannot deactivate the last active owner.");
+        }
         u.setStatus("INACTIVE");
         return toResponse(userRepo.save(u));
     }
@@ -85,6 +99,10 @@ public class UserService {
         User u = findForCurrentTenant(id);
         u.setStatus("ACTIVE");
         return toResponse(userRepo.save(u));
+    }
+
+    private Long currentUserId() {
+        return Long.parseLong(SecurityContextHolder.getContext().getAuthentication().getName());
     }
 
     private User findForCurrentTenant(Long id) {
@@ -101,6 +119,7 @@ public class UserService {
         r.setRole(u.getRole());
         r.setSiteId(u.getSiteId());
         r.setStatus(u.getStatus());
+        r.setProtectedOwner(u.getProtectedOwner());
         r.setCreatedAt(u.getCreatedAt());
         return r;
     }

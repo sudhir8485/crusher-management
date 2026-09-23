@@ -152,7 +152,16 @@ class UsersScreen extends ConsumerWidget {
               Navigator.pop(dialogCtx);
               try {
                 await ref.read(apiClientProvider).delete('/api/users/${user['id']}');
-              } catch (_) { return; }
+              } catch (err) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(_errorMessage(err)),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
               if (!ctx.mounted) return;
               ref.invalidate(usersProvider);
             },
@@ -161,6 +170,16 @@ class UsersScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  // Pull the server's business-language message ({"error": "..."}) out of a
+  // failed request, falling back to a generic line.
+  String _errorMessage(Object err) {
+    try {
+      final data = (err as dynamic).response?.data;
+      if (data is Map && data['error'] is String) return data['error'] as String;
+    } catch (_) {}
+    return 'Could not complete the action. Please try again.';
   }
 
   void _confirmReactivate(
@@ -259,6 +278,30 @@ class _UserCard extends StatelessWidget {
                         color: isActive ? color : Colors.grey),
                   ),
                 ),
+                if (user['protectedOwner'] == true) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.verified_user,
+                            size: 11, color: Color(0xFF8D6E00)),
+                        SizedBox(width: 2),
+                        Text('Primary owner',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF8D6E00))),
+                      ],
+                    ),
+                  ),
+                ],
                 if (role == 'SITE_STAFF' && siteName != null) ...[
                   const SizedBox(width: 6),
                   const Icon(Icons.location_on, size: 12, color: Colors.teal),
@@ -285,7 +328,9 @@ class _UserCard extends StatelessWidget {
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'edit', child: Text('Edit')),
-            if (onDeactivate != null)
+            // The founding owner (created by superadmin) can never be
+            // deactivated — hide the option so the tenant can't lock itself out.
+            if (onDeactivate != null && user['protectedOwner'] != true)
               const PopupMenuItem(
                   value: 'deactivate',
                   child: Text('Deactivate',
